@@ -1,0 +1,10 @@
+[project]
+name = "nook-model-check"
+version = "0.1.0"
+description = "Checks whether a hosted OpenAI-compatible model works as a Deep Agents backend."
+requires-python = ">=3.11"
+dependencies = [
+    "openai",
+    "langchain-openai",
+    "deepagents",
+]

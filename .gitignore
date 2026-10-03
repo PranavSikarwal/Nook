@@ -1,0 +1,33 @@
+# macOS
+.DS_Store
+
+# Swift
+.build/
+Packages/
+*.xcodeproj
+*.xcworkspace
+
+# Rust
+target/
+**/*.rs.bk
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+venv/
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+
+# Local issue tracker and scratch notes
+.scratch/
+
+# Runtime files
+daemon.sock
+attachments/
+.env
+*.env
