@@ -28,7 +28,7 @@ jobs:
       - name: Set up Python
         run: uv python install 3.13
 
-      - name: Create virtual environment and install dependencies
+      - name: Create virtual environment and install root CI tools
         run: |
           uv venv
           echo "$GITHUB_WORKSPACE/.venv/bin" >> $GITHUB_PATH
@@ -43,7 +43,9 @@ jobs:
       - name: Run Pyright on model-check
         run: |
           cd model-check
-          pyright
+          uv sync --frozen
+          uv pip install -r ../.github/workflows/requirements.txt
+          uv run pyright
 
       - name: Run Pyright on tests/contracts
         run: pyright tests/contracts
