@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  lint-and-test:
+    name: Code Quality and Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          version: "latest"
+
+      - name: Set up Python
+        run: uv python install 3.13
+
+      - name: Run Ruff linter
+        run: uv tool run ruff check .
+
+      - name: Run Ruff formatter check
+        run: uv tool run ruff format --check .
+
+      - name: Run Pyright on model-check
+        run: cd model-check && uv run --with pyright pyright
+
+      - name: Run Pyright on tests/contracts
+        run: uv run --with pyright --with pytest --with jsonschema pyright tests/contracts
+
+      - name: Run contract tests
+        run: uv run --with pytest --with jsonschema pytest tests/contracts
