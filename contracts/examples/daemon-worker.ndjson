@@ -1,0 +1,14 @@
+{"type":"run","request_id":"55555555-5555-5555-5555-555555555551","chat_id":"22222222-2222-2222-2222-222222222222","text":"What is the capital of France?","attachments":[{"id":"33333333-3333-3333-3333-333333333333","kind":"image","name":"diagram.png","mime":"image/png","size_bytes":1024,"path":"/Users/nook/Library/Application Support/Nook/attachments/22222222-2222-2222-2222-222222222222/33333333-3333-3333-3333-333333333333-diagram.png"}]}
+{"type":"title","request_id":"55555555-5555-5555-5555-555555555552","chat_id":"22222222-2222-2222-2222-222222222222","first_message":"What is the capital of France?"}
+{"type":"cancel","request_id":"55555555-5555-5555-5555-555555555551"}
+{"type":"delete_chat","request_id":"55555555-5555-5555-5555-555555555553","chat_id":"22222222-2222-2222-2222-222222222222"}
+{"type":"shutdown"}
+{"type":"ready","version":"0.1.0"}
+{"type":"message_started","request_id":"55555555-5555-5555-5555-555555555551","message_id":"44444444-4444-4444-4444-444444444444"}
+{"type":"text_delta","request_id":"55555555-5555-5555-5555-555555555551","message_id":"44444444-4444-4444-4444-444444444444","text":"The capital is Paris."}
+{"type":"tool_call_started","request_id":"55555555-5555-5555-5555-555555555551","message_id":"44444444-4444-4444-4444-444444444444","call_id":"call_123","name":"get_weather","arguments":"{\"city\":\"Paris\"}"}
+{"type":"tool_call_finished","request_id":"55555555-5555-5555-5555-555555555551","message_id":"44444444-4444-4444-4444-444444444444","call_id":"call_123","result":"{\"temp\":20}"}
+{"type":"message_finished","request_id":"55555555-5555-5555-5555-555555555551","message_id":"44444444-4444-4444-4444-444444444444","status":"complete"}
+{"type":"title_ready","request_id":"55555555-5555-5555-5555-555555555552","title":"Capital of France"}
+{"type":"deleted","request_id":"55555555-5555-5555-5555-555555555553","chat_id":"22222222-2222-2222-2222-222222222222"}
+{"type":"error","request_id":"55555555-5555-5555-5555-555555555551","error":{"code":"endpoint_unreachable","message":"Model endpoint could not be reached","retryable":true}}

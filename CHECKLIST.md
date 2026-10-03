@@ -11,7 +11,7 @@ Task details and "done when" checks are in `docs/plan.md`. Specs are in `docs/sp
 
 ## Phase C: Contracts
 
-- [ ] C1. Write the JSON Schemas and examples. Needs: S2
+- [x] C1. Write the JSON Schemas and examples. Needs: S2
 - [ ] C2. Add the contract check script. Needs: C1
 
 ## Phase W: Worker

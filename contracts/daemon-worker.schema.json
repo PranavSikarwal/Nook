@@ -1,0 +1,204 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://nook.local/contracts/daemon-worker.schema.json",
+  "title": "DaemonWorkerProtocol",
+  "description": "Messages exchanged between the Nook Daemon and Worker over stdin and stdout.",
+  "oneOf": [
+    { "$ref": "#/definitions/RunRequest" },
+    { "$ref": "#/definitions/TitleRequest" },
+    { "$ref": "#/definitions/CancelRequest" },
+    { "$ref": "#/definitions/DeleteChatRequest" },
+    { "$ref": "#/definitions/ShutdownRequest" },
+    { "$ref": "#/definitions/ReadyEvent" },
+    { "$ref": "#/definitions/MessageStartedEvent" },
+    { "$ref": "#/definitions/TextDeltaEvent" },
+    { "$ref": "#/definitions/ToolCallStartedEvent" },
+    { "$ref": "#/definitions/ToolCallFinishedEvent" },
+    { "$ref": "#/definitions/MessageFinishedEvent" },
+    { "$ref": "#/definitions/TitleReadyEvent" },
+    { "$ref": "#/definitions/DeletedEvent" },
+    { "$ref": "#/definitions/ErrorEvent" }
+  ],
+  "definitions": {
+    "UUID": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+    },
+    "AttachmentKind": {
+      "type": "string",
+      "enum": ["image", "text", "pdf"]
+    },
+    "Attachment": {
+      "type": "object",
+      "properties": {
+        "id": { "$ref": "#/definitions/UUID" },
+        "kind": { "$ref": "#/definitions/AttachmentKind" },
+        "name": { "type": "string", "minLength": 1 },
+        "mime": { "type": "string", "minLength": 1 },
+        "size_bytes": { "type": "integer", "minimum": 0, "maximum": 10485760 },
+        "path": { "type": "string", "minLength": 1 }
+      },
+      "required": ["id", "kind", "name", "mime", "size_bytes", "path"]
+    },
+    "ErrorCode": {
+      "type": "string",
+      "enum": [
+        "endpoint_unreachable",
+        "endpoint_error",
+        "worker_crashed",
+        "database_unavailable",
+        "attachment_invalid",
+        "invalid_request",
+        "internal"
+      ]
+    },
+    "ErrorInfo": {
+      "type": "object",
+      "properties": {
+        "code": { "$ref": "#/definitions/ErrorCode" },
+        "message": { "type": "string" },
+        "retryable": { "type": "boolean" }
+      },
+      "required": ["code", "message", "retryable"]
+    },
+    "RunRequest": {
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "const": "run" },
+        "request_id": { "$ref": "#/definitions/UUID" },
+        "chat_id": { "$ref": "#/definitions/UUID" },
+        "text": { "type": "string" },
+        "attachments": {
+          "type": "array",
+          "maxItems": 5,
+          "items": { "$ref": "#/definitions/Attachment" }
+        }
+      },
+      "required": ["type", "request_id", "chat_id", "text", "attachments"]
+    },
+    "TitleRequest": {
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "const": "title" },
+        "request_id": { "$ref": "#/definitions/UUID" },
+        "chat_id": { "$ref": "#/definitions/UUID" },
+        "first_message": { "type": "string" }
+      },
+      "required": ["type", "request_id", "chat_id", "first_message"]
+    },
+    "CancelRequest": {
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "const": "cancel" },
+        "request_id": { "$ref": "#/definitions/UUID" }
+      },
+      "required": ["type", "request_id"]
+    },
+    "DeleteChatRequest": {
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "const": "delete_chat" },
+        "request_id": { "$ref": "#/definitions/UUID" },
+        "chat_id": { "$ref": "#/definitions/UUID" }
+      },
+      "required": ["type", "request_id", "chat_id"]
+    },
+    "ShutdownRequest": {
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "const": "shutdown" }
+      },
+      "required": ["type"]
+    },
+    "ReadyEvent": {
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "const": "ready" },
+        "version": { "type": "string" }
+      },
+      "required": ["type", "version"]
+    },
+    "MessageStartedEvent": {
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "const": "message_started" },
+        "request_id": { "$ref": "#/definitions/UUID" },
+        "message_id": { "$ref": "#/definitions/UUID" }
+      },
+      "required": ["type", "request_id", "message_id"]
+    },
+    "TextDeltaEvent": {
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "const": "text_delta" },
+        "request_id": { "$ref": "#/definitions/UUID" },
+        "message_id": { "$ref": "#/definitions/UUID" },
+        "text": { "type": "string" }
+      },
+      "required": ["type", "request_id", "message_id", "text"]
+    },
+    "ToolCallStartedEvent": {
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "const": "tool_call_started" },
+        "request_id": { "$ref": "#/definitions/UUID" },
+        "message_id": { "$ref": "#/definitions/UUID" },
+        "call_id": { "type": "string" },
+        "name": { "type": "string" },
+        "arguments": { "type": "string" }
+      },
+      "required": ["type", "request_id", "message_id", "call_id", "name", "arguments"]
+    },
+    "ToolCallFinishedEvent": {
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "const": "tool_call_finished" },
+        "request_id": { "$ref": "#/definitions/UUID" },
+        "message_id": { "$ref": "#/definitions/UUID" },
+        "call_id": { "type": "string" },
+        "result": { "type": "string" }
+      },
+      "required": ["type", "request_id", "message_id", "call_id", "result"]
+    },
+    "MessageFinishedEvent": {
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "const": "message_finished" },
+        "request_id": { "$ref": "#/definitions/UUID" },
+        "message_id": { "$ref": "#/definitions/UUID" },
+        "status": {
+          "type": "string",
+          "enum": ["complete", "cancelled"]
+        }
+      },
+      "required": ["type", "request_id", "message_id", "status"]
+    },
+    "TitleReadyEvent": {
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "const": "title_ready" },
+        "request_id": { "$ref": "#/definitions/UUID" },
+        "title": { "type": "string" }
+      },
+      "required": ["type", "request_id", "title"]
+    },
+    "DeletedEvent": {
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "const": "deleted" },
+        "request_id": { "$ref": "#/definitions/UUID" },
+        "chat_id": { "$ref": "#/definitions/UUID" }
+      },
+      "required": ["type", "request_id", "chat_id"]
+    },
+    "ErrorEvent": {
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "const": "error" },
+        "request_id": { "$ref": "#/definitions/UUID" },
+        "error": { "$ref": "#/definitions/ErrorInfo" }
+      },
+      "required": ["type", "request_id", "error"]
+    }
+  }
+}
