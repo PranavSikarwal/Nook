@@ -8,3 +8,12 @@ dependencies = [
     "langchain-openai",
     "deepagents",
 ]
+
+[dependency-groups]
+dev = [
+    "pyright==1.1.414",
+]
+
+[tool.pyright]
+venvPath = "."
+venv = ".venv"

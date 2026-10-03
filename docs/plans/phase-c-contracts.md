@@ -1,54 +1,136 @@
-# Phase C implementation plan: Contracts
+# Phase C engineering plan: Contracts
 
-Contracts govern all communication between the Panel, Daemon, and Worker processes. They are implemented before writing application code.
+Phase C creates the schema definitions and test examples for inter-process communication in Nook. All subsequent phases (Worker, Daemon, Panel) build directly against these contracts.
 
-## Goals
+## Process boundaries and transports
 
-1. Define JSON Schemas for both communication channels:
-   - Panel to Daemon Unix socket protocol (`contracts/panel-daemon.schema.json`).
-   - Daemon to Worker stdin/stdout protocol (`contracts/daemon-worker.schema.json`).
-2. Provide valid newline-delimited JSON example files for every message type.
-3. Provide an automated validation script `scripts/check-contracts` that validates all examples against the schemas.
+```
+Panel  <--- Unix socket (JSON lines) --->  Daemon  <--- stdin/stdout (JSON lines) --->  Worker
+```
 
-## Tasks
+1. **Panel and Daemon**:
+   - Transport: Unix domain socket at `~/Library/Application Support/Nook/daemon.sock`
+   - Framing: UTF-8 JSON lines ending in `\n`
+   - Schema file: `contracts/panel-daemon.schema.json`
+   - Example file: `contracts/examples/panel-daemon.ndjson`
+
+2. **Daemon and Worker**:
+   - Transport: child process stdin (Daemon to Worker) and stdout (Worker to Daemon)
+   - Framing: UTF-8 JSON lines ending in `\n`
+   - Schema file: `contracts/daemon-worker.schema.json`
+   - Example file: `contracts/examples/daemon-worker.ndjson`
+
+## Shared data types
+
+Both schemas share the following data shapes:
+
+1. **UUID**:
+   A canonical 36-character string matching `^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`.
+
+2. **Attachment**:
+   - `id`: UUID string
+   - `kind`: enum string (`"image"`, `"text"`, `"pdf"`)
+   - `name`: string
+   - `mime`: string
+   - `size_bytes`: integer (minimum 0, maximum 10485760 per spec limit of 10 MB)
+   - `path`: string
+
+3. **ErrorInfo**:
+   - `code`: enum string (`"endpoint_unreachable"`, `"endpoint_error"`, `"worker_crashed"`, `"database_unavailable"`, `"attachment_invalid"`, `"invalid_request"`, `"internal"`)
+   - `message`: string
+   - `retryable`: boolean
+
+4. **ChatMessage**:
+   - `message_id`: UUID string
+   - `role`: enum string (`"user"`, `"assistant"`)
+   - `text`: string
+   - `status`: enum string (`"complete"`, `"cancelled"`, `"error"`)
+   - `error`: ErrorInfo (optional or null)
+   - `attachments`: array of Attachment objects
+   - `created_at`: ISO 8601 date-time string
+
+## Message inventory
+
+### Panel to Daemon protocol (21 types)
+
+#### Panel requests (8 types)
+1. `send_message`: `id` (UUID), `chat_id` (UUID), `text` (string), `attachments` (array of Attachment)
+2. `cancel`: `id` (UUID), `target_id` (UUID)
+3. `list_chats`: `id` (UUID)
+4. `get_chat`: `id` (UUID), `chat_id` (UUID)
+5. `delete_chat`: `id` (UUID), `chat_id` (UUID)
+6. `get_settings`: `id` (UUID)
+7. `set_settings`: `id` (UUID), `base_url` (string), `model` (string), `api_key` (string, optional)
+8. `ping`: `id` (UUID)
+
+#### Daemon replies and events (13 types)
+9. `message_started`: `id` (UUID), `chat_id` (UUID), `message_id` (UUID)
+10. `text_delta`: `id` (UUID), `chat_id` (UUID), `message_id` (UUID), `text` (string)
+11. `tool_call_started`: `id` (UUID), `chat_id` (UUID), `message_id` (UUID), `call_id` (string), `name` (string), `arguments` (string)
+12. `tool_call_finished`: `id` (UUID), `chat_id` (UUID), `message_id` (UUID), `call_id` (string), `result` (string)
+13. `message_finished`: `id` (UUID), `chat_id` (UUID), `message_id` (UUID), `status` (`"complete"` or `"cancelled"`)
+14. `chat_titled`: `chat_id` (UUID), `title` (string) (Note: push event not bound to a request `id`)
+15. `chats`: `id` (UUID), `chats` (array of `{chat_id, title, updated_at}`)
+16. `chat`: `id` (UUID), `chat_id` (UUID), `title` (string), `messages` (array of ChatMessage)
+17. `deleted`: `id` (UUID), `chat_id` (UUID)
+18. `settings`: `id` (UUID), `base_url` (string), `model` (string), `has_api_key` (boolean)
+19. `cancelled`: `id` (UUID), `target_id` (UUID)
+20. `pong`: `id` (UUID)
+21. `error`: `id` (UUID), `error` (ErrorInfo)
+
+### Daemon to Worker protocol (14 types)
+
+#### Daemon requests (5 types)
+1. `run`: `request_id` (UUID), `chat_id` (UUID), `text` (string), `attachments` (array of Attachment)
+2. `title`: `request_id` (UUID), `chat_id` (UUID), `first_message` (string)
+3. `cancel`: `request_id` (UUID)
+4. `delete_chat`: `request_id` (UUID), `chat_id` (UUID)
+5. `shutdown`: no additional fields beyond `type`
+
+#### Worker events (9 types)
+6. `ready`: `version` (string)
+7. `message_started`: `request_id` (UUID), `message_id` (UUID)
+8. `text_delta`: `request_id` (UUID), `message_id` (UUID), `text` (string)
+9. `tool_call_started`: `request_id` (UUID), `message_id` (UUID), `call_id` (string), `name` (string), `arguments` (string)
+10. `tool_call_finished`: `request_id` (UUID), `message_id` (UUID), `call_id` (string), `result` (string)
+11. `message_finished`: `request_id` (UUID), `message_id` (UUID), `status` (`"complete"` or `"cancelled"`)
+12. `title_ready`: `request_id` (UUID), `title` (string)
+13. `deleted`: `request_id` (UUID), `chat_id` (UUID)
+14. `error`: `request_id` (UUID), `error` (ErrorInfo)
+
+---
+
+## Detailed task breakdown
 
 ### Task C1: Write JSON schemas and examples
 
-- Branch: `feat/c1-json-schemas`
-- Dependent on: S2 (complete)
-- Artifacts:
-  - `contracts/panel-daemon.schema.json`:
-    - 8 Panel requests: `send_message`, `cancel`, `list_chats`, `get_chat`, `delete_chat`, `get_settings`, `set_settings`, `ping`.
-    - 13 Daemon replies/events: `message_started`, `text_delta`, `tool_call_started`, `tool_call_finished`, `message_finished`, `chat_titled`, `chats`, `chat`, `deleted`, `settings`, `cancelled`, `pong`, `error`.
-    - Shared objects: `Attachment`, `ErrorInfo`.
-  - `contracts/daemon-worker.schema.json`:
-    - 5 Daemon requests: `run`, `title`, `cancel`, `delete_chat`, `shutdown`.
-    - 9 Worker events: `ready`, `message_started`, `text_delta`, `tool_call_started`, `tool_call_finished`, `message_finished`, `title_ready`, `deleted`, `error`.
-    - Shared objects: `Attachment`, `ErrorInfo`.
-  - `contracts/examples/panel-daemon.ndjson`: 21 valid example lines.
-  - `contracts/examples/daemon-worker.ndjson`: 14 valid example lines.
-- Acceptance criteria:
-  - Every message type has a schema definition and an example line.
-  - All example lines validate against their schema.
+- Branch name: `feat/c1-json-schemas`
+- Base branch: `main`
+- Steps:
+  1. Create directory `contracts/examples`.
+  2. Write `contracts/panel-daemon.schema.json` using JSON Schema Draft 7 with `oneOf` matching all 21 types.
+  3. Write `contracts/daemon-worker.schema.json` using JSON Schema Draft 7 with `oneOf` matching all 14 types.
+  4. Write `contracts/examples/panel-daemon.ndjson` with 21 sample objects, one per line.
+  5. Write `contracts/examples/daemon-worker.ndjson` with 14 sample objects, one per line.
+  6. Validate that each sample line parses as single-line valid JSON.
 
-### Task C2: Add contract check script
+### Task C2: Add contract tests in tests/contracts
 
-- Branch: `feat/c2-contract-check` (stacked on `feat/c1-json-schemas`)
-- Dependent on: C1
-- Artifacts:
-  - `scripts/check-contracts`: Python script using `jsonschema`, run with `uv`.
-- Acceptance criteria:
-  - Script passes with exit code 0 on the valid examples.
-  - Script fails with non-zero exit code when an example is deliberately mutated to be invalid.
+- Branch name: `feat/c1-json-schemas` (consolidated into a single PR for Phase C; subsequent phases use `feat/phase-<name>`)
+- Steps:
+  1. Implement `tests/contracts/test_contracts.py` pytest test suite covering all 35 message types, coverage verification, date-time format checking, and parametrized negative tests for both schemas.
+  2. Verify that `uv run --with pytest --with jsonschema pytest tests/contracts` passes all tests.
+  3. Run Ruff and Pyright checks to ensure full compliance with `CONTRIBUTING.md`.
 
-## Execution sequence
+---
 
-1. Create branch `feat/c1-json-schemas`.
-2. Author `contracts/panel-daemon.schema.json` and `contracts/daemon-worker.schema.json`.
-3. Author `contracts/examples/panel-daemon.ndjson` and `contracts/examples/daemon-worker.ndjson`.
-4. Validate examples against schemas.
-5. Commit on `feat/c1-json-schemas`.
-6. Create branch `feat/c2-contract-check`.
-7. Author `scripts/check-contracts` and run positive and negative tests.
-8. Commit on `feat/c2-contract-check`.
-9. Update `CHECKLIST.md`.
+## Verification and done criteria
+
+1. **Positive test**:
+   `uv run --with pytest --with jsonschema pytest tests/contracts` exits with code 0 and passes all 15 tests.
+2. **Negative test**:
+   Parametrized tests in `test_contracts.py` verify that malformed UUIDs, unknown message types, invalid dates, and oversized attachments fail validation.
+3. **Linter checks**:
+   `uv tool run ruff check .` and `uv tool run ruff format --check .` pass with 0 errors.
+4. **Tracking**:
+   Update `CHECKLIST.md` with C1 and C2 checked.

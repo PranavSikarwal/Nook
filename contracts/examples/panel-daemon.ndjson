@@ -1,0 +1,21 @@
+{"type":"send_message","id":"11111111-1111-1111-1111-111111111111","chat_id":"22222222-2222-2222-2222-222222222222","text":"What is the capital of France?","attachments":[{"id":"33333333-3333-3333-3333-333333333333","kind":"image","name":"diagram.png","mime":"image/png","size_bytes":1024,"path":"/Users/nook/Library/Application Support/Nook/attachments/22222222-2222-2222-2222-222222222222/33333333-3333-3333-3333-333333333333-diagram.png"}]}
+{"type":"cancel","id":"11111111-1111-1111-1111-111111111112","target_id":"11111111-1111-1111-1111-111111111111"}
+{"type":"list_chats","id":"11111111-1111-1111-1111-111111111113"}
+{"type":"get_chat","id":"11111111-1111-1111-1111-111111111114","chat_id":"22222222-2222-2222-2222-222222222222"}
+{"type":"delete_chat","id":"11111111-1111-1111-1111-111111111115","chat_id":"22222222-2222-2222-2222-222222222222"}
+{"type":"get_settings","id":"11111111-1111-1111-1111-111111111116"}
+{"type":"set_settings","id":"11111111-1111-1111-1111-111111111117","base_url":"https://api.example.com/v1","model":"gpt-4o","api_key":"sk-secret-key"}
+{"type":"ping","id":"11111111-1111-1111-1111-111111111118"}
+{"type":"message_started","id":"11111111-1111-1111-1111-111111111111","chat_id":"22222222-2222-2222-2222-222222222222","message_id":"44444444-4444-4444-4444-444444444444"}
+{"type":"text_delta","id":"11111111-1111-1111-1111-111111111111","chat_id":"22222222-2222-2222-2222-222222222222","message_id":"44444444-4444-4444-4444-444444444444","text":"The capital is Paris."}
+{"type":"tool_call_started","id":"11111111-1111-1111-1111-111111111111","chat_id":"22222222-2222-2222-2222-222222222222","message_id":"44444444-4444-4444-4444-444444444444","call_id":"call_123","name":"get_weather","arguments":"{\"city\":\"Paris\"}"}
+{"type":"tool_call_finished","id":"11111111-1111-1111-1111-111111111111","chat_id":"22222222-2222-2222-2222-222222222222","message_id":"44444444-4444-4444-4444-444444444444","call_id":"call_123","result":"{\"temp\":20}"}
+{"type":"message_finished","id":"11111111-1111-1111-1111-111111111111","chat_id":"22222222-2222-2222-2222-222222222222","message_id":"44444444-4444-4444-4444-444444444444","status":"complete"}
+{"type":"chat_titled","chat_id":"22222222-2222-2222-2222-222222222222","title":"Capital of France"}
+{"type":"chats","id":"11111111-1111-1111-1111-111111111113","chats":[{"chat_id":"22222222-2222-2222-2222-222222222222","title":"Capital of France","updated_at":"2026-10-03T10:00:00Z"}]}
+{"type":"chat","id":"11111111-1111-1111-1111-111111111114","chat_id":"22222222-2222-2222-2222-222222222222","title":"Capital of France","messages":[{"message_id":"44444444-4444-4444-4444-444444444444","role":"assistant","text":"The capital is Paris.","status":"complete","error":null,"attachments":[],"created_at":"2026-10-03T10:00:00Z"}]}
+{"type":"deleted","id":"11111111-1111-1111-1111-111111111115","chat_id":"22222222-2222-2222-2222-222222222222"}
+{"type":"settings","id":"11111111-1111-1111-1111-111111111116","base_url":"https://api.example.com/v1","model":"gpt-4o","has_api_key":true}
+{"type":"cancelled","id":"11111111-1111-1111-1111-111111111112","target_id":"11111111-1111-1111-1111-111111111111"}
+{"type":"pong","id":"11111111-1111-1111-1111-111111111118"}
+{"type":"error","id":"11111111-1111-1111-1111-111111111111","error":{"code":"endpoint_unreachable","message":"Model endpoint could not be reached","retryable":true}}

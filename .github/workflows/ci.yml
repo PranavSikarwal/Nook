@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  lint-and-test:
+    name: Code Quality and Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@1edb52594c857e2b5b13128931090f0640537287 # v5.3.0
+        with:
+          enable-cache: true
+          version: "0.11.25"
+
+      - name: Set up Python
+        run: uv python install 3.13
+
+      - name: Create virtual environment and install root CI tools
+        run: |
+          uv venv
+          echo "$GITHUB_WORKSPACE/.venv/bin" >> $GITHUB_PATH
+          uv pip install --no-build --require-hashes -r .github/workflows/requirements.txt
+
+      - name: Run Ruff linter
+        run: ruff check .
+
+      - name: Run Ruff formatter check
+        run: ruff format --check .
+
+      - name: Run Pyright on model-check
+        run: |
+          cd model-check
+          uv venv
+          uv pip install --no-build --require-hashes -r requirements.txt
+          pyright
+
+      - name: Run Pyright on tests/contracts
+        run: pyright tests/contracts
+
+      - name: Run contract tests
+        run: pytest tests/contracts
