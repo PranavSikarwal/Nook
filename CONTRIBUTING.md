@@ -47,10 +47,10 @@ Follow these steps for every change:
 3. Make your changes and run the relevant tests and linters.
    Before committing anything, verify all linting and type checks pass:
    - Python linting: `uv tool run ruff check .` and `uv tool run ruff format --check .`
-   - Python type checking: `uv run --with pyright pyright` (run in `worker/` or package folder)
+   - Python type checking: `uv run --with pyright pyright` (in Python packages) or `uv run --with pyright --with pytest --with jsonschema pyright tests/contracts` (for root tests)
    - Rust linting: `cd daemon && cargo clippy --all-targets -- -D warnings` and `cargo fmt --check`
    - Swift tests: `cd app && swift test`
-   - Contract tests: `uv run --with pytest --with jsonschema pytest tests/contracts`
+   - Contract tests: `./scripts/check-contracts` or `uv run --with pytest --with jsonschema pytest tests/contracts`
 4. Stage and commit your changes using concise commit messages.
    ```sh
    git add <files>
@@ -106,10 +106,12 @@ cargo clippy --all-targets -- -D warnings
 
 ### 4. Contract validation
 
-Run the contract verification script whenever message schemas, contracts, or examples are modified:
+Run the contract verification script or pytest suite whenever message schemas, contracts, or examples are modified:
 
 ```sh
-uv run scripts/check-contracts
+./scripts/check-contracts
+# Or directly via pytest:
+uv run --with pytest --with jsonschema pytest tests/contracts
 ```
 
 ## Commit message format

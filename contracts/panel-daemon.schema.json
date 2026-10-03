@@ -93,7 +93,7 @@
           "type": "array",
           "items": { "$ref": "#/definitions/Attachment" }
         },
-        "created_at": { "type": "string" }
+        "created_at": { "type": "string", "format": "date-time" }
       },
       "required": ["message_id", "role", "text", "status", "attachments", "created_at"]
     },
@@ -102,7 +102,7 @@
       "properties": {
         "chat_id": { "$ref": "#/definitions/UUID" },
         "title": { "type": "string" },
-        "updated_at": { "type": "string" }
+        "updated_at": { "type": "string", "format": "date-time" }
       },
       "required": ["chat_id", "title", "updated_at"]
     },
