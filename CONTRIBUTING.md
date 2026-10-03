@@ -10,27 +10,26 @@ Always work on a dedicated branch. Never commit directly to `main`.
 
 Branch names follow this pattern:
 
-`<type>/<task-id>-<description>`
+`<type>/<phase-name>`
 
 Common types:
-- `feat/`: new capabilities or spec implementations
+- `feat/`: new capabilities or phase implementations
 - `fix/`: bug fixes
 - `docs/`: documentation updates
 - `test/`: test additions or test harness updates
 - `refactor/`: code refactoring without behavior changes
 
-In standard GitHub workflows, a task ID refers to a work item or ticket identifier. For this project specifically, the task ID is the phase letter plus the step number from `CHECKLIST.md` and `docs/plan.md`:
-- Setup: `s1` to `s4`
-- Contracts: `c1`, `c2`
-- Worker: `w1` to `w8`
-- Daemon: `d1` to `d9`
-- Panel: `p0` to `p7`
-- Integration: `i1`, `i2`
+Phases from `CHECKLIST.md` and `docs/plan.md`:
+- Contracts: `feat/phase-c-contracts` (or `feat/c1-json-schemas`)
+- Worker: `feat/phase-w-worker`
+- Daemon: `feat/phase-d-daemon`
+- Panel: `feat/phase-p-panel`
+- Integration: `feat/phase-i-integration`
 
 Examples:
-- `feat/c1-json-schemas`
-- `feat/w1-worker-skeleton`
-- `fix/d3-worker-restart-delay`
+- `feat/phase-w-worker`
+- `feat/phase-d-daemon`
+- `fix/phase-w-stream-reconnect`
 
 ## Development workflow
 
@@ -41,9 +40,9 @@ Follow these steps for every change:
    git checkout main
    git pull origin main
    ```
-2. Create your task branch.
+2. Create your phase branch.
    ```sh
-   git checkout -b feat/c1-json-schemas
+   git checkout -b feat/phase-w-worker
    ```
 3. Make your changes and run the relevant tests and linters.
    Before committing anything, verify all linting and type checks pass:
@@ -51,17 +50,17 @@ Follow these steps for every change:
    - Python type checking: `uv run --with pyright pyright` (run in `worker/` or package folder)
    - Rust linting: `cd daemon && cargo clippy --all-targets -- -D warnings` and `cargo fmt --check`
    - Swift tests: `cd app && swift test`
-   - Contract checks: `uv run scripts/check-contracts`
+   - Contract tests: `uv run --with pytest --with jsonschema pytest tests/contracts`
 4. Stage and commit your changes using concise commit messages.
    ```sh
    git add <files>
-   git commit -m "feat(contracts): add panel-daemon and daemon-worker schemas"
+   git commit -m "feat(worker): implement agent runner and streaming"
    ```
-5. Push the branch to your remote fork or repository.
+5. Push the branch to your remote repository.
    ```sh
-   git push -u origin feat/c1-json-schemas
+   git push -u origin feat/phase-w-worker
    ```
-6. Open a pull request on GitHub.
+6. Open a pull request on GitHub (one pull request per phase).
 
 ## Code quality and linting rules
 
