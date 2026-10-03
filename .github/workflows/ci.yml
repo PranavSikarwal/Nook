@@ -32,7 +32,7 @@ jobs:
         run: |
           uv venv
           echo "$GITHUB_WORKSPACE/.venv/bin" >> $GITHUB_PATH
-          uv pip install -r .github/workflows/requirements.txt
+          uv pip install --no-build --require-hashes -r .github/workflows/requirements.txt
 
       - name: Run Ruff linter
         run: ruff check .
@@ -43,9 +43,8 @@ jobs:
       - name: Run Pyright on model-check
         run: |
           cd model-check
-          uv sync --frozen
-          uv pip install -r ../.github/workflows/requirements.txt
-          uv run pyright
+          uv sync --frozen --no-build
+          uv run --no-build pyright
 
       - name: Run Pyright on tests/contracts
         run: pyright tests/contracts
