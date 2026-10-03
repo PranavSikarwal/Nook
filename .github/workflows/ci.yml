@@ -44,9 +44,7 @@ jobs:
         run: |
           cd model-check
           uv venv
-          echo "$GITHUB_WORKSPACE/model-check/.venv/bin" >> $GITHUB_PATH
           uv pip install --no-build --require-hashes -r requirements.txt
-          uv pip install --no-build --require-hashes -r ../.github/workflows/requirements.txt
           pyright
 
       - name: Run Pyright on tests/contracts
