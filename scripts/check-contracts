@@ -1,0 +1,145 @@
+#!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.11"
+# dependencies = [
+#     "jsonschema>=4.20.0",
+# ]
+# ///
+"""Validates example NDJSON files against their corresponding JSON schemas.
+
+Exits with code 0 on success, or non-zero on any schema violation or missing message type.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+from typing import Any
+
+from jsonschema import Draft7Validator, ValidationError
+
+
+def load_json(path: Path) -> dict[str, Any]:
+    with open(path, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def load_ndjson(path: Path) -> list[dict[str, Any]]:
+    lines: list[dict[str, Any]] = []
+    with open(path, encoding="utf-8") as f:
+        for idx, line in enumerate(f, 1):
+            stripped = line.strip()
+            if not stripped:
+                continue
+            try:
+                lines.append(json.loads(stripped))
+            except json.JSONDecodeError as err:
+                sys.exit(f"Error parsing JSON in {path}:{idx}: {err}")
+    return lines
+
+
+def extract_expected_types(schema: dict[str, Any]) -> set[str]:
+    expected: set[str] = set()
+    definitions = schema.get("definitions", {})
+    for def_body in definitions.values():
+        if isinstance(def_body, dict):
+            props = def_body.get("properties", {})
+            type_prop = props.get("type", {})
+            if isinstance(type_prop, dict) and "const" in type_prop:
+                expected.add(str(type_prop["const"]))
+    return expected
+
+
+def validate_contracts(repo_root: Path) -> int:
+    pairs = [
+        (
+            repo_root / "contracts" / "panel-daemon.schema.json",
+            repo_root / "contracts" / "examples" / "panel-daemon.ndjson",
+        ),
+        (
+            repo_root / "contracts" / "daemon-worker.schema.json",
+            repo_root / "contracts" / "examples" / "daemon-worker.ndjson",
+        ),
+    ]
+
+    total_validated = 0
+    all_types_covered: set[str] = set()
+
+    for schema_path, examples_path in pairs:
+        if not schema_path.is_file():
+            sys.exit(f"Schema not found: {schema_path}")
+        if not examples_path.is_file():
+            sys.exit(f"Examples file not found: {examples_path}")
+
+        schema = load_json(schema_path)
+        examples = load_ndjson(examples_path)
+        validator = Draft7Validator(schema)
+        expected_types = extract_expected_types(schema)
+
+        found_types: set[str] = set()
+
+        for idx, obj in enumerate(examples, 1):
+            try:
+                validator.validate(obj)
+            except ValidationError as err:
+                print(f"Validation failure in {examples_path.name} line {idx}: {err.message}")
+                return 1
+
+            msg_type = obj.get("type")
+            if msg_type:
+                found_types.add(str(msg_type))
+            total_validated += 1
+
+        missing_types = expected_types - found_types
+        if missing_types:
+            missing_str = ", ".join(sorted(missing_types))
+            print(f"Missing examples in {examples_path.name} for types: {missing_str}")
+            return 1
+
+        all_types_covered.update(found_types)
+        print(
+            f"Validated {len(examples)} lines in {examples_path.name} against {schema_path.name} "
+            f"({len(found_types)}/{len(expected_types)} types covered)."
+        )
+
+    print(f"PASS: all {total_validated} lines valid across {len(all_types_covered)} message types.")
+    return 0
+
+
+def test_invalid_rejection(repo_root: Path) -> int:
+    schema_path = repo_root / "contracts" / "panel-daemon.schema.json"
+    schema = load_json(schema_path)
+    validator = Draft7Validator(schema)
+
+    # Test bad input: missing required field
+    invalid_sample = {"type": "send_message", "id": "11111111-1111-1111-1111-111111111111"}
+    try:
+        validator.validate(invalid_sample)
+        print("FAIL: invalid object was unexpectedly accepted")
+        return 1
+    except ValidationError:
+        print("PASS: invalid object correctly rejected by schema.")
+        return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Validate Nook contract examples against schemas.")
+    parser.add_argument(
+        "--test-invalid",
+        action="store_true",
+        help="Run negative validation check to verify rejection of invalid contracts.",
+    )
+    args = parser.parse_args()
+
+    repo_root = Path(__file__).resolve().parent.parent
+
+    if args.test_invalid:
+        return test_invalid_rejection(repo_root)
+
+    return validate_contracts(repo_root)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
