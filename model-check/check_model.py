@@ -15,8 +15,10 @@ from langchain_core.messages import AIMessage
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 from openai import OpenAI
+from openai.types.chat import ChatCompletionMessageParam, ChatCompletionToolParam
+from pydantic import SecretStr
 
-WEATHER_TOOL = {
+WEATHER_TOOL: ChatCompletionToolParam = {
     "type": "function",
     "function": {
         "name": "get_weather",
@@ -28,12 +30,12 @@ WEATHER_TOOL = {
         },
     },
 }
-WEATHER_MESSAGES = [{"role": "user", "content": "What is the weather in Paris right now?"}]
+WEATHER_MESSAGES: list[ChatCompletionMessageParam] = [
+    {"role": "user", "content": "What is the weather in Paris right now?"}
+]
 SECRET_CODE = "7341-ZK"
 AGENT_RECURSION_LIMIT = 30
-RED_PNG_B64 = (
-    "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAAKElEQVR4nO3NsQ0AAAzCMP5/un0CNkuZ41wybXsHAAAAAAAAAAAAxR4yw/wuPL6QkAAAAABJRU5ErkJggg=="
-)
+RED_PNG_B64 = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAAKElEQVR4nO3NsQ0AAAzCMP5/un0CNkuZ41wybXsHAAAAAAAAAAAAxR4yw/wuPL6QkAAAAABJRU5ErkJggg=="
 
 
 class CheckFailed(Exception):
@@ -47,14 +49,16 @@ def load_config() -> tuple[str, str, str]:
     missing = [name for name in names if not os.environ.get(name)]
     if missing:
         sys.exit(f"Missing environment variables: {', '.join(missing)}")
-    return tuple(os.environ[name] for name in names)
+    return (os.environ[names[0]], os.environ[names[1]], os.environ[names[2]])
 
 
 def parse_weather_arguments(arguments: str) -> dict:
     try:
         parsed = json.loads(arguments)
     except json.JSONDecodeError as error:
-        raise CheckFailed(f"tool arguments are not valid JSON: {error}", arguments) from error
+        raise CheckFailed(
+            f"tool arguments are not valid JSON: {error}", arguments
+        ) from error
     if not isinstance(parsed, dict) or not parsed.get("city"):
         raise CheckFailed("tool arguments have no 'city' field", arguments)
     return parsed
@@ -69,8 +73,11 @@ def check_raw_tool_call(base_url: str, api_key: str, model: str) -> str:
     if not message.tool_calls:
         raise CheckFailed("response has no tool_calls", response.model_dump())
     call = message.tool_calls[0]
-    arguments = parse_weather_arguments(call.function.arguments)
-    return f"{call.function.name}({arguments})"
+    func = getattr(call, "function", None)
+    if not func:
+        raise CheckFailed("tool call has no function", response.model_dump())
+    arguments = parse_weather_arguments(func.arguments)
+    return f"{func.name}({arguments})"
 
 
 def check_streaming_tool_call(base_url: str, api_key: str, model: str) -> str:
@@ -114,7 +121,10 @@ def tool_names_called(messages: list) -> list[str]:
 
 def check_deep_agent(base_url: str, api_key: str, model: str) -> str:
     llm = ChatOpenAI(
-        base_url=base_url, api_key=api_key, model=model, use_responses_api=False
+        base_url=base_url,
+        api_key=SecretStr(api_key),
+        model=model,
+        use_responses_api=False,
     )
     agent = create_deep_agent(
         model=llm,
@@ -202,7 +212,7 @@ def main() -> int:
             print(f"FAIL {name}: {failure}")
             print(json.dumps(failure.raw, indent=2, default=str))
             return 1
-        except Exception as error:
+        except Exception as error:  # noqa: BLE001
             print(f"FAIL {name}: {type(error).__name__}: {error}")
             return 1
         print(f"PASS {name}: {detail}")

@@ -45,11 +45,13 @@ Follow these steps for every change:
    ```sh
    git checkout -b feat/c1-json-schemas
    ```
-3. Make your changes and run the relevant tests.
-   - For Worker: `cd worker && uv run pytest`
-   - For Daemon: `cd daemon && cargo test`
-   - For Panel: `cd app && swift test`
-   - For contracts: `uv run scripts/check-contracts`
+3. Make your changes and run the relevant tests and linters.
+   Before committing anything, verify all linting and type checks pass:
+   - Python linting: `uv tool run ruff check .` and `uv tool run ruff format --check .`
+   - Python type checking: `uv run --with pyright pyright` (run in `worker/` or package folder)
+   - Rust linting: `cd daemon && cargo clippy --all-targets -- -D warnings` and `cargo fmt --check`
+   - Swift tests: `cd app && swift test`
+   - Contract checks: `uv run scripts/check-contracts`
 4. Stage and commit your changes using concise commit messages.
    ```sh
    git add <files>
@@ -60,6 +62,56 @@ Follow these steps for every change:
    git push -u origin feat/c1-json-schemas
    ```
 6. Open a pull request on GitHub.
+
+## Code quality and linting rules
+
+Before committing any change to the repository, you must run the following checks. All checks must pass with zero errors and zero warnings before creating a commit.
+
+### 1. Python linting and formatting (Ruff)
+
+Run Ruff linting and formatting checks across the repository:
+
+```sh
+uv tool run ruff check .
+uv tool run ruff format --check .
+```
+
+To automatically resolve fixable lint issues and format code:
+
+```sh
+uv tool run ruff check --fix .
+uv tool run ruff format .
+```
+
+### 2. Python type checking (Pyright)
+
+Run Pyright type checking across Python packages:
+
+```sh
+# For worker:
+cd worker && uv run --with pyright pyright
+
+# For model-check:
+cd model-check && uv run --with pyright pyright
+```
+
+### 3. Rust quality checks (Clippy and rustfmt)
+
+Run Cargo checks in the daemon workspace:
+
+```sh
+cd daemon
+cargo fmt --check
+cargo clippy --all-targets -- -D warnings
+```
+
+### 4. Contract validation
+
+Run the contract verification script whenever message schemas, contracts, or examples are modified:
+
+```sh
+uv run scripts/check-contracts
+```
 
 ## Commit message format
 
