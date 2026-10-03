@@ -26,14 +26,10 @@ def load_json(path: Path) -> dict[str, Any]:
 def load_ndjson(path: Path) -> list[dict[str, Any]]:
     lines: list[dict[str, Any]] = []
     with open(path, encoding="utf-8") as f:
-        for idx, line in enumerate(f, 1):
+        for line in f:
             stripped = line.strip()
-            if not stripped:
-                continue
-            try:
+            if stripped:
                 lines.append(json.loads(stripped))
-            except json.JSONDecodeError as err:
-                pytest.fail(f"Invalid JSON in {path}:{idx}: {err}")
     return lines
 
 
