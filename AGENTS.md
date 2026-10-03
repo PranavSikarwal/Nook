@@ -33,9 +33,10 @@ Always write plans inside the `docs/plans/` directory for all work. Every new ph
 This repository uses the personal GitHub profile `PranavSikarwal`.
 
 1. Never run `gh auth switch`. It modifies global state in `~/.config/gh/hosts.yml` and disrupts other workspaces.
-2. Direct every `gh` command through the `PranavSikarwal` account by passing `GH_TOKEN`:
+2. Run all GitHub CLI commands through `scripts/gh`:
    ```sh
-   GH_TOKEN=$(gh auth token --user PranavSikarwal) gh <subcommand>
+   scripts/gh <subcommand>
    ```
+   Do not run `gh` directly and do not run `gh auth token`. The wrapper manages authentication automatically.
 3. Commits in this repository must use local repository identity rather than the global work identity.
 4. Git pushes authenticate using the repository-local credential helper that reads `gh auth token --user PranavSikarwal`.

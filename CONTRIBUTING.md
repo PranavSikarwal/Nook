@@ -147,14 +147,14 @@ This modifies `.git/config` for Nook only and leaves your global git settings un
 
 Do not run `gh auth switch`. Running `gh auth switch` alters global configuration in `~/.config/gh/hosts.yml`, which affects other workspaces and repositories.
 
-Instead, route each `gh` command through the `PranavSikarwal` account by supplying its token directly:
+Instead, run each GitHub CLI command through the repository wrapper script `scripts/gh`:
 
 ```sh
-GH_TOKEN=$(gh auth token --user PranavSikarwal) gh pr create ...
-GH_TOKEN=$(gh auth token --user PranavSikarwal) gh pr list
+scripts/gh pr create ...
+scripts/gh pr list
 ```
 
-This targets the `PranavSikarwal` profile on every call without altering the active account for other tools or projects.
+This passes the `PranavSikarwal` account token automatically on every call without altering the active account for other tools or projects. Do not run `gh` directly and do not run `gh auth token`.
 
 ## Stacked pull requests
 

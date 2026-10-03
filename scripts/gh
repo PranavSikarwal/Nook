@@ -1,0 +1,2 @@
+#!/bin/sh
+exec env GH_TOKEN="$(gh auth token --user PranavSikarwal)" gh "$@"
