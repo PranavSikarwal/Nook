@@ -28,17 +28,22 @@ jobs:
       - name: Set up Python
         run: uv python install 3.13
 
+      - name: Install CI dependencies
+        run: uv pip install --system -r .github/workflows/requirements.txt
+
       - name: Run Ruff linter
-        run: uv tool run --no-build ruff@0.16.10 check .
+        run: ruff check .
 
       - name: Run Ruff formatter check
-        run: uv tool run --no-build ruff@0.16.10 format --check .
+        run: ruff format --check .
 
       - name: Run Pyright on model-check
-        run: cd model-check && uv run --no-build --with pyright==1.1.414 pyright
+        run: |
+          cd model-check
+          pyright
 
       - name: Run Pyright on tests/contracts
-        run: uv run --no-build --with pyright==1.1.414 --with pytest==9.1.1 --with jsonschema==4.23.0 pyright tests/contracts
+        run: pyright tests/contracts
 
       - name: Run contract tests
-        run: uv run --no-build --with pytest==9.1.1 --with jsonschema==4.23.0 pytest tests/contracts
+        run: pytest tests/contracts
