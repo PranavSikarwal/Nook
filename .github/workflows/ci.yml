@@ -8,34 +8,37 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+
 jobs:
   lint-and-test:
     name: Code Quality and Tests
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@1edb52594c857e2b5b13128931090f0640537287 # v5.3.0
         with:
           enable-cache: true
-          version: "latest"
+          version: "0.11.25"
 
       - name: Set up Python
         run: uv python install 3.13
 
       - name: Run Ruff linter
-        run: uv tool run ruff check .
+        run: uv tool run --no-build ruff@0.16.10 check .
 
       - name: Run Ruff formatter check
-        run: uv tool run ruff format --check .
+        run: uv tool run --no-build ruff@0.16.10 format --check .
 
       - name: Run Pyright on model-check
-        run: cd model-check && uv run --with pyright pyright
+        run: cd model-check && uv run --no-build --with pyright==1.1.414 pyright
 
       - name: Run Pyright on tests/contracts
-        run: uv run --with pyright --with pytest --with jsonschema pyright tests/contracts
+        run: uv run --no-build --with pyright==1.1.414 --with pytest==9.1.1 --with jsonschema==4.23.0 pyright tests/contracts
 
       - name: Run contract tests
-        run: uv run --with pytest --with jsonschema pytest tests/contracts
+        run: uv run --no-build --with pytest==9.1.1 --with jsonschema==4.23.0 pytest tests/contracts
