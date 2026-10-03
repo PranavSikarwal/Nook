@@ -43,7 +43,7 @@ jobs:
       - name: Run Pyright on model-check
         run: |
           cd model-check
-          uv sync --frozen --no-build
+          uv sync --locked --no-build
           uv run --no-build pyright
 
       - name: Run Pyright on tests/contracts
