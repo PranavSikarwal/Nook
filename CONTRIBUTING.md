@@ -139,6 +139,7 @@ Configure the local git identity for this repository so commits use your persona
 ```sh
 git config --local user.name "Pranav Sikarwal"
 git config --local user.email "<your-personal-email>"
+git config --local credential.helper '!f() { echo username=PranavSikarwal; echo "password=$(gh auth token --user PranavSikarwal)"; }; f'
 ```
 
 This modifies `.git/config` for Nook only and leaves your global git settings untouched.

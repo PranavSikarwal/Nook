@@ -38,3 +38,4 @@ This repository uses the personal GitHub profile `PranavSikarwal`.
    GH_TOKEN=$(gh auth token --user PranavSikarwal) gh <subcommand>
    ```
 3. Commits in this repository must use local repository identity rather than the global work identity.
+4. Git pushes authenticate using the repository-local credential helper that reads `gh auth token --user PranavSikarwal`.
