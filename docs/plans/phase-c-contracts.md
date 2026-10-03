@@ -114,24 +114,22 @@ Both schemas share the following data shapes:
   5. Write `contracts/examples/daemon-worker.ndjson` with 14 sample objects, one per line.
   6. Validate that each sample line parses as single-line valid JSON.
 
-### Task C2: Add contract check script and test suite
+### Task C2: Add contract tests in tests/contracts
 
 - Branch name: `feat/c1-json-schemas` (consolidated into a single PR for Phase C; subsequent phases use `feat/phase-<name>`)
 - Steps:
   1. Implement `tests/contracts/test_contracts.py` pytest test suite covering all 35 message types, coverage verification, date-time format checking, and parametrized negative tests for both schemas.
-  2. Implement `scripts/check-contracts` executable with PEP 723 metadata to provide a direct CLI runner.
-  3. Verify that both `./scripts/check-contracts` and `uv run --with pytest --with jsonschema pytest tests/contracts` pass.
-  4. Run Ruff and Pyright checks to ensure full compliance with `CONTRIBUTING.md`.
+  2. Verify that `uv run --with pytest --with jsonschema pytest tests/contracts` passes all tests.
+  3. Run Ruff and Pyright checks to ensure full compliance with `CONTRIBUTING.md`.
 
 ---
 
 ## Verification and done criteria
 
 1. **Positive test**:
-   `./scripts/check-contracts` and `pytest tests/contracts` exit with code 0 and pass all 15 tests.
+   `uv run --with pytest --with jsonschema pytest tests/contracts` exits with code 0 and passes all 15 tests.
 2. **Negative test**:
    Parametrized tests in `test_contracts.py` verify that malformed UUIDs, unknown message types, invalid dates, and oversized attachments fail validation.
-   `uv run scripts/check-contracts --test-invalid` exits with code 0 confirming that invalid inputs are detected and rejected.
 3. **Linter checks**:
    `uv tool run ruff check .` and `uv tool run ruff format --check .` pass with 0 errors.
 4. **Tracking**:

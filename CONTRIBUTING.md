@@ -50,7 +50,7 @@ Follow these steps for every change:
    - Python type checking: `uv run --with pyright pyright` (in Python packages) or `uv run --with pyright --with pytest --with jsonschema pyright tests/contracts` (for root tests)
    - Rust linting: `cd daemon && cargo clippy --all-targets -- -D warnings` and `cargo fmt --check`
    - Swift tests: `cd app && swift test`
-   - Contract tests: `./scripts/check-contracts` or `uv run --with pytest --with jsonschema pytest tests/contracts`
+   - Contract tests: `uv run --with pytest --with jsonschema pytest tests/contracts`
 4. Stage and commit your changes using concise commit messages.
    ```sh
    git add <files>
@@ -106,11 +106,9 @@ cargo clippy --all-targets -- -D warnings
 
 ### 4. Contract validation
 
-Run the contract verification script or pytest suite whenever message schemas, contracts, or examples are modified:
+Run the contract pytest suite whenever message schemas, contracts, or examples are modified:
 
 ```sh
-./scripts/check-contracts
-# Or directly via pytest:
 uv run --with pytest --with jsonschema pytest tests/contracts
 ```
 

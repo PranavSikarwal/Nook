@@ -40,10 +40,10 @@ Write `contracts/panel-daemon.schema.json` and `contracts/daemon-worker.schema.j
 Depends on: S2.
 Done when: every example line validates against its schema, and every message type in the spec has at least one example.
 
-**C2. Add a contract check script.**
-Write `scripts/check-contracts` (Python, run with `uv`) that validates every line in the examples against the schemas and exits with a non-zero code on failure.
+**C2. Add contract tests in tests/contracts.**
+Write `tests/contracts/test_contracts.py` (Python, run with `pytest`) that validates every line in the examples against the schemas, checks message type coverage, and tests negative rejection of invalid payloads.
 Depends on: C1.
-Done when: `scripts/check-contracts` passes, and fails when one example line is edited to be invalid.
+Done when: `uv run --with pytest --with jsonschema pytest tests/contracts` passes, and fails when one example line is edited to be invalid.
 
 ## Phase W: Worker
 
