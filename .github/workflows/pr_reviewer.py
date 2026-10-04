@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from openai import OpenAI
+from openai import APIError, OpenAI
 
 MAX_AGENT_STEPS = 500
 MAX_DIFF_CHARS = 15000
@@ -394,7 +394,7 @@ def tool_run_command(repo_root: Path, command: str) -> str:
         return combined
     except subprocess.TimeoutExpired:
         return f"{ERR_PREFIX} Command timed out after 60 seconds."
-    except (FileNotFoundError, OSError) as exc:
+    except OSError as exc:
         return f"{ERR_PREFIX} Failed to execute '{parts[0]}': {exc}"
 
 
@@ -830,6 +830,44 @@ def _process_single_tool_call(
     return tool_msg, is_final, review_data
 
 
+def query_model_with_retry(
+    client: OpenAI,
+    model: str,
+    messages: list[dict[str, Any]],
+    tools: list[dict[str, Any]],
+    retry_interval_seconds: int = 60,
+    max_total_wait_seconds: int = 1200,
+) -> Any:
+    """Query model API with automated retry loop when service is down (waiting up to 20 mins)."""
+    start_wait = time.time()
+    attempt = 0
+
+    while True:
+        attempt += 1
+        try:
+            return client.chat.completions.create(
+                model=model,
+                messages=messages,
+                tools=tools,
+                tool_choice="auto",
+                temperature=0.2,
+            )
+        except (APIError, OSError) as exc:
+            elapsed = time.time() - start_wait
+            if elapsed >= max_total_wait_seconds:
+                print(
+                    f"[Model Service]: Exhausted max retry time ({elapsed:.0f}s). Final error: {exc}",
+                    file=sys.stderr,
+                )
+                raise
+
+            print(
+                f"[Model Service Notice]: Service down or unreachable ({exc}). "
+                f"Waiting {retry_interval_seconds}s before retry (attempt {attempt}, elapsed: {elapsed:.0f}s / {max_total_wait_seconds}s)..."
+            )
+            time.sleep(retry_interval_seconds)
+
+
 def run_agent_loop(
     client: OpenAI, model: str, system_prompt: str, user_prompt: str, repo_root: Path
 ) -> tuple[str, list[dict], int]:
@@ -846,12 +884,11 @@ def run_agent_loop(
         total_model_calls += 1
         print(f"\n[Agent Step {step}/{MAX_AGENT_STEPS}] Querying model '{model}'...")
 
-        response = client.chat.completions.create(
+        response = query_model_with_retry(
+            client=client,
             model=model,
             messages=messages,
             tools=AGENT_TOOLS,
-            tool_choice="auto",
-            temperature=0.2,
         )
 
         message = response.choices[0].message
