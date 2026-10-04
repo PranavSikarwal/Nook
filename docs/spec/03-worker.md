@@ -78,7 +78,11 @@ After the Daemon sends `title`, the Worker makes one model call with the first u
 
 ## Summarization
 
-Memory is summarized once it reaches 750,000 tokens. Deep Agents' default trigger is 85 percent of `max_input_tokens`. Task W5 finds the cleanest way to set it to 750,000, and checks that images count toward the total in a sensible way.
+Memory is summarized once it reaches 750,000 tokens. Deep Agents' default trigger is 85 percent of `max_input_tokens`.
+
+The Worker overrides this cleanly by passing `SummarizationMiddleware(model=model, backend=backend, trigger=("tokens", config.summarize_at_tokens))` in `middleware` to `create_deep_agent`. Deep Agents matches `SummarizationMiddleware` by name in `_apply_custom_middleware` and replaces the default instance in-place.
+
+Image blocks count as a fixed 85 tokens per image via `count_tokens_approximately` rather than counting base64 characters.
 
 ## Tests
 

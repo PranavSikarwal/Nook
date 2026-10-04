@@ -16,14 +16,14 @@ Task details and "done when" checks are in `docs/plan.md`. Specs are in `docs/sp
 
 ## Phase W: Worker
 
-- [ ] W1. Worker skeleton with a fake agent. Needs: C1
-- [ ] W2. Real agent with streaming. Needs: W1, S3
-- [ ] W3. Postgres checkpointer and Memory. Needs: W2, S1
-- [ ] W4. Attachments. Needs: W2, S4
-- [ ] W5. Summarization at 750k tokens. Needs: W3
-- [ ] W6. Titles. Needs: W2
-- [ ] W7. Cancel and error mapping. Needs: W2
-- [ ] W8. Delete a Chat's Memory. Needs: W3
+- [x] W1. Worker skeleton with a fake agent. Needs: C1
+- [x] W2. Real agent with streaming. Needs: W1, S3
+- [x] W3. Postgres checkpointer and Memory. Needs: W2, S1
+- [x] W4. Attachments. Needs: W2, S4
+- [x] W5. Summarization at 750k tokens. Needs: W3
+- [x] W6. Titles. Needs: W2
+- [x] W7. Cancel and error mapping. Needs: W2
+- [x] W8. Delete a Chat's Memory. Needs: W3
 
 ## Phase D: Daemon
 
