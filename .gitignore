@@ -31,3 +31,6 @@ daemon.sock
 attachments/
 .env
 *.env
+
+# Worktrees
+.worktrees/
