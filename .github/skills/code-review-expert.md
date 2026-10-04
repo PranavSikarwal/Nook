@@ -65,3 +65,15 @@ Structure your review strictly as follows:
 ## Additional suggestions
 (optional improvements, not blocking)
 ```
+
+If you identified specific line numbers in the diff for these findings, append an inline comments block at the very end of your response using this exact format:
+
+```json
+[
+  {
+    "path": "path/to/file.ext",
+    "line": 42,
+    "body": "P1 - Brief description of issue and suggested fix."
+  }
+]
+```

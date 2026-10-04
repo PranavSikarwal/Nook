@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -409,9 +410,96 @@ def update_progress_comment(comment_id: str, content: str) -> bool:
     return result.returncode == 0
 
 
-def post_review(pr_number: int, content: str, progress_comment_id: str = "") -> None:
+def extract_review_and_inline_comments(raw_text: str) -> tuple[str, list[dict]]:
+    """Separate summary markdown from trailing json block containing inline comments."""
+    match = re.search(r"```json\s*(\[\s*\{.*?\}\s*\])\s*```", raw_text, re.DOTALL)
+    if not match:
+        return raw_text.strip(), []
+
+    json_str = match.group(1)
+    summary = (raw_text[: match.start()] + raw_text[match.end() :]).strip()
+    try:
+        data = json.loads(json_str)
+        if isinstance(data, list):
+            valid_comments = []
+            for item in data:
+                if (
+                    isinstance(item, dict)
+                    and "path" in item
+                    and "line" in item
+                    and "body" in item
+                    and isinstance(item["line"], int)
+                ):
+                    valid_comments.append(
+                        {
+                            "path": str(item["path"]).strip(),
+                            "line": int(item["line"]),
+                            "body": str(item["body"]).strip(),
+                        }
+                    )
+            return summary, valid_comments
+    except json.JSONDecodeError:
+        pass
+
+    return raw_text.strip(), []
+
+
+def post_review(
+    pr_number: int,
+    summary_content: str,
+    inline_comments: list[dict],
+    progress_comment_id: str = "",
+) -> None:
     """Post or update the review comment on the pull request."""
-    if progress_comment_id and update_progress_comment(progress_comment_id, content):
+    # If inline comments exist, submit formal review with both summary and inline comments
+    if inline_comments:
+        head_sha = run_command(
+            [
+                "gh",
+                "pr",
+                "view",
+                str(pr_number),
+                "--json",
+                "headRefOid",
+                "--jq",
+                ".headRefOid",
+            ]
+        )
+        if head_sha:
+            review_payload = {
+                "commit_id": head_sha,
+                "body": summary_content,
+                "event": "COMMENT",
+                "comments": inline_comments,
+            }
+            cmd = [
+                "gh",
+                "api",
+                f"repos/:owner/:repo/pulls/{pr_number}/reviews",
+                "--input",
+                "-",
+            ]
+            result = subprocess.run(
+                cmd,
+                input=json.dumps(review_payload),
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if result.returncode == 0:
+                print(
+                    f"Successfully posted review with {len(inline_comments)} inline comments on pull request #{pr_number}"
+                )
+                if progress_comment_id:
+                    update_progress_comment(progress_comment_id, summary_content)
+                return
+            print(
+                f"Review with inline comments failed ({result.stderr.strip()}), falling back to summary review."
+            )
+
+    if progress_comment_id and update_progress_comment(
+        progress_comment_id, summary_content
+    ):
         print(
             f"Successfully updated review comment #{progress_comment_id} on pull request #{pr_number}"
         )
@@ -420,7 +508,7 @@ def post_review(pr_number: int, content: str, progress_comment_id: str = "") -> 
     # Attempt to post as formal review comment via stdin
     result = subprocess.run(
         ["gh", "pr", "review", str(pr_number), "--comment", "--body-file", "-"],
-        input=content,
+        input=summary_content,
         capture_output=True,
         text=True,
         check=False,
@@ -432,7 +520,7 @@ def post_review(pr_number: int, content: str, progress_comment_id: str = "") -> 
     # Fallback to standard PR comment via stdin
     fallback = subprocess.run(
         ["gh", "pr", "comment", str(pr_number), "--body-file", "-"],
-        input=content,
+        input=summary_content,
         capture_output=True,
         text=True,
         check=False,
@@ -534,7 +622,10 @@ def main() -> None:
     if not review_content:
         sys.exit("Model returned an empty review response.")
 
-    post_review(args.pr, review_content, progress_comment_id)
+    summary_content, inline_comments = extract_review_and_inline_comments(
+        review_content
+    )
+    post_review(args.pr, summary_content, inline_comments, progress_comment_id)
 
 
 if __name__ == "__main__":

@@ -38,6 +38,18 @@ Found X issues:
 
 2. ...
 
+If you identified specific line numbers in the diff for these findings, also include an inline comments block at the very end of your response using this exact format:
+
+```json
+[
+  {
+    "path": "path/to/file.ext",
+    "line": 42,
+    "body": "Clear description of the issue on this line and suggested resolution."
+  }
+]
+```
+
 If no issues were found:
 
 ### Code review
