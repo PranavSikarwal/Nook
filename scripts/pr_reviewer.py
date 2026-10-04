@@ -1,34 +1,200 @@
 #!/usr/bin/env python3
-"""Automated pull request reviewer using a hosted OpenAI-compatible model."""
+"""Autonomous pull request reviewer using an agent tool loop with a hosted model."""
 
 from __future__ import annotations
 
 import argparse
 import json
 import os
-import re
+import shlex
 import subprocess
 import sys
+import time
 from pathlib import Path
+from typing import Any
 
 from openai import OpenAI
 
+MAX_AGENT_STEPS = 15
+MAX_DIFF_CHARS = 15000
+ALLOWED_COMMANDS = {"cargo", "pytest", "ruff", "pyright", "git"}
 
-def run_command(cmd: list[str]) -> str:
+CODE_REVIEW_LEVELS = {
+    "max": (
+        "- Intensity: MAX (Exhaustive audit)\n"
+        "- Confidence threshold: 50/100 (investigate subtle bugs, edge cases, and boundary conditions).\n"
+        "- Use tools actively: read full files, check git blame, and run test suites before finalizing."
+    ),
+    "low": (
+        "- Intensity: LOW (Quick scan)\n"
+        "- Confidence threshold: 30/100.\n"
+        "- Focus on quick wins, minor readability, naming, and low-impact suggestions."
+    ),
+    "high": (
+        "- Intensity: HIGH (Strict filter, default)\n"
+        "- Confidence threshold: 80/100.\n"
+        "- Report only verified, high-confidence bugs and repository instruction violations."
+    ),
+}
+
+EXPERT_REVIEW_LEVELS = {
+    "max": (
+        "- Intensity: MAX (Exhaustive architecture and security audit)\n"
+        "- Report all P0, P1, P2, and P3 findings in detail.\n"
+        "- Use tools to inspect callers across the repository and run cargo clippy / test suites."
+    ),
+    "low": (
+        "- Intensity: LOW (High-level architecture scan)\n"
+        "- Focus only on immediate structural concerns and critical code smells."
+    ),
+    "high": (
+        "- Intensity: HIGH (Standard expert review, default)\n"
+        "- Classify all issues into P0, P1, P2, and P3 severity categories with actionable solutions."
+    ),
+}
+
+AGENT_TOOLS: list[dict[str, Any]] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "read_file",
+            "description": "Read contents of a file from the repository, optionally with line bounds.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Relative file path."},
+                    "start_line": {
+                        "type": "integer",
+                        "description": "Start line (1-indexed).",
+                    },
+                    "end_line": {
+                        "type": "integer",
+                        "description": "End line (inclusive).",
+                    },
+                },
+                "required": ["path"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_code",
+            "description": "Search for a string or regex pattern across the repository.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Pattern to search for.",
+                    },
+                    "path": {
+                        "type": "string",
+                        "description": "Subdirectory to restrict search.",
+                    },
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "git_blame",
+            "description": "Run git blame on specific lines to see previous commit history and author.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Relative file path."},
+                    "start_line": {
+                        "type": "integer",
+                        "description": "Start line number.",
+                    },
+                    "end_line": {"type": "integer", "description": "End line number."},
+                },
+                "required": ["path", "start_line", "end_line"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "run_command",
+            "description": "Run a read-only verification command such as 'cargo test', 'pytest', or 'git log -n 5'.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": {
+                        "type": "string",
+                        "description": "Shell command to execute.",
+                    },
+                },
+                "required": ["command"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "submit_review",
+            "description": "Submit the completed review once all checks, file reads, and tests are finished.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "summary": {
+                        "type": "string",
+                        "description": "Overall review summary in Markdown.",
+                    },
+                    "inline_comments": {
+                        "type": "array",
+                        "description": "List of inline comments anchored to specific modified lines.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "path": {"type": "string", "description": "File path."},
+                                "line": {
+                                    "type": "integer",
+                                    "description": "Line number in the new file.",
+                                },
+                                "body": {
+                                    "type": "string",
+                                    "description": "Inline comment body.",
+                                },
+                            },
+                            "required": ["path", "line", "body"],
+                        },
+                    },
+                },
+                "required": ["summary"],
+            },
+        },
+    },
+]
+
+
+def get_gh_executable(repo_root: Path) -> str:
+    """Return scripts/gh if available and executable, falling back to gh."""
+    script_gh = repo_root / "scripts" / "gh"
+    if script_gh.is_file() and os.access(script_gh, os.X_OK):
+        return str(script_gh)
+    return "gh"
+
+
+def run_cli_command(cmd: list[str], timeout: int = 30) -> str:
     """Run a CLI command and return its stdout."""
-    result = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if result.returncode != 0:
-        print(
-            f"Command failed ({' '.join(cmd)}): {result.stderr.strip()}",
-            file=sys.stderr,
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
         )
-        return ""
-    return result.stdout.strip()
+        if result.returncode != 0:
+            return f"Error: {result.stderr.strip()}"
+        return result.stdout.strip()
+    except subprocess.TimeoutExpired:
+        return f"Error: Command timed out after {timeout} seconds."
 
 
 def load_config() -> tuple[str, str, str]:
@@ -51,11 +217,11 @@ def load_config() -> tuple[str, str, str]:
     return base_url, api_key, model
 
 
-def get_pr_metadata(pr_number: int) -> dict:
+def get_pr_metadata(gh: str, pr_number: int) -> dict:
     """Fetch pull request metadata via gh CLI."""
-    stdout = run_command(
+    stdout = run_cli_command(
         [
-            "gh",
+            gh,
             "pr",
             "view",
             str(pr_number),
@@ -63,16 +229,16 @@ def get_pr_metadata(pr_number: int) -> dict:
             "number,title,body,baseRefName,headRefName,headRefOid,commits",
         ]
     )
-    if not stdout:
-        sys.exit(f"Failed to fetch metadata for pull request #{pr_number}")
+    if not stdout or stdout.startswith("Error:"):
+        sys.exit(f"Failed to fetch metadata for pull request #{pr_number}: {stdout}")
     return json.loads(stdout)
 
 
-def get_pr_diff(pr_number: int) -> str:
+def get_pr_diff(gh: str, pr_number: int) -> str:
     """Fetch pull request diff via gh CLI."""
-    diff = run_command(["gh", "pr", "diff", str(pr_number)])
-    if not diff:
-        sys.exit(f"Failed to fetch diff for pull request #{pr_number}")
+    diff = run_cli_command([gh, "pr", "diff", str(pr_number)])
+    if not diff or diff.startswith("Error:"):
+        sys.exit(f"Failed to fetch diff for pull request #{pr_number}: {diff}")
     return diff
 
 
@@ -81,29 +247,6 @@ def load_file_content(path: Path) -> str:
     if path.is_file():
         return path.read_text(encoding="utf-8")
     return ""
-
-
-def get_previous_feedback(pr_number: int) -> tuple[str, str]:
-    """Fetch previous review comments and reviews for resolution verification."""
-    comments_json = run_command(
-        [
-            "gh",
-            "api",
-            f"repos/:owner/:repo/pulls/{pr_number}/comments",
-            "--jq",
-            "[.[] | {path: .path, line: .line, body: .body, user: .user.login}]",
-        ]
-    )
-    reviews_json = run_command(
-        [
-            "gh",
-            "api",
-            f"repos/:owner/:repo/pulls/{pr_number}/reviews",
-            "--jq",
-            '[.[] | select(.body != "") | {body: .body, state: .state, user: .user.login}]',
-        ]
-    )
-    return comments_json, reviews_json
 
 
 def parse_comment(comment_body: str) -> tuple[str, str]:
@@ -149,58 +292,146 @@ def parse_comment(comment_body: str) -> tuple[str, str]:
     return level, instructions
 
 
-CODE_REVIEW_LEVELS = {
-    "max": (
-        "- Intensity: MAX (Exhaustive audit)\n"
-        "- Confidence threshold: 50/100 (include subtle bugs, edge cases, and architectural friction).\n"
-        "- Inspect every file thoroughly for boundary conditions and unintended side effects."
-    ),
-    "low": (
-        "- Intensity: LOW (Quick scan)\n"
-        "- Confidence threshold: 30/100.\n"
-        "- Focus on quick wins, minor readability, naming, and low-impact suggestions."
-    ),
-    "high": (
-        "- Intensity: HIGH (Strict filter, default)\n"
-        "- Confidence threshold: 80/100.\n"
-        "- Report only verified, high-confidence bugs and repository instruction violations. Filter all minor nitpicks."
-    ),
-}
+# ---------------------------------------------------------------------------
+# Tool implementations for the agent loop
+# ---------------------------------------------------------------------------
 
-EXPERT_REVIEW_LEVELS = {
-    "max": (
-        "- Intensity: MAX (Exhaustive architecture and security audit)\n"
-        "- Report all P0, P1, P2, and P3 findings in detail.\n"
-        "- Provide in-depth analysis on modular boundaries, SOLID principles, and dead code removal plans."
-    ),
-    "low": (
-        "- Intensity: LOW (High-level architecture scan)\n"
-        "- Focus only on immediate structural concerns and critical code smells."
-    ),
-    "high": (
-        "- Intensity: HIGH (Standard expert review, default)\n"
-        "- Classify all issues into P0, P1, P2, and P3 severity categories with actionable solutions."
-    ),
-}
+
+def tool_read_file(
+    repo_root: Path, path: str, start_line: int = 1, end_line: int = 200
+) -> str:
+    """Read lines from a file in the workspace."""
+    target = (repo_root / path).resolve()
+    if not str(target).startswith(str(repo_root.resolve())):
+        return "Error: Path traversal outside repository root is blocked."
+    if not target.is_file():
+        return f"Error: File '{path}' does not exist."
+
+    try:
+        lines = target.read_text(encoding="utf-8", errors="replace").splitlines()
+        total_lines = len(lines)
+        start = max(1, start_line)
+        end = min(total_lines, max(start, end_line))
+        subset = lines[start - 1 : end]
+        numbered = [f"{start + i:4d} | {line}" for i, line in enumerate(subset)]
+        return f"File: {path} (lines {start}-{end} of {total_lines}):\n" + "\n".join(
+            numbered
+        )
+    except (OSError, UnicodeDecodeError) as exc:
+        return f"Error reading '{path}': {exc}"
+
+
+def tool_search_code(repo_root: Path, query: str, path: str = ".") -> str:
+    """Search for a pattern across the repository using git grep."""
+    cmd = ["git", "grep", "-n", "-I", "-e", query, "--", path]
+    try:
+        res = subprocess.run(
+            cmd, cwd=repo_root, capture_output=True, text=True, timeout=15, check=False
+        )
+        output = res.stdout.strip()
+        if not output:
+            return "No matches found."
+        lines = output.splitlines()
+        if len(lines) > 50:
+            lines = lines[:50]
+            lines.append("... [Results truncated to first 50 matches]")
+        return "\n".join(lines)
+    except subprocess.TimeoutExpired:
+        return "Error: Search timed out."
+
+
+def tool_git_blame(repo_root: Path, path: str, start_line: int, end_line: int) -> str:
+    """Run git blame on specific lines."""
+    cmd = ["git", "blame", "-L", f"{start_line},{end_line}", "--", path]
+    try:
+        res = subprocess.run(
+            cmd, cwd=repo_root, capture_output=True, text=True, timeout=15, check=False
+        )
+        if res.returncode != 0:
+            return f"Error running git blame: {res.stderr.strip()}"
+        return res.stdout.strip() or "No blame data available."
+    except subprocess.TimeoutExpired:
+        return "Error: Git blame timed out."
+
+
+def tool_run_command(repo_root: Path, command: str) -> str:
+    """Execute a read-only verification command in the repository workspace."""
+    parts = shlex.split(command)
+    if not parts:
+        return "Error: Empty command."
+    base_cmd = Path(parts[0]).name
+    if base_cmd not in ALLOWED_COMMANDS:
+        return f"Error: Command '{base_cmd}' is not allowed. Permitted commands: {', '.join(sorted(ALLOWED_COMMANDS))}"
+
+    try:
+        res = subprocess.run(
+            parts,
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+        combined = f"Exit code: {res.returncode}\n--- stdout ---\n{res.stdout.strip()}\n--- stderr ---\n{res.stderr.strip()}"
+        if len(combined) > 6000:
+            combined = combined[:6000] + "\n... [Command output truncated]"
+        return combined
+    except subprocess.TimeoutExpired:
+        return "Error: Command timed out after 60 seconds."
+
+
+def execute_tool_call(
+    repo_root: Path, tool_name: str, tool_args: dict[str, Any]
+) -> tuple[str, bool, dict[str, Any] | None]:
+    """Execute tool and return (result_string, is_final_submission, review_data)."""
+    if tool_name == "read_file":
+        result = tool_read_file(
+            repo_root,
+            tool_args.get("path", ""),
+            tool_args.get("start_line", 1),
+            tool_args.get("end_line", 200),
+        )
+        return result, False, None
+    if tool_name == "search_code":
+        result = tool_search_code(
+            repo_root, tool_args.get("query", ""), tool_args.get("path", ".")
+        )
+        return result, False, None
+    if tool_name == "git_blame":
+        result = tool_git_blame(
+            repo_root,
+            tool_args.get("path", ""),
+            tool_args.get("start_line", 1),
+            tool_args.get("end_line", 50),
+        )
+        return result, False, None
+    if tool_name == "run_command":
+        result = tool_run_command(repo_root, tool_args.get("command", ""))
+        return result, False, None
+    if tool_name == "submit_review":
+        return "Review accepted for submission.", True, tool_args
+
+    return f"Error: Unknown tool '{tool_name}'", False, None
+
+
+# ---------------------------------------------------------------------------
+# Prompt builders
+# ---------------------------------------------------------------------------
 
 
 def _build_code_review_prompt(
-    pr_meta: dict,
-    diff: str,
-    repo_root: Path,
-    level: str,
+    skill_content: str,
+    level_instructions: str,
     user_focus: str,
     repo_guidelines: str,
+    pr_meta: dict,
+    diff_text: str,
 ) -> tuple[str, str]:
-    skill_content = load_file_content(
-        repo_root / ".github" / "skills" / "code-review.md"
-    )
-    level_instructions = CODE_REVIEW_LEVELS.get(level, CODE_REVIEW_LEVELS["high"])
     system_prompt = (
-        f"You are an expert pull request reviewer running at intensity level '{level.upper()}'. "
-        "You perform code audits based on repository instructions and bug scans."
+        "You are an autonomous AI code reviewer operating with an interactive tool loop. "
+        "You actively read files, check git history, and run test suites before submitting your findings."
     )
-    user_prompt = f"""Follow the instructions below to review this pull request:
+    user_prompt = f"""Follow these instructions to audit this pull request:
 
 ## Instructions
 {skill_content}
@@ -220,31 +451,30 @@ def _build_code_review_prompt(
 ### Pull Request Description
 {pr_meta.get("body") or "(No description provided)"}
 
-### Git Diff
+### Initial Pull Request Diff
 ```diff
-{diff}
+{diff_text}
 ```
+
+Use your available tools (`read_file`, `search_code`, `git_blame`, `run_command`) to inspect context.
+When your audit is complete, call `submit_review(summary=..., inline_comments=...)` with your report.
 """
     return system_prompt, user_prompt
 
 
 def _build_expert_review_prompt(
-    pr_meta: dict,
-    diff: str,
-    repo_root: Path,
-    level: str,
+    skill_content: str,
+    level_instructions: str,
     user_focus: str,
     repo_guidelines: str,
+    pr_meta: dict,
+    diff_text: str,
 ) -> tuple[str, str]:
-    skill_content = load_file_content(
-        repo_root / ".github" / "skills" / "code-review-expert.md"
-    )
-    level_instructions = EXPERT_REVIEW_LEVELS.get(level, EXPERT_REVIEW_LEVELS["high"])
     system_prompt = (
-        f"You are a senior software architect running at intensity level '{level.upper()}'. "
-        "You audit pull requests for SOLID design, modular coupling, and security risks with P0-P3 classifications."
+        "You are a senior software architect and security auditor operating with an interactive tool loop. "
+        "You investigate SOLID design principles, modular boundaries, security vulnerabilities, and code quality."
     )
-    user_prompt = f"""Follow the instructions below to review this pull request:
+    user_prompt = f"""Audit this pull request against SOLID design and security standards:
 
 ## Instructions
 {skill_content}
@@ -262,18 +492,43 @@ def _build_expert_review_prompt(
 ### Pull Request Description
 {pr_meta.get("body") or "(No description provided)"}
 
-### Git Diff
+### Initial Pull Request Diff
 ```diff
-{diff}
+{diff_text}
 ```
+
+Use your available tools to check code and run tests.
+When complete, call `submit_review(summary=..., inline_comments=...)` with your structured report.
 """
     return system_prompt, user_prompt
 
 
 def _build_resolution_prompt(
-    pr_meta: dict, diff: str, pr_number: int
+    gh: str,
+    pr_number: int,
+    pr_meta: dict,
+    diff_text: str,
+    user_focus: str,
+    level_instructions: str,
 ) -> tuple[str, str]:
-    comments_json, reviews_json = get_previous_feedback(pr_number)
+    comments_json = run_cli_command(
+        [
+            gh,
+            "api",
+            f"repos/:owner/:repo/pulls/{pr_number}/comments",
+            "--jq",
+            "[.[] | {path: .path, line: .line, body: .body, user: .user.login}]",
+        ]
+    )
+    reviews_json = run_cli_command(
+        [
+            gh,
+            "api",
+            f"repos/:owner/:repo/pulls/{pr_number}/reviews",
+            "--jq",
+            '[.[] | select(.body != "") | {body: .body, state: .state, user: .user.login}]',
+        ]
+    )
     commits = pr_meta.get("commits", [])
     commit_messages = "\n".join(
         f"- {c.get('messageHeadline', '')}" for c in commits[-10:]
@@ -284,14 +539,9 @@ def _build_resolution_prompt(
     )
     user_prompt = f"""Verify whether the author has addressed previous review feedback.
 
-## Task
-1. Inspect the previous review comments and reviews below.
-2. Examine the recent commit messages and current git diff.
-3. For each previous finding, classify it as:
-   - [RESOLVED]: The issue was fixed correctly.
-   - [UNRESOLVED]: The issue was not fixed or the fix is incomplete.
-   - [NEW ISSUE]: A regression or new problem was introduced.
-4. Output a concise markdown report with specific file citations.
+## Active Settings
+{level_instructions}
+{user_focus}
 
 ## Previous Inline Comments
 ```json
@@ -308,22 +558,34 @@ def _build_resolution_prompt(
 
 ## Current Git Diff
 ```diff
-{diff}
+{diff_text}
 ```
+
+Use your tools to check files and verify fixes.
+When complete, call `submit_review(summary=..., inline_comments=...)` classifying each previous item as [RESOLVED], [UNRESOLVED], or [NEW ISSUE].
 """
     return system_prompt, user_prompt
 
 
-def build_prompt(
+def build_agent_prompts(
+    gh: str,
     mode: str,
     pr_number: int,
     repo_root: Path,
-    level: str = "high",
-    custom_instructions: str = "",
+    level: str,
+    custom_instructions: str,
 ) -> tuple[str, str]:
     """Construct system prompt and user prompt based on mode, level, and instructions."""
-    pr_meta = get_pr_metadata(pr_number)
-    diff = get_pr_diff(pr_number)
+    pr_meta = get_pr_metadata(gh, pr_number)
+    raw_diff = get_pr_diff(gh, pr_number)
+
+    if len(raw_diff) > MAX_DIFF_CHARS:
+        diff_text = (
+            raw_diff[:MAX_DIFF_CHARS]
+            + "\n\n... [Diff truncated due to size. Use read_file to inspect full files.]"
+        )
+    else:
+        diff_text = raw_diff
 
     claude_md = load_file_content(repo_root / "CLAUDE.md")
     agents_md = load_file_content(repo_root / "AGENTS.md")
@@ -338,34 +600,62 @@ def build_prompt(
             f"\n### Repository CLAUDE.md\n```markdown\n{claude_md}\n```\n"
         )
 
-    user_focus = ""
-    if custom_instructions:
-        user_focus = (
-            f"\n## User-Requested Focus and Constraints\n{custom_instructions}\n"
-        )
+    user_focus = (
+        f"\n## User-Requested Focus and Constraints\n{custom_instructions}\n"
+        if custom_instructions
+        else ""
+    )
 
     if mode == "code-review":
+        skill_content = load_file_content(
+            repo_root / ".github" / "skills" / "code-review.md"
+        )
+        level_instructions = CODE_REVIEW_LEVELS.get(level, CODE_REVIEW_LEVELS["high"])
         return _build_code_review_prompt(
-            pr_meta, diff, repo_root, level, user_focus, repo_guidelines
+            skill_content,
+            level_instructions,
+            user_focus,
+            repo_guidelines,
+            pr_meta,
+            diff_text,
         )
     if mode == "code-review-expert":
+        skill_content = load_file_content(
+            repo_root / ".github" / "skills" / "code-review-expert.md"
+        )
+        level_instructions = EXPERT_REVIEW_LEVELS.get(
+            level, EXPERT_REVIEW_LEVELS["high"]
+        )
         return _build_expert_review_prompt(
-            pr_meta, diff, repo_root, level, user_focus, repo_guidelines
+            skill_content,
+            level_instructions,
+            user_focus,
+            repo_guidelines,
+            pr_meta,
+            diff_text,
         )
     if mode == "feedback-on-resolution":
-        return _build_resolution_prompt(pr_meta, diff, pr_number)
+        level_instructions = f"- Review level: {level.upper()}"
+        return _build_resolution_prompt(
+            gh, pr_number, pr_meta, diff_text, user_focus, level_instructions
+        )
 
     sys.exit(f"Unknown review mode: {mode}")
 
 
-def create_progress_comment(pr_number: int, mode: str, level: str) -> str:
+# ---------------------------------------------------------------------------
+# GitHub Comment and Review submission
+# ---------------------------------------------------------------------------
+
+
+def create_progress_comment(gh: str, pr_number: int, mode: str, level: str) -> str:
     """Post an initial progress comment to the PR and return its comment ID."""
     body = (
         f"**Review in progress** (`{mode}`, level: `{level.upper()}`)...\n\n"
-        "Analyzing modified files and repository guidelines. Findings will appear here shortly."
+        "Autonomous agent is inspecting files, checking git blame, and running checks. Findings will appear here shortly."
     )
     cmd = [
-        "gh",
+        gh,
         "api",
         f"repos/:owner/:repo/issues/{pr_number}/comments",
         "--input",
@@ -375,23 +665,19 @@ def create_progress_comment(pr_number: int, mode: str, level: str) -> str:
     ]
     payload = json.dumps({"body": body})
     result = subprocess.run(
-        cmd,
-        input=payload,
-        capture_output=True,
-        text=True,
-        check=False,
+        cmd, input=payload, capture_output=True, text=True, check=False
     )
     if result.returncode != 0:
         return ""
     return result.stdout.strip()
 
 
-def update_progress_comment(comment_id: str, content: str) -> bool:
-    """Update the existing progress comment with the final review."""
+def update_progress_comment(gh: str, comment_id: str, content: str) -> bool:
+    """Update existing progress comment."""
     if not comment_id:
         return False
     cmd = [
-        "gh",
+        gh,
         "api",
         f"repos/:owner/:repo/issues/comments/{comment_id}",
         "-X",
@@ -401,126 +687,85 @@ def update_progress_comment(comment_id: str, content: str) -> bool:
     ]
     payload = json.dumps({"body": content})
     result = subprocess.run(
-        cmd,
-        input=payload,
-        capture_output=True,
-        text=True,
-        check=False,
+        cmd, input=payload, capture_output=True, text=True, check=False
     )
     return result.returncode == 0
 
 
-def extract_review_and_inline_comments(raw_text: str) -> tuple[str, list[dict]]:
-    """Separate summary markdown from trailing json block containing inline comments."""
-    match = re.search(r"```json\s*(\[\s*\{.*?\}\s*\])\s*```", raw_text, re.DOTALL)
-    if not match:
-        return raw_text.strip(), []
-
-    json_str = match.group(1)
-    summary = (raw_text[: match.start()] + raw_text[match.end() :]).strip()
-    try:
-        data = json.loads(json_str)
-        if isinstance(data, list):
-            valid_comments = []
-            for item in data:
-                if (
-                    isinstance(item, dict)
-                    and "path" in item
-                    and "line" in item
-                    and "body" in item
-                    and isinstance(item["line"], int)
-                ):
-                    valid_comments.append(
-                        {
-                            "path": str(item["path"]).strip(),
-                            "line": int(item["line"]),
-                            "body": str(item["body"]).strip(),
-                        }
-                    )
-            return summary, valid_comments
-    except json.JSONDecodeError:
-        pass
-
-    return raw_text.strip(), []
-
-
-def post_review(
+def post_final_review(
+    gh: str,
     pr_number: int,
-    summary_content: str,
+    summary: str,
     inline_comments: list[dict],
     progress_comment_id: str = "",
 ) -> None:
-    """Post or update the review comment on the pull request."""
-    # If inline comments exist, submit formal review with both summary and inline comments
-    if inline_comments:
-        head_sha = run_command(
-            [
-                "gh",
-                "pr",
-                "view",
-                str(pr_number),
-                "--json",
-                "headRefOid",
-                "--jq",
-                ".headRefOid",
-            ]
+    """Submit formal review with summary and inline comments."""
+    head_sha = run_cli_command(
+        [
+            gh,
+            "pr",
+            "view",
+            str(pr_number),
+            "--json",
+            "headRefOid",
+            "--jq",
+            ".headRefOid",
+        ]
+    )
+
+    # Attempt formal review with inline comments
+    if inline_comments and head_sha and not head_sha.startswith("Error:"):
+        review_payload = {
+            "commit_id": head_sha,
+            "body": summary,
+            "event": "COMMENT",
+            "comments": inline_comments,
+        }
+        cmd = [
+            gh,
+            "api",
+            f"repos/:owner/:repo/pulls/{pr_number}/reviews",
+            "--input",
+            "-",
+        ]
+        result = subprocess.run(
+            cmd,
+            input=json.dumps(review_payload),
+            capture_output=True,
+            text=True,
+            check=False,
         )
-        if head_sha:
-            review_payload = {
-                "commit_id": head_sha,
-                "body": summary_content,
-                "event": "COMMENT",
-                "comments": inline_comments,
-            }
-            cmd = [
-                "gh",
-                "api",
-                f"repos/:owner/:repo/pulls/{pr_number}/reviews",
-                "--input",
-                "-",
-            ]
-            result = subprocess.run(
-                cmd,
-                input=json.dumps(review_payload),
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-            if result.returncode == 0:
-                print(
-                    f"Successfully posted review with {len(inline_comments)} inline comments on pull request #{pr_number}"
-                )
-                if progress_comment_id:
-                    update_progress_comment(progress_comment_id, summary_content)
-                return
+        if result.returncode == 0:
             print(
-                f"Review with inline comments failed ({result.stderr.strip()}), falling back to summary review."
+                f"Successfully posted review with {len(inline_comments)} inline comments on pull request #{pr_number}"
             )
+            if progress_comment_id:
+                update_progress_comment(
+                    gh,
+                    progress_comment_id,
+                    "Review completed. Detailed findings posted in review above.",
+                )
+            return
+
+        print(
+            f"Formal review submission failed ({result.stderr.strip()}). Appending inline comments to summary fallback."
+        )
+        formatted_inline = "\n\n### Line Findings\n" + "\n".join(
+            f"- `{c['path']}:{c['line']}`: {c['body']}" for c in inline_comments
+        )
+        summary += formatted_inline
 
     if progress_comment_id and update_progress_comment(
-        progress_comment_id, summary_content
+        gh, progress_comment_id, summary
     ):
         print(
             f"Successfully updated review comment #{progress_comment_id} on pull request #{pr_number}"
         )
         return
 
-    # Attempt to post as formal review comment via stdin
-    result = subprocess.run(
-        ["gh", "pr", "review", str(pr_number), "--comment", "--body-file", "-"],
-        input=summary_content,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if result.returncode == 0:
-        print(f"Successfully posted review to pull request #{pr_number}")
-        return
-
-    # Fallback to standard PR comment via stdin
     fallback = subprocess.run(
-        ["gh", "pr", "comment", str(pr_number), "--body-file", "-"],
-        input=summary_content,
+        [gh, "pr", "comment", str(pr_number), "--body-file", "-"],
+        input=summary,
         capture_output=True,
         text=True,
         check=False,
@@ -535,58 +780,107 @@ def post_review(
         sys.exit(1)
 
 
-def _stream_completion(
-    client: OpenAI, model: str, system_prompt: str, user_prompt: str
-) -> str:
-    """Stream model response to stdout and return full content."""
-    print("\n--- Live model review stream ---")
-    chunks: list[str] = []
-    stream = client.chat.completions.create(
-        model=model,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
-        temperature=0.2,
-        stream=True,
+# ---------------------------------------------------------------------------
+# Multi-turn Agent Execution Loop
+# ---------------------------------------------------------------------------
+
+
+def run_agent_loop(
+    client: OpenAI, model: str, system_prompt: str, user_prompt: str, repo_root: Path
+) -> tuple[str, list[dict], int]:
+    """Execute autonomous agent loop with tools until review submission or max steps."""
+    messages: list[dict[str, Any]] = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt},
+    ]
+
+    total_model_calls = 0
+    start_time = time.time()
+
+    for step in range(1, MAX_AGENT_STEPS + 1):
+        total_model_calls += 1
+        print(f"\n[Agent Step {step}/{MAX_AGENT_STEPS}] Querying model '{model}'...")
+
+        response = client.chat.completions.create(
+            model=model,
+            messages=messages,
+            tools=AGENT_TOOLS,
+            tool_choice="auto",
+            temperature=0.2,
+        )
+
+        message = response.choices[0].message
+        messages.append(message.model_dump(exclude_none=True))
+
+        if not message.tool_calls:
+            # Model replied without tool calling
+            content = message.content or ""
+            print(f"[Agent]: Direct response generated ({len(content)} chars).")
+            elapsed = time.time() - start_time
+            print(
+                f"[Telemetry]: Completed in {elapsed:.1f}s across {total_model_calls} model calls."
+            )
+            return content, [], total_model_calls
+
+        for tool_call in message.tool_calls:
+            tool_name = tool_call.function.name
+            try:
+                tool_args = json.loads(tool_call.function.arguments or "{}")
+            except json.JSONDecodeError:
+                tool_args = {}
+
+            print(f"  -> Tool Call: {tool_name}({tool_args})")
+            tool_output, is_final, review_data = execute_tool_call(
+                repo_root, tool_name, tool_args
+            )
+
+            if is_final and review_data:
+                elapsed = time.time() - start_time
+                print(
+                    f"\n[Agent]: Final review submitted at step {step} ({elapsed:.1f}s, {total_model_calls} calls)."
+                )
+                summary = str(review_data.get("summary", "")).strip()
+                inline_comments = review_data.get("inline_comments") or []
+                return summary, inline_comments, total_model_calls
+
+            print(
+                f"     Observation: {tool_output[:120]}..."
+                if len(tool_output) > 120
+                else f"     Observation: {tool_output}"
+            )
+            messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": tool_call.id,
+                    "content": tool_output,
+                }
+            )
+
+    # If loop hits limit without submit_review, extract last assistant message
+    elapsed = time.time() - start_time
+    print(
+        f"\n[Agent]: Reached maximum step limit ({MAX_AGENT_STEPS}). Finalizing review ({elapsed:.1f}s)."
     )
-    for chunk in stream:
-        if not chunk.choices:
-            continue
-        delta = chunk.choices[0].delta.content or ""
-        if delta:
-            sys.stdout.write(delta)
-            sys.stdout.flush()
-            chunks.append(delta)
-    print("\n--- End of review stream ---\n")
-    return "".join(chunks).strip()
+    last_content = (
+        messages[-1].get("content", "") if isinstance(messages[-1], dict) else ""
+    )
+    return (
+        str(last_content) or "Review completed with maximum step limit.",
+        [],
+        total_model_calls,
+    )
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Automated PR reviewer")
+    parser = argparse.ArgumentParser(description="Autonomous PR Reviewer")
     parser.add_argument(
         "--mode",
         required=True,
         choices=["code-review", "code-review-expert", "feedback-on-resolution"],
-        help="Review mode to run",
     )
-    parser.add_argument(
-        "--pr",
-        type=int,
-        default=int(os.environ.get("PR_NUMBER", "0")),
-        help="Pull request number",
-    )
-    parser.add_argument(
-        "--comment",
-        default=os.environ.get("COMMENT_BODY", ""),
-        help="Full comment text that triggered the review",
-    )
-    parser.add_argument(
-        "--level",
-        choices=["max", "high", "low"],
-        default=None,
-        help="Explicit review intensity level",
-    )
+    parser.add_argument("--pr", type=int, default=int(os.environ.get("PR_NUMBER", "0")))
+    parser.add_argument("--comment", default=os.environ.get("COMMENT_BODY", ""))
+    parser.add_argument("--level", choices=["max", "high", "low"], default=None)
     args = parser.parse_args()
 
     if args.pr <= 0:
@@ -596,36 +890,33 @@ def main() -> None:
 
     base_url, api_key, model = load_config()
     repo_root = Path(__file__).resolve().parent.parent
+    gh = get_gh_executable(repo_root)
 
     parsed_level, custom_instructions = parse_comment(args.comment)
     final_level = args.level or parsed_level
 
     print(
-        f"Running reviewer in mode '{args.mode}' (level: {final_level}) on pull request #{args.pr} using model '{model}'..."
+        f"Starting autonomous agent reviewer in mode '{args.mode}' (level: {final_level}) on PR #{args.pr}..."
     )
     if custom_instructions:
-        print(f"Applying custom instructions: {custom_instructions}")
+        print(f"Custom user focus: {custom_instructions}")
 
-    progress_comment_id = create_progress_comment(args.pr, args.mode, final_level)
+    progress_comment_id = create_progress_comment(gh, args.pr, args.mode, final_level)
 
-    system_prompt, user_prompt = build_prompt(
-        args.mode,
-        args.pr,
-        repo_root,
-        level=final_level,
-        custom_instructions=custom_instructions,
+    system_prompt, user_prompt = build_agent_prompts(
+        gh, args.mode, args.pr, repo_root, final_level, custom_instructions
     )
 
     client = OpenAI(base_url=base_url, api_key=api_key)
-    review_content = _stream_completion(client, model, system_prompt, user_prompt)
-
-    if not review_content:
-        sys.exit("Model returned an empty review response.")
-
-    summary_content, inline_comments = extract_review_and_inline_comments(
-        review_content
+    summary, inline_comments, total_calls = run_agent_loop(
+        client, model, system_prompt, user_prompt, repo_root
     )
-    post_review(args.pr, summary_content, inline_comments, progress_comment_id)
+    print(f"Review session completed with {total_calls} model interactions.")
+
+    if not summary.strip():
+        sys.exit("Agent terminated without producing a review summary.")
+
+    post_final_review(gh, args.pr, summary, inline_comments, progress_comment_id)
 
 
 if __name__ == "__main__":

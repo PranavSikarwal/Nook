@@ -13,7 +13,9 @@ jobs:
   code_review:
     name: Reviewer (Code review)
     if: |
-      (github.event_name == 'issue_comment' && github.event.issue.pull_request && startsWith(github.event.comment.body, '/code-review') && !startsWith(github.event.comment.body, '/code-review-expert')) ||
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request &&
+       contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association) &&
+       startsWith(github.event.comment.body, '/code-review') && !startsWith(github.event.comment.body, '/code-review-expert')) ||
       (github.event_name == 'pull_request' && github.event.label.name == 'code-review')
     runs-on: ubuntu-latest
     permissions:
@@ -56,7 +58,9 @@ jobs:
   code_review_expert:
     name: Reviewer (Code review expert)
     if: |
-      (github.event_name == 'issue_comment' && github.event.issue.pull_request && startsWith(github.event.comment.body, '/code-review-expert')) ||
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request &&
+       contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association) &&
+       startsWith(github.event.comment.body, '/code-review-expert')) ||
       (github.event_name == 'pull_request' && github.event.label.name == 'code-review-expert')
     runs-on: ubuntu-latest
     permissions:
@@ -99,7 +103,9 @@ jobs:
   feedback_on_resolution:
     name: Reviewer (Feedback on resolution)
     if: |
-      (github.event_name == 'issue_comment' && github.event.issue.pull_request && startsWith(github.event.comment.body, '/feedback-on-resolution')) ||
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request &&
+       contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association) &&
+       startsWith(github.event.comment.body, '/feedback-on-resolution')) ||
       (github.event_name == 'pull_request' && github.event.label.name == 'feedback-on-resolution')
     runs-on: ubuntu-latest
     permissions:
