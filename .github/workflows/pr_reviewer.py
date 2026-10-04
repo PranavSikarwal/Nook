@@ -174,7 +174,9 @@ AGENT_TOOLS: list[dict[str, Any]] = [
 
 
 def get_gh_executable(repo_root: Path) -> str:
-    """Return scripts/gh if available and executable, falling back to gh."""
+    """Return gh in GitHub Actions CI, or scripts/gh locally if available."""
+    if os.environ.get("GITHUB_ACTIONS") == "true":
+        return "gh"
     script_gh = repo_root / "scripts" / "gh"
     if script_gh.is_file() and os.access(script_gh, os.X_OK):
         return str(script_gh)
