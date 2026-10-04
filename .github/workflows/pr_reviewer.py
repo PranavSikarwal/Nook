@@ -15,7 +15,7 @@ from typing import Any
 
 from openai import OpenAI
 
-MAX_AGENT_STEPS = 15
+MAX_AGENT_STEPS = 500
 MAX_DIFF_CHARS = 15000
 ALLOWED_COMMANDS = {"cargo", "pytest", "ruff", "pyright", "git"}
 ERR_PREFIX = "Error:"
@@ -301,7 +301,7 @@ def parse_comment(comment_body: str) -> tuple[str, str]:
 
 
 def tool_read_file(
-    repo_root: Path, path: str, start_line: int = 1, end_line: int = 200
+    repo_root: Path, path: str, start_line: int = 1, end_line: int = 500
 ) -> str:
     """Read lines from a file in the workspace."""
     target = (repo_root / path).resolve()
@@ -314,7 +314,10 @@ def tool_read_file(
         lines = target.read_text(encoding="utf-8", errors="replace").splitlines()
         total_lines = len(lines)
         start = max(1, start_line)
-        end = min(total_lines, max(start, end_line))
+        if end_line <= 0 or end_line >= total_lines:
+            end = total_lines
+        else:
+            end = min(total_lines, max(start, end_line))
         subset = lines[start - 1 : end]
         numbered = [f"{start + i:4d} | {line}" for i, line in enumerate(subset)]
         return f"File: {path} (lines {start}-{end} of {total_lines}):\n" + "\n".join(
@@ -391,6 +394,8 @@ def tool_run_command(repo_root: Path, command: str) -> str:
         return combined
     except subprocess.TimeoutExpired:
         return f"{ERR_PREFIX} Command timed out after 60 seconds."
+    except (FileNotFoundError, OSError) as exc:
+        return f"{ERR_PREFIX} Failed to execute '{parts[0]}': {exc}"
 
 
 def execute_tool_call(
@@ -875,6 +880,14 @@ def run_agent_loop(
                 return summary, inline_comments, total_model_calls
 
             messages.append(tool_msg)
+
+        if step >= MAX_AGENT_STEPS - 20:
+            remaining = MAX_AGENT_STEPS - step
+            reminder = (
+                f"Notice: You have {remaining} steps remaining before the safety limit. "
+                "Wrap up your investigation and call submit_review."
+            )
+            messages.append({"role": "user", "content": reminder})
 
     elapsed = time.time() - start_time
     print(
