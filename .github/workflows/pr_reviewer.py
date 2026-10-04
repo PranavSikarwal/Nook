@@ -18,6 +18,7 @@ from openai import OpenAI
 MAX_AGENT_STEPS = 15
 MAX_DIFF_CHARS = 15000
 ALLOWED_COMMANDS = {"cargo", "pytest", "ruff", "pyright", "git"}
+ERR_PREFIX = "Error:"
 
 CODE_REVIEW_LEVELS = {
     "max": (
@@ -191,10 +192,10 @@ def run_cli_command(cmd: list[str], timeout: int = 30) -> str:
             check=False,
         )
         if result.returncode != 0:
-            return f"Error: {result.stderr.strip()}"
+            return f"{ERR_PREFIX} {result.stderr.strip()}"
         return result.stdout.strip()
     except subprocess.TimeoutExpired:
-        return f"Error: Command timed out after {timeout} seconds."
+        return f"{ERR_PREFIX} Command timed out after {timeout} seconds."
 
 
 def load_config() -> tuple[str, str, str]:
@@ -229,7 +230,7 @@ def get_pr_metadata(gh: str, pr_number: int) -> dict:
             "number,title,body,baseRefName,headRefName,headRefOid,commits",
         ]
     )
-    if not stdout or stdout.startswith("Error:"):
+    if not stdout or stdout.startswith(ERR_PREFIX):
         sys.exit(f"Failed to fetch metadata for pull request #{pr_number}: {stdout}")
     return json.loads(stdout)
 
@@ -237,7 +238,7 @@ def get_pr_metadata(gh: str, pr_number: int) -> dict:
 def get_pr_diff(gh: str, pr_number: int) -> str:
     """Fetch pull request diff via gh CLI."""
     diff = run_cli_command([gh, "pr", "diff", str(pr_number)])
-    if not diff or diff.startswith("Error:"):
+    if not diff or diff.startswith(ERR_PREFIX):
         sys.exit(f"Failed to fetch diff for pull request #{pr_number}: {diff}")
     return diff
 
@@ -303,9 +304,9 @@ def tool_read_file(
     """Read lines from a file in the workspace."""
     target = (repo_root / path).resolve()
     if not str(target).startswith(str(repo_root.resolve())):
-        return "Error: Path traversal outside repository root is blocked."
+        return f"{ERR_PREFIX} Path traversal outside repository root is blocked."
     if not target.is_file():
-        return f"Error: File '{path}' does not exist."
+        return f"{ERR_PREFIX} File '{path}' does not exist."
 
     try:
         lines = target.read_text(encoding="utf-8", errors="replace").splitlines()
@@ -318,7 +319,7 @@ def tool_read_file(
             numbered
         )
     except (OSError, UnicodeDecodeError) as exc:
-        return f"Error reading '{path}': {exc}"
+        return f"{ERR_PREFIX} reading '{path}': {exc}"
 
 
 def tool_search_code(repo_root: Path, query: str, path: str = ".") -> str:
@@ -326,7 +327,12 @@ def tool_search_code(repo_root: Path, query: str, path: str = ".") -> str:
     cmd = ["git", "grep", "-n", "-I", "-e", query, "--", path]
     try:
         res = subprocess.run(
-            cmd, cwd=repo_root, capture_output=True, text=True, timeout=15, check=False
+            cmd,
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
         )
         output = res.stdout.strip()
         if not output:
@@ -337,7 +343,7 @@ def tool_search_code(repo_root: Path, query: str, path: str = ".") -> str:
             lines.append("... [Results truncated to first 50 matches]")
         return "\n".join(lines)
     except subprocess.TimeoutExpired:
-        return "Error: Search timed out."
+        return f"{ERR_PREFIX} Search timed out."
 
 
 def tool_git_blame(repo_root: Path, path: str, start_line: int, end_line: int) -> str:
@@ -345,23 +351,28 @@ def tool_git_blame(repo_root: Path, path: str, start_line: int, end_line: int) -
     cmd = ["git", "blame", "-L", f"{start_line},{end_line}", "--", path]
     try:
         res = subprocess.run(
-            cmd, cwd=repo_root, capture_output=True, text=True, timeout=15, check=False
+            cmd,
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
         )
         if res.returncode != 0:
-            return f"Error running git blame: {res.stderr.strip()}"
+            return f"{ERR_PREFIX} running git blame: {res.stderr.strip()}"
         return res.stdout.strip() or "No blame data available."
     except subprocess.TimeoutExpired:
-        return "Error: Git blame timed out."
+        return f"{ERR_PREFIX} Git blame timed out."
 
 
 def tool_run_command(repo_root: Path, command: str) -> str:
     """Execute a read-only verification command in the repository workspace."""
     parts = shlex.split(command)
     if not parts:
-        return "Error: Empty command."
+        return f"{ERR_PREFIX} Empty command."
     base_cmd = Path(parts[0]).name
     if base_cmd not in ALLOWED_COMMANDS:
-        return f"Error: Command '{base_cmd}' is not allowed. Permitted commands: {', '.join(sorted(ALLOWED_COMMANDS))}"
+        return f"{ERR_PREFIX} Command '{base_cmd}' is not allowed. Permitted commands: {', '.join(sorted(ALLOWED_COMMANDS))}"
 
     try:
         res = subprocess.run(
@@ -377,7 +388,7 @@ def tool_run_command(repo_root: Path, command: str) -> str:
             combined = combined[:6000] + "\n... [Command output truncated]"
         return combined
     except subprocess.TimeoutExpired:
-        return "Error: Command timed out after 60 seconds."
+        return f"{ERR_PREFIX} Command timed out after 60 seconds."
 
 
 def execute_tool_call(
@@ -411,7 +422,7 @@ def execute_tool_call(
     if tool_name == "submit_review":
         return "Review accepted for submission.", True, tool_args
 
-    return f"Error: Unknown tool '{tool_name}'", False, None
+    return f"{ERR_PREFIX} Unknown tool '{tool_name}'", False, None
 
 
 # ---------------------------------------------------------------------------
@@ -608,7 +619,7 @@ def build_agent_prompts(
 
     if mode == "code-review":
         skill_content = load_file_content(
-            repo_root / ".github" / "skills" / "code-review.md"
+            repo_root / ".github" / "skills" / "code-review" / "SKILL.md"
         )
         level_instructions = CODE_REVIEW_LEVELS.get(level, CODE_REVIEW_LEVELS["high"])
         return _build_code_review_prompt(
@@ -621,7 +632,7 @@ def build_agent_prompts(
         )
     if mode == "code-review-expert":
         skill_content = load_file_content(
-            repo_root / ".github" / "skills" / "code-review-expert.md"
+            repo_root / ".github" / "skills" / "code-review-expert" / "SKILL.md"
         )
         level_instructions = EXPERT_REVIEW_LEVELS.get(
             level, EXPERT_REVIEW_LEVELS["high"]
@@ -714,7 +725,7 @@ def post_final_review(
     )
 
     # Attempt formal review with inline comments
-    if inline_comments and head_sha and not head_sha.startswith("Error:"):
+    if inline_comments and head_sha and not head_sha.startswith(ERR_PREFIX):
         review_payload = {
             "commit_id": head_sha,
             "body": summary,
@@ -785,6 +796,33 @@ def post_final_review(
 # ---------------------------------------------------------------------------
 
 
+def _process_single_tool_call(
+    repo_root: Path, tool_call: Any
+) -> tuple[dict[str, Any], bool, dict[str, Any] | None]:
+    """Execute a tool call and return tool message and final submission status."""
+    tool_name = tool_call.function.name
+    try:
+        tool_args = json.loads(tool_call.function.arguments or "{}")
+    except json.JSONDecodeError:
+        tool_args = {}
+
+    print(f"  -> Tool Call: {tool_name}({tool_args})")
+    tool_output, is_final, review_data = execute_tool_call(
+        repo_root, tool_name, tool_args
+    )
+
+    if not is_final:
+        snippet = tool_output[:120] + "..." if len(tool_output) > 120 else tool_output
+        print(f"     Observation: {snippet}")
+
+    tool_msg = {
+        "role": "tool",
+        "tool_call_id": tool_call.id,
+        "content": tool_output,
+    }
+    return tool_msg, is_final, review_data
+
+
 def run_agent_loop(
     client: OpenAI, model: str, system_prompt: str, user_prompt: str, repo_root: Path
 ) -> tuple[str, list[dict], int]:
@@ -813,7 +851,6 @@ def run_agent_loop(
         messages.append(message.model_dump(exclude_none=True))
 
         if not message.tool_calls:
-            # Model replied without tool calling
             content = message.content or ""
             print(f"[Agent]: Direct response generated ({len(content)} chars).")
             elapsed = time.time() - start_time
@@ -823,17 +860,9 @@ def run_agent_loop(
             return content, [], total_model_calls
 
         for tool_call in message.tool_calls:
-            tool_name = tool_call.function.name
-            try:
-                tool_args = json.loads(tool_call.function.arguments or "{}")
-            except json.JSONDecodeError:
-                tool_args = {}
-
-            print(f"  -> Tool Call: {tool_name}({tool_args})")
-            tool_output, is_final, review_data = execute_tool_call(
-                repo_root, tool_name, tool_args
+            tool_msg, is_final, review_data = _process_single_tool_call(
+                repo_root, tool_call
             )
-
             if is_final and review_data:
                 elapsed = time.time() - start_time
                 print(
@@ -843,26 +872,19 @@ def run_agent_loop(
                 inline_comments = review_data.get("inline_comments") or []
                 return summary, inline_comments, total_model_calls
 
-            print(
-                f"     Observation: {tool_output[:120]}..."
-                if len(tool_output) > 120
-                else f"     Observation: {tool_output}"
-            )
-            messages.append(
-                {
-                    "role": "tool",
-                    "tool_call_id": tool_call.id,
-                    "content": tool_output,
-                }
-            )
+            messages.append(tool_msg)
 
-    # If loop hits limit without submit_review, extract last assistant message
     elapsed = time.time() - start_time
     print(
         f"\n[Agent]: Reached maximum step limit ({MAX_AGENT_STEPS}). Finalizing review ({elapsed:.1f}s)."
     )
     last_content = (
         messages[-1].get("content", "") if isinstance(messages[-1], dict) else ""
+    )
+    return (
+        str(last_content) or "Review completed with maximum step limit.",
+        [],
+        total_model_calls,
     )
     return (
         str(last_content) or "Review completed with maximum step limit.",
@@ -889,7 +911,7 @@ def main() -> None:
         )
 
     base_url, api_key, model = load_config()
-    repo_root = Path(__file__).resolve().parent.parent
+    repo_root = Path(__file__).resolve().parent.parent.parent
     gh = get_gh_executable(repo_root)
 
     parsed_level, custom_instructions = parse_comment(args.comment)

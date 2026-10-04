@@ -53,7 +53,7 @@ jobs:
           REVIEWER_API_KEY: ${{ secrets.REVIEWER_API_KEY || secrets.NOOK_API_KEY }}
           REVIEWER_MODEL: ${{ secrets.REVIEWER_MODEL || secrets.NOOK_MODEL }}
         run: |
-          python scripts/pr_reviewer.py --mode code-review
+          python .github/workflows/pr_reviewer.py --mode code-review
 
   code_review_expert:
     name: Reviewer (Code review expert)
@@ -98,7 +98,7 @@ jobs:
           REVIEWER_API_KEY: ${{ secrets.REVIEWER_API_KEY || secrets.NOOK_API_KEY }}
           REVIEWER_MODEL: ${{ secrets.REVIEWER_MODEL || secrets.NOOK_MODEL }}
         run: |
-          python scripts/pr_reviewer.py --mode code-review-expert
+          python .github/workflows/pr_reviewer.py --mode code-review-expert
 
   feedback_on_resolution:
     name: Reviewer (Feedback on resolution)
@@ -143,4 +143,4 @@ jobs:
           REVIEWER_API_KEY: ${{ secrets.REVIEWER_API_KEY || secrets.NOOK_API_KEY }}
           REVIEWER_MODEL: ${{ secrets.REVIEWER_MODEL || secrets.NOOK_MODEL }}
         run: |
-          python scripts/pr_reviewer.py --mode feedback-on-resolution
+          python .github/workflows/pr_reviewer.py --mode feedback-on-resolution
