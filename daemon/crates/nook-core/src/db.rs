@@ -18,10 +18,10 @@ pub async fn create_pool(
         .await
 }
 
-pub async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::Error> {
-    let migration_sql = include_str!("../../../migrations/0001_init.sql");
-    sqlx::raw_sql(migration_sql).execute(pool).await?;
-    Ok(())
+pub async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::migrate::MigrateError> {
+    sqlx::migrate!("../../migrations")
+        .run(pool)
+        .await
 }
 
 pub async fn repair_open_replies(pool: &PgPool) -> Result<u64, sqlx::Error> {

@@ -1,19 +1,52 @@
+use std::str::FromStr;
 use nook_core::db::{
     create_pool, delete_chat, ensure_chat, get_chat, list_chats, repair_open_replies,
     run_migrations, save_assistant_message, save_user_message,
 };
 use nook_core::protocol::{Attachment, AttachmentKind, MessageStatus};
+use sqlx::postgres::PgConnectOptions;
 use uuid::Uuid;
 
 #[tokio::test]
 async fn test_database_crud_and_cascade_delete() {
-    let db_url = std::env::var("NOOK_DATABASE_URL")
+    let base_db_url = std::env::var("NOOK_DATABASE_URL")
         .unwrap_or_else(|_| "postgresql:///nook".to_string());
 
-    let pool = match create_pool(&db_url).await {
+    let admin_pool = match create_pool(&base_db_url).await {
         Ok(p) => p,
         Err(e) => {
             eprintln!("Skipping database test: Postgres unreachable: {e}");
+            return;
+        }
+    };
+
+    let test_db_name = format!("nook_test_{}", &Uuid::new_v4().to_string().replace('-', "")[..12]);
+    if let Err(e) = sqlx::query(&format!("CREATE DATABASE {test_db_name}"))
+        .execute(&admin_pool)
+        .await
+    {
+        eprintln!("Skipping database test: Failed to create temporary test database {test_db_name}: {e}");
+        return;
+    }
+
+    let test_opts = match PgConnectOptions::from_str(&base_db_url) {
+        Ok(opts) => opts.database(&test_db_name),
+        Err(e) => {
+            eprintln!("Failed to parse connection options: {e}");
+            let _ = sqlx::query(&format!("DROP DATABASE IF EXISTS {test_db_name} WITH (FORCE)"))
+                .execute(&admin_pool)
+                .await;
+            return;
+        }
+    };
+
+    let pool = match sqlx::PgPool::connect_with(test_opts).await {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("Failed to connect to temporary database: {e}");
+            let _ = sqlx::query(&format!("DROP DATABASE IF EXISTS {test_db_name} WITH (FORCE)"))
+                .execute(&admin_pool)
+                .await;
             return;
         }
     };
@@ -128,4 +161,10 @@ async fn test_database_crud_and_cascade_delete() {
     );
 
     let _ = delete_chat(&pool, open_chat_id).await;
+
+    // Clean up temporary database
+    pool.close().await;
+    let _ = sqlx::query(&format!("DROP DATABASE IF EXISTS {test_db_name} WITH (FORCE)"))
+        .execute(&admin_pool)
+        .await;
 }
