@@ -357,8 +357,50 @@ def build_prompt(
     sys.exit(f"Unknown review mode: {mode}")
 
 
-def post_review(pr_number: int, content: str) -> None:
-    """Post the review comment to the pull request via gh CLI."""
+def create_progress_comment(pr_number: int, mode: str, level: str) -> str:
+    """Post an initial progress comment to the PR and return its comment ID."""
+    body = (
+        f"**Review in progress** (`{mode}`, level: `{level.upper()}`)...\n\n"
+        "Analyzing modified files and repository guidelines. Findings will appear here shortly."
+    )
+    cmd = [
+        "gh",
+        "api",
+        f"repos/:owner/:repo/issues/{pr_number}/comments",
+        "-f",
+        f"body={body}",
+        "--jq",
+        ".id",
+    ]
+    stdout = run_command(cmd)
+    return stdout.strip()
+
+
+def update_progress_comment(comment_id: str, content: str) -> bool:
+    """Update the existing progress comment with the final review."""
+    if not comment_id:
+        return False
+    cmd = [
+        "gh",
+        "api",
+        f"repos/:owner/:repo/issues/comments/{comment_id}",
+        "-X",
+        "PATCH",
+        "-f",
+        f"body={content}",
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    return result.returncode == 0
+
+
+def post_review(pr_number: int, content: str, progress_comment_id: str = "") -> None:
+    """Post or update the review comment on the pull request."""
+    if progress_comment_id and update_progress_comment(progress_comment_id, content):
+        print(
+            f"Successfully updated review comment #{progress_comment_id} on pull request #{pr_number}"
+        )
+        return
+
     # Attempt to post as formal review comment
     result = subprocess.run(
         ["gh", "pr", "review", str(pr_number), "--comment", "-b", content],
@@ -385,6 +427,33 @@ def post_review(pr_number: int, content: str) -> None:
             file=sys.stderr,
         )
         sys.exit(1)
+
+
+def _stream_completion(
+    client: OpenAI, model: str, system_prompt: str, user_prompt: str
+) -> str:
+    """Stream model response to stdout and return full content."""
+    print("\n--- Live model review stream ---")
+    chunks: list[str] = []
+    stream = client.chat.completions.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        temperature=0.2,
+        stream=True,
+    )
+    for chunk in stream:
+        if not chunk.choices:
+            continue
+        delta = chunk.choices[0].delta.content or ""
+        if delta:
+            sys.stdout.write(delta)
+            sys.stdout.flush()
+            chunks.append(delta)
+    print("\n--- End of review stream ---\n")
+    return "".join(chunks).strip()
 
 
 def main() -> None:
@@ -431,6 +500,8 @@ def main() -> None:
     if custom_instructions:
         print(f"Applying custom instructions: {custom_instructions}")
 
+    progress_comment_id = create_progress_comment(args.pr, args.mode, final_level)
+
     system_prompt, user_prompt = build_prompt(
         args.mode,
         args.pr,
@@ -440,20 +511,12 @@ def main() -> None:
     )
 
     client = OpenAI(base_url=base_url, api_key=api_key)
-    response = client.chat.completions.create(
-        model=model,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
-        temperature=0.2,
-    )
+    review_content = _stream_completion(client, model, system_prompt, user_prompt)
 
-    review_content = response.choices[0].message.content or ""
-    if not review_content.strip():
+    if not review_content:
         sys.exit("Model returned an empty review response.")
 
-    post_review(args.pr, review_content)
+    post_review(args.pr, review_content, progress_comment_id)
 
 
 if __name__ == "__main__":
