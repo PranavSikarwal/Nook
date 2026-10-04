@@ -886,11 +886,6 @@ def run_agent_loop(
         [],
         total_model_calls,
     )
-    return (
-        str(last_content) or "Review completed with maximum step limit.",
-        [],
-        total_model_calls,
-    )
 
 
 def main() -> None:
