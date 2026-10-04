@@ -367,13 +367,22 @@ def create_progress_comment(pr_number: int, mode: str, level: str) -> str:
         "gh",
         "api",
         f"repos/:owner/:repo/issues/{pr_number}/comments",
-        "-f",
-        f"body={body}",
+        "--input",
+        "-",
         "--jq",
         ".id",
     ]
-    stdout = run_command(cmd)
-    return stdout.strip()
+    payload = json.dumps({"body": body})
+    result = subprocess.run(
+        cmd,
+        input=payload,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        return ""
+    return result.stdout.strip()
 
 
 def update_progress_comment(comment_id: str, content: str) -> bool:
@@ -386,10 +395,17 @@ def update_progress_comment(comment_id: str, content: str) -> bool:
         f"repos/:owner/:repo/issues/comments/{comment_id}",
         "-X",
         "PATCH",
-        "-f",
-        f"body={content}",
+        "--input",
+        "-",
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    payload = json.dumps({"body": content})
+    result = subprocess.run(
+        cmd,
+        input=payload,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
     return result.returncode == 0
 
 
@@ -401,9 +417,10 @@ def post_review(pr_number: int, content: str, progress_comment_id: str = "") -> 
         )
         return
 
-    # Attempt to post as formal review comment
+    # Attempt to post as formal review comment via stdin
     result = subprocess.run(
-        ["gh", "pr", "review", str(pr_number), "--comment", "-b", content],
+        ["gh", "pr", "review", str(pr_number), "--comment", "--body-file", "-"],
+        input=content,
         capture_output=True,
         text=True,
         check=False,
@@ -412,9 +429,10 @@ def post_review(pr_number: int, content: str, progress_comment_id: str = "") -> 
         print(f"Successfully posted review to pull request #{pr_number}")
         return
 
-    # Fallback to standard PR comment if review submission is rejected (e.g. self-review restriction)
+    # Fallback to standard PR comment via stdin
     fallback = subprocess.run(
-        ["gh", "pr", "comment", str(pr_number), "-b", content],
+        ["gh", "pr", "comment", str(pr_number), "--body-file", "-"],
+        input=content,
         capture_output=True,
         text=True,
         check=False,
