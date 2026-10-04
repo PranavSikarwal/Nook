@@ -39,14 +39,14 @@ Task details and "done when" checks are in `docs/plan.md`. Specs are in `docs/sp
 
 ## Phase P: Panel
 
-- [ ] P0. Overlay spike, bundle script, and the answer to open point 3. Needs: none
-- [ ] P1. Daemon client and protocol types. Needs: P0, C1
-- [ ] P2. Compact and expanded views with streaming. Needs: P1, D4
-- [ ] P3. Markdown rendering. Needs: P2
-- [ ] P4. History. Needs: P2, D5
-- [ ] P5. Attachments. Needs: P2, W4
-- [ ] P6. Settings. Needs: P2, D7
-- [ ] P7. Errors, Stop, and Retry. Needs: P2, D6
+- [x] P0. Overlay spike, bundle script, and the answer to open point 3. Needs: none
+- [x] P1. Daemon client and protocol types. Needs: P0, C1
+- [x] P2. Compact and expanded views with streaming. Needs: P1, D4
+- [x] P3. Markdown rendering. Needs: P2
+- [x] P4. History. Needs: P2, D5
+- [x] P5. Attachments. Needs: P2, W4
+- [x] P6. Settings. Needs: P2, D7
+- [x] P7. Errors, Stop, and Retry. Needs: P2, D6
 
 ## Phase I: Integration
 
