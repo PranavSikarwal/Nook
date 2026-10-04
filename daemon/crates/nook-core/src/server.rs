@@ -1,6 +1,5 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use sqlx::PgPool;
@@ -25,6 +24,7 @@ pub struct AppState {
     pub pool: Option<PgPool>,
     pub supervisor: Mutex<Option<WorkerSupervisor>>,
     pub open_requests: Mutex<HashMap<Uuid, Uuid>>, // maps client id -> worker request_id
+    pub cancelled_requests: Mutex<HashSet<Uuid>>,
 }
 
 pub struct Server {
@@ -46,10 +46,12 @@ impl Server {
             fs::create_dir_all(parent)?;
         }
 
-        let listener = UnixListener::bind(socket_path)?;
-
-        let perms = fs::Permissions::from_mode(0o600);
-        fs::set_permissions(socket_path, perms)?;
+        let listener = {
+            let old_umask = unsafe { libc::umask(0o177) };
+            let bind_res = UnixListener::bind(socket_path);
+            unsafe { libc::umask(old_umask) };
+            bind_res?
+        };
 
         info!(path = %socket_path.display(), "Bound Unix domain socket with permissions 0600");
 
@@ -130,6 +132,20 @@ async fn handle_connection(stream: UnixStream, state: Arc<AppState>) {
             }
             Err(e) => {
                 error!("Invalid JSON from client: {e}");
+                if let Ok(val) = serde_json::from_str::<serde_json::Value>(trimmed) {
+                    if let Some(id_val) = val.get("id") {
+                        if let Ok(id) = serde_json::from_value::<Uuid>(id_val.clone()) {
+                            let _ = tx_out.send(DaemonMessage::Error {
+                                id,
+                                error: ErrorInfo {
+                                    code: ErrorCode::InvalidRequest,
+                                    message: format!("Invalid request or unknown message type: {e}"),
+                                    retryable: false,
+                                },
+                            }).await;
+                        }
+                    }
+                }
             }
         }
     }
@@ -270,15 +286,19 @@ async fn process_client_message(
             let sup_opt = { state.supervisor.lock().await.clone() };
             if let Some(sup) = sup_opt {
                 let worker_req_id = Uuid::new_v4();
-                let _ = sup.send_request(DaemonWorkerRequest::DeleteChat {
+                if let Ok(mut rx) = sup.send_request(DaemonWorkerRequest::DeleteChat {
                     request_id: worker_req_id,
                     chat_id,
-                }).await;
+                }).await {
+                    let _ = tokio::time::timeout(std::time::Duration::from_secs(5), rx.recv()).await;
+                }
             }
 
             // 2. Delete database row
             if let Some(ref pool) = state.pool {
-                let _ = db::delete_chat(pool, chat_id).await;
+                if let Err(e) = db::delete_chat(pool, chat_id).await {
+                    error!("Failed to delete chat {chat_id} from database: {e}");
+                }
             }
 
             // 3. Remove attachments folder
@@ -291,6 +311,11 @@ async fn process_client_message(
         }
 
         ClientMessage::Cancel { id, target_id } => {
+            {
+                let mut cancelled = state.cancelled_requests.lock().await;
+                cancelled.insert(target_id);
+            }
+
             let worker_req_id = {
                 let open_reqs = state.open_requests.lock().await;
                 open_reqs.get(&target_id).copied()
@@ -322,8 +347,26 @@ async fn handle_send_message(
     state: Arc<AppState>,
     tx_out: mpsc::Sender<DaemonMessage>,
 ) {
+    let worker_req_id = Uuid::new_v4();
+    {
+        let mut open_reqs = state.open_requests.lock().await;
+        open_reqs.insert(id, worker_req_id);
+    }
+
+    // Helper macro/closure to clean up on early exit
+    let cleanup = |st: &Arc<AppState>| {
+        let st_clone = st.clone();
+        async move {
+            let mut open_reqs = st_clone.open_requests.lock().await;
+            open_reqs.remove(&id);
+            let mut cancelled = st_clone.cancelled_requests.lock().await;
+            cancelled.remove(&id);
+        }
+    };
+
     // 1. Validate
     if text.trim().is_empty() && attachments.is_empty() {
+        cleanup(&state).await;
         let _ = tx_out.send(DaemonMessage::Error {
             id,
             error: ErrorInfo {
@@ -336,10 +379,11 @@ async fn handle_send_message(
     }
 
     if attachments.len() > 5 {
+        cleanup(&state).await;
         let _ = tx_out.send(DaemonMessage::Error {
             id,
             error: ErrorInfo {
-                code: ErrorCode::InvalidRequest,
+                code: ErrorCode::AttachmentInvalid,
                 message: "Attachments count exceeds maximum limit of 5".to_string(),
                 retryable: false,
             },
@@ -347,9 +391,25 @@ async fn handle_send_message(
         return;
     }
 
+    for att in &attachments {
+        if let Err(msg) = validate_attachment(att) {
+            cleanup(&state).await;
+            let _ = tx_out.send(DaemonMessage::Error {
+                id,
+                error: ErrorInfo {
+                    code: ErrorCode::AttachmentInvalid,
+                    message: msg,
+                    retryable: false,
+                },
+            }).await;
+            return;
+        }
+    }
+
     let pool = match state.pool {
         Some(ref p) => p.clone(),
         None => {
+            cleanup(&state).await;
             let _ = tx_out.send(DaemonMessage::Error {
                 id,
                 error: ErrorInfo {
@@ -364,6 +424,7 @@ async fn handle_send_message(
 
     let user_msg_id = Uuid::new_v4();
     if let Err(e) = db::ensure_chat(&pool, chat_id, "New Chat").await {
+        cleanup(&state).await;
         let _ = tx_out.send(DaemonMessage::Error {
             id,
             error: ErrorInfo {
@@ -376,6 +437,7 @@ async fn handle_send_message(
     }
 
     if let Err(e) = db::save_user_message(&pool, user_msg_id, chat_id, &text, &attachments).await {
+        cleanup(&state).await;
         let _ = tx_out.send(DaemonMessage::Error {
             id,
             error: ErrorInfo {
@@ -390,6 +452,7 @@ async fn handle_send_message(
     let supervisor = match state.supervisor.lock().await.clone() {
         Some(s) => s,
         None => {
+            cleanup(&state).await;
             let _ = tx_out.send(DaemonMessage::Error {
                 id,
                 error: ErrorInfo {
@@ -402,10 +465,30 @@ async fn handle_send_message(
         }
     };
 
-    let worker_req_id = Uuid::new_v4();
-    {
-        let mut open_reqs = state.open_requests.lock().await;
-        open_reqs.insert(id, worker_req_id);
+    // Check if cancel was already requested
+    let was_cancelled = {
+        let cancelled = state.cancelled_requests.lock().await;
+        cancelled.contains(&id)
+    };
+
+    if was_cancelled {
+        cleanup(&state).await;
+        let asst_message_id = Uuid::new_v4();
+        let _ = db::save_assistant_message(
+            &pool,
+            asst_message_id,
+            chat_id,
+            "",
+            MessageStatus::Cancelled,
+            None,
+        ).await;
+        let _ = tx_out.send(DaemonMessage::MessageFinished {
+            id,
+            chat_id,
+            message_id: asst_message_id,
+            status: FinishStatus::Cancelled,
+        }).await;
+        return;
     }
 
     let mut event_rx = match supervisor.send_request(DaemonWorkerRequest::Run {
@@ -416,6 +499,7 @@ async fn handle_send_message(
     }).await {
         Ok(rx) => rx,
         Err(e) => {
+            cleanup(&state).await;
             let _ = tx_out.send(DaemonMessage::Error {
                 id,
                 error: ErrorInfo {
@@ -494,17 +578,19 @@ async fn handle_send_message(
                     status,
                 }).await;
 
-                // Dispatch title request if chat is untitled
-                let chat_row = db::get_chat(&pool, chat_id).await.ok().flatten();
-                if let Some((current_title, _)) = chat_row {
-                    if current_title == "New Chat" || current_title.is_empty() {
-                        let pool_clone = pool.clone();
-                        let sup_clone = supervisor.clone();
-                        let tx_out_clone = tx_out.clone();
-                        let first_msg = text.clone();
-                        tokio::spawn(async move {
-                            request_title(chat_id, first_msg, sup_clone, pool_clone, tx_out_clone).await;
-                        });
+                // Dispatch title request only after successful completion if chat is untitled
+                if status == FinishStatus::Complete {
+                    let chat_row = db::get_chat(&pool, chat_id).await.ok().flatten();
+                    if let Some((current_title, _)) = chat_row {
+                        if current_title == "New Chat" || current_title.is_empty() {
+                            let pool_clone = pool.clone();
+                            let sup_clone = supervisor.clone();
+                            let tx_out_clone = tx_out.clone();
+                            let first_msg = text.clone();
+                            tokio::spawn(async move {
+                                request_title(chat_id, first_msg, sup_clone, pool_clone, tx_out_clone).await;
+                            });
+                        }
                     }
                 }
                 break;
@@ -534,6 +620,8 @@ async fn handle_send_message(
     {
         let mut open_reqs = state.open_requests.lock().await;
         open_reqs.remove(&id);
+        let mut cancelled = state.cancelled_requests.lock().await;
+        cancelled.remove(&id);
     }
 }
 
@@ -557,12 +645,66 @@ async fn request_title(
         }
     }
 
-    // Fallback: use first 40 characters
-    let fallback = if first_message.len() > 40 {
-        format!("{}...", &first_message[..37])
+    // Fallback: safely take up to 40 characters
+    let fallback = if first_message.chars().count() > 40 {
+        let truncated: String = first_message.chars().take(37).collect();
+        format!("{truncated}...")
     } else {
         first_message
     };
     let _ = db::update_chat_title(&pool, chat_id, &fallback).await;
     let _ = tx_out.send(DaemonMessage::ChatTitled { chat_id, title: fallback }).await;
+}
+
+pub fn validate_attachment(att: &Attachment) -> Result<(), String> {
+    const MAX_SIZE_BYTES: i64 = 10 * 1024 * 1024; // 10_485_760 bytes
+
+    if att.size_bytes < 0 || att.size_bytes > MAX_SIZE_BYTES {
+        return Err(format!(
+            "Attachment '{}' exceeds maximum allowed size of 10 MB ({} bytes)",
+            att.name, att.size_bytes
+        ));
+    }
+
+    match att.kind {
+        crate::protocol::AttachmentKind::Image => {
+            match att.mime.to_ascii_lowercase().as_str() {
+                "image/png" | "image/jpeg" | "image/jpg" | "image/webp" | "image/gif" => Ok(()),
+                _ => Err(format!(
+                    "Invalid MIME type '{}' for image attachment '{}' (allowed: PNG, JPEG, WebP, GIF)",
+                    att.mime, att.name
+                )),
+            }
+        }
+        crate::protocol::AttachmentKind::Pdf => {
+            match att.mime.to_ascii_lowercase().as_str() {
+                "application/pdf" => Ok(()),
+                _ => Err(format!(
+                    "Invalid MIME type '{}' for PDF attachment '{}' (allowed: application/pdf)",
+                    att.mime, att.name
+                )),
+            }
+        }
+        crate::protocol::AttachmentKind::Text => {
+            let m = att.mime.to_ascii_lowercase();
+            if m.starts_with("text/")
+                || m == "application/json"
+                || m == "text/csv"
+                || m == "text/markdown"
+                || m == "text/plain"
+                || m == "application/javascript"
+                || m == "application/typescript"
+                || m == "application/xml"
+                || m == "application/x-yaml"
+                || m == "text/yaml"
+            {
+                Ok(())
+            } else {
+                Err(format!(
+                    "Invalid MIME type '{}' for text attachment '{}' (allowed: text/*, JSON, CSV, Markdown, code)",
+                    att.mime, att.name
+                ))
+            }
+        }
+    }
 }

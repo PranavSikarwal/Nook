@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{broadcast, mpsc, Mutex};
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -24,6 +24,8 @@ pub enum SupervisorError {
 struct Inner {
     active_listeners: HashMap<Uuid, mpsc::Sender<DaemonWorkerEvent>>,
     stdin_tx: Option<mpsc::Sender<String>>,
+    is_shutdown: bool,
+    shutdown_tx: broadcast::Sender<()>,
 }
 
 #[derive(Clone)]
@@ -76,9 +78,12 @@ impl WorkerSupervisor {
             env_vars.insert("NOOK_API_KEY".to_string(), key);
         }
 
+        let (shutdown_tx, shutdown_rx) = broadcast::channel(1);
         let inner = Arc::new(Mutex::new(Inner {
             active_listeners: HashMap::new(),
             stdin_tx: None,
+            is_shutdown: false,
+            shutdown_tx,
         }));
 
         let supervisor = Self { inner };
@@ -88,7 +93,7 @@ impl WorkerSupervisor {
         let sup_clone = supervisor.clone();
 
         tokio::spawn(async move {
-            sup_clone.supervisor_loop(command_args, env_vars, Some(first_ready_tx)).await;
+            sup_clone.supervisor_loop(command_args, env_vars, Some(first_ready_tx), shutdown_rx).await;
         });
 
         match tokio::time::timeout(Duration::from_secs(60), first_ready_rx).await {
@@ -104,23 +109,65 @@ impl WorkerSupervisor {
         command_args: Vec<String>,
         env_vars: HashMap<String, String>,
         mut initial_ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), SupervisorError>>>,
+        mut shutdown_rx: broadcast::Receiver<()>,
     ) {
         let backoffs = [1, 2, 4, 8, 30];
         let mut backoff_idx = 0;
 
         loop {
-            let spawn_res = self.spawn_and_supervise(&command_args, &env_vars, initial_ready_tx.take()).await;
+            let ready_at = Arc::new(Mutex::new(None::<std::time::Instant>));
+            let spawn_res = tokio::select! {
+                res = self.spawn_and_supervise(
+                    &command_args,
+                    &env_vars,
+                    initial_ready_tx.take(),
+                    ready_at.clone(),
+                ) => res,
+                _ = shutdown_rx.recv() => {
+                    info!("Supervisor loop received shutdown signal during supervise");
+                    self.broadcast_crash().await;
+                    return;
+                }
+            };
 
-            // Broadcast crash to any active listeners
+            // Broadcast crash or shutdown error to any remaining active listeners
             self.broadcast_crash().await;
+
+            // Check if supervisor is shut down
+            {
+                let inner = self.inner.lock().await;
+                if inner.is_shutdown {
+                    info!("Supervisor shut down; exiting loop");
+                    return;
+                }
+            }
 
             if let Err(e) = spawn_res {
                 warn!("Worker process spawn failed: {e}");
             }
 
+            // Reset backoff delay after 60 seconds of healthy running post-ready
+            let ran_healthy = if let Some(ready_time) = *ready_at.lock().await {
+                ready_time.elapsed() >= Duration::from_secs(60)
+            } else {
+                false
+            };
+
+            if ran_healthy {
+                backoff_idx = 0;
+            }
+
             let delay = backoffs[backoff_idx.min(backoffs.len() - 1)];
             info!(delay_secs = delay, "Waiting before restarting worker");
-            tokio::time::sleep(Duration::from_secs(delay)).await;
+
+            tokio::select! {
+                _ = tokio::time::sleep(Duration::from_secs(delay)) => {},
+                _ = shutdown_rx.recv() => {
+                    info!("Supervisor loop received shutdown while sleeping");
+                    self.broadcast_crash().await;
+                    return;
+                }
+            }
             backoff_idx += 1;
         }
     }
@@ -130,7 +177,12 @@ impl WorkerSupervisor {
         command_args: &[String],
         env_vars: &HashMap<String, String>,
         ready_notifier: Option<tokio::sync::oneshot::Sender<Result<(), SupervisorError>>>,
+        ready_at: Arc<Mutex<Option<std::time::Instant>>>,
     ) -> Result<(), SupervisorError> {
+        let mut shutdown_rx = {
+            let inner = self.inner.lock().await;
+            inner.shutdown_tx.subscribe()
+        };
         let mut cmd = Command::new(&command_args[0]);
         if command_args.len() > 1 {
             cmd.args(&command_args[1..]);
@@ -177,6 +229,7 @@ impl WorkerSupervisor {
         match event {
             DaemonWorkerEvent::Ready { version } => {
                 info!(version = %version, "Worker process ready");
+                *ready_at.lock().await = Some(std::time::Instant::now());
                 if let Some(tx) = ready_notifier {
                     let _ = tx.send(Ok(()));
                 }
@@ -228,6 +281,11 @@ impl WorkerSupervisor {
                     warn!("Worker child process exited");
                     break;
                 }
+                _ = shutdown_rx.recv() => {
+                    info!("Supervisor received shutdown signal during worker execution");
+                    let _ = child.kill().await;
+                    break;
+                }
             }
         }
 
@@ -256,13 +314,17 @@ impl WorkerSupervisor {
                 | DaemonWorkerEvent::Error { .. }
         );
 
-        let mut inner = self.inner.lock().await;
-        if let Some(tx) = inner.active_listeners.get(&req_id) {
-            let _ = tx.send(event).await;
-        }
+        let sender = {
+            let mut inner = self.inner.lock().await;
+            if is_terminal {
+                inner.active_listeners.remove(&req_id)
+            } else {
+                inner.active_listeners.get(&req_id).cloned()
+            }
+        };
 
-        if is_terminal {
-            inner.active_listeners.remove(&req_id);
+        if let Some(tx) = sender {
+            let _ = tx.send(event).await;
         }
     }
 
@@ -301,22 +363,34 @@ impl WorkerSupervisor {
             .map_err(|e| SupervisorError::Communication(e.to_string()))?;
         payload.push('\n');
 
-        let mut inner = self.inner.lock().await;
+        let stdin_tx = {
+            let inner = self.inner.lock().await;
+            if inner.is_shutdown {
+                return Err(SupervisorError::Communication(
+                    "Worker supervisor is shut down".to_string(),
+                ));
+            }
+            match &inner.stdin_tx {
+                Some(tx) => tx.clone(),
+                None => {
+                    return Err(SupervisorError::Communication(
+                        "Worker stdin not available".to_string(),
+                    ));
+                }
+            }
+        };
+
+        stdin_tx
+            .send(payload)
+            .await
+            .map_err(|e| SupervisorError::Communication(e.to_string()))?;
+
         if let Some(id) = req_id {
+            let mut inner = self.inner.lock().await;
             inner.active_listeners.insert(id, tx);
         }
 
-        if let Some(ref stdin_tx) = inner.stdin_tx {
-            stdin_tx
-                .send(payload)
-                .await
-                .map_err(|e| SupervisorError::Communication(e.to_string()))?;
-            Ok(rx)
-        } else {
-            Err(SupervisorError::Communication(
-                "Worker stdin not available".to_string(),
-            ))
-        }
+        Ok(rx)
     }
 
     pub async fn shutdown(&self) {
@@ -324,9 +398,16 @@ impl WorkerSupervisor {
         let mut payload = serde_json::to_string(&req).unwrap_or_default();
         payload.push('\n');
 
-        let inner = self.inner.lock().await;
-        if let Some(ref stdin_tx) = inner.stdin_tx {
-            let _ = stdin_tx.send(payload).await;
+        let (stdin_tx, shutdown_tx) = {
+            let mut inner = self.inner.lock().await;
+            inner.is_shutdown = true;
+            (inner.stdin_tx.clone(), inner.shutdown_tx.clone())
+        };
+
+        let _ = shutdown_tx.send(());
+
+        if let Some(ref stdin) = stdin_tx {
+            let _ = stdin.send(payload).await;
         }
     }
 }

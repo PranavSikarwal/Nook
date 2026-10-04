@@ -63,6 +63,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         pool,
         supervisor: Mutex::new(supervisor),
         open_requests: Mutex::new(HashMap::new()),
+        cancelled_requests: Mutex::new(std::collections::HashSet::new()),
     });
 
     // 7. Bind socket with permissions 0600

@@ -32,6 +32,13 @@ cat <<EOF > "$PLIST_PATH"
     <array>
         <string>$NOOKD_BIN</string>
     </array>
+    <key>WorkingDirectory</key>
+    <string>$ROOT_DIR</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>$HOME/.local/bin:$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
     <key>KeepAlive</key>
     <true/>
     <key>RunAtLoad</key>

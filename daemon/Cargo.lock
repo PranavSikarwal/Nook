@@ -850,6 +850,7 @@ name = "nook-core"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "libc",
  "security-framework",
  "serde",
  "serde_json",

@@ -82,5 +82,18 @@ for line in sys.stdin:
             + "\n"
         )
         sys.stdout.flush()
+    elif req_type == "cancel":
+        sys.stdout.write(
+            json.dumps(
+                {
+                    "type": "message_finished",
+                    "request_id": req_id,
+                    "message_id": "44444444-4444-4444-4444-444444444444",
+                    "status": "cancelled",
+                }
+            )
+            + "\n"
+        )
+        sys.stdout.flush()
     elif req_type == "crash":
         sys.exit(1)

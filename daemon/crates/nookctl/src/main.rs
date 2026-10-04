@@ -148,11 +148,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let req_id = Uuid::new_v4();
             let chat_id = chat.unwrap_or_else(Uuid::new_v4);
 
+            let att_dir = nook_core::config::Config::default_attachments_dir().join(chat_id.to_string());
+            if !attachments.is_empty() {
+                std::fs::create_dir_all(&att_dir)?;
+            }
+
             let mut att_items = Vec::new();
-            for path in attachments {
-                let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
-                let size_bytes = std::fs::metadata(&path).map(|m| m.len() as i64).unwrap_or(0);
-                let ext = path.extension().unwrap_or_default().to_string_lossy().to_lowercase();
+            for src_path in attachments {
+                let name = src_path.file_name().unwrap_or_default().to_string_lossy().to_string();
+                let size_bytes = std::fs::metadata(&src_path).map(|m| m.len() as i64).unwrap_or(0);
+                let ext = src_path.extension().unwrap_or_default().to_string_lossy().to_lowercase();
                 let (kind, mime) = match ext.as_str() {
                     "png" => (AttachmentKind::Image, "image/png".to_string()),
                     "jpg" | "jpeg" => (AttachmentKind::Image, "image/jpeg".to_string()),
@@ -162,13 +167,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     _ => (AttachmentKind::Text, "text/plain".to_string()),
                 };
 
+                let att_id = Uuid::new_v4();
+                let dest_path = att_dir.join(format!("{att_id}-{name}"));
+                std::fs::copy(&src_path, &dest_path)?;
+
                 att_items.push(Attachment {
-                    id: Uuid::new_v4(),
+                    id: att_id,
                     kind,
                     name,
                     mime,
                     size_bytes,
-                    path: path.to_string_lossy().to_string(),
+                    path: dest_path.to_string_lossy().to_string(),
                 });
             }
 

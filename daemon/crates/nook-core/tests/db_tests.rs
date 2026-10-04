@@ -1,6 +1,6 @@
 use nook_core::db::{
-    create_pool, delete_chat, ensure_chat, get_chat, list_chats, run_migrations,
-    save_assistant_message, save_user_message,
+    create_pool, delete_chat, ensure_chat, get_chat, list_chats, repair_open_replies,
+    run_migrations, save_assistant_message, save_user_message,
 };
 use nook_core::protocol::{Attachment, AttachmentKind, MessageStatus};
 use uuid::Uuid;
@@ -97,4 +97,35 @@ async fn test_database_crud_and_cascade_delete() {
         .await
         .unwrap();
     assert_eq!(att_count.0, 0);
+
+    // Test repair_open_replies
+    let open_chat_id = Uuid::new_v4();
+    ensure_chat(&pool, open_chat_id, "Incomplete Chat")
+        .await
+        .unwrap();
+    let unreplied_msg_id = Uuid::new_v4();
+    save_user_message(
+        &pool,
+        unreplied_msg_id,
+        open_chat_id,
+        "Pending prompt",
+        &[],
+    )
+    .await
+    .unwrap();
+
+    let repaired = repair_open_replies(&pool).await.unwrap();
+    assert!(repaired >= 1);
+
+    let repaired_chat = get_chat(&pool, open_chat_id).await.unwrap().unwrap();
+    assert_eq!(repaired_chat.1.len(), 2);
+    let last_msg = &repaired_chat.1[1];
+    assert_eq!(last_msg.role, nook_core::protocol::Role::Assistant);
+    assert_eq!(last_msg.status, MessageStatus::Error);
+    assert_eq!(
+        last_msg.error.as_ref().unwrap().code,
+        nook_core::protocol::ErrorCode::Internal
+    );
+
+    let _ = delete_chat(&pool, open_chat_id).await;
 }

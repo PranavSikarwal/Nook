@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use chrono::{DateTime, Utc};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::{PgPool, Row};
@@ -24,17 +25,36 @@ pub async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::Error> {
 }
 
 pub async fn repair_open_replies(pool: &PgPool) -> Result<u64, sqlx::Error> {
-    let result = sqlx::query(
+    let rows = sqlx::query(
         r#"
-        UPDATE app.messages
-        SET status = 'error', error_code = 'internal', error_text = 'Daemon stopped mid-reply'
-        WHERE role = 'assistant' AND status NOT IN ('complete', 'cancelled', 'error')
+        WITH latest_messages AS (
+            SELECT DISTINCT ON (chat_id) chat_id, id, role
+            FROM app.messages
+            ORDER BY chat_id, created_at DESC, id DESC
+        )
+        SELECT chat_id FROM latest_messages WHERE role = 'user'
         "#,
     )
-    .execute(pool)
+    .fetch_all(pool)
     .await?;
 
-    Ok(result.rows_affected())
+    let count = rows.len() as u64;
+    for row in rows {
+        let chat_id: Uuid = row.try_get("chat_id")?;
+        let msg_id = Uuid::new_v4();
+        sqlx::query(
+            r#"
+            INSERT INTO app.messages (id, chat_id, role, text, status, error_code, error_text, created_at)
+            VALUES ($1, $2, 'assistant', '', 'error', 'internal', 'Daemon stopped mid-reply', now())
+            "#,
+        )
+        .bind(msg_id)
+        .bind(chat_id)
+        .execute(pool)
+        .await?;
+    }
+
+    Ok(count)
 }
 
 pub async fn ensure_chat(
@@ -252,6 +272,43 @@ pub async fn get_chat(
     .fetch_all(pool)
     .await?;
 
+    let att_rows = sqlx::query(
+        r#"
+        SELECT a.id, a.message_id, a.kind, a.name, a.mime, a.size_bytes, a.path
+        FROM app.attachments a
+        JOIN app.messages m ON a.message_id = m.id
+        WHERE m.chat_id = $1
+        "#,
+    )
+    .bind(chat_id)
+    .fetch_all(pool)
+    .await?;
+
+    let mut attachments_by_msg: HashMap<Uuid, Vec<Attachment>> = HashMap::new();
+    for a_row in att_rows {
+        let id: Uuid = a_row.try_get("id")?;
+        let message_id: Uuid = a_row.try_get("message_id")?;
+        let kind_str: String = a_row.try_get("kind")?;
+        let kind = match kind_str.as_str() {
+            "image" => AttachmentKind::Image,
+            "pdf" => AttachmentKind::Pdf,
+            _ => AttachmentKind::Text,
+        };
+        let name: String = a_row.try_get("name")?;
+        let mime: String = a_row.try_get("mime")?;
+        let size_bytes: i64 = a_row.try_get("size_bytes")?;
+        let path: String = a_row.try_get("path")?;
+
+        attachments_by_msg.entry(message_id).or_default().push(Attachment {
+            id,
+            kind,
+            name,
+            mime,
+            size_bytes,
+            path,
+        });
+    }
+
     let mut messages = Vec::new();
     for m_row in msg_rows {
         let message_id: Uuid = m_row.try_get("id")?;
@@ -292,41 +349,7 @@ pub async fn get_chat(
         };
 
         let created_at: DateTime<Utc> = m_row.try_get("created_at")?;
-
-        let att_rows = sqlx::query(
-            r#"
-            SELECT id, kind, name, mime, size_bytes, path
-            FROM app.attachments
-            WHERE message_id = $1
-            "#,
-        )
-        .bind(message_id)
-        .fetch_all(pool)
-        .await?;
-
-        let mut attachments = Vec::new();
-        for a_row in att_rows {
-            let id: Uuid = a_row.try_get("id")?;
-            let kind_str: String = a_row.try_get("kind")?;
-            let kind = match kind_str.as_str() {
-                "image" => AttachmentKind::Image,
-                "pdf" => AttachmentKind::Pdf,
-                _ => AttachmentKind::Text,
-            };
-            let name: String = a_row.try_get("name")?;
-            let mime: String = a_row.try_get("mime")?;
-            let size_bytes: i64 = a_row.try_get("size_bytes")?;
-            let path: String = a_row.try_get("path")?;
-
-            attachments.push(Attachment {
-                id,
-                kind,
-                name,
-                mime,
-                size_bytes,
-                path,
-            });
-        }
+        let attachments = attachments_by_msg.remove(&message_id).unwrap_or_default();
 
         messages.push(ChatMessage {
             message_id,
