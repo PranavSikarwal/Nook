@@ -27,15 +27,15 @@ Task details and "done when" checks are in `docs/plan.md`. Specs are in `docs/sp
 
 ## Phase D: Daemon
 
-- [ ] D1. Workspace, config, and socket server. Needs: C1, S1
-- [ ] D2. Migrations and database layer. Needs: D1
-- [ ] D3. Worker supervisor. Needs: D1, W1
-- [ ] D4. The `send_message` flow. Needs: D2, D3, W2
-- [ ] D5. List, get, and delete. Needs: D4, W8
-- [ ] D6. Cancel. Needs: D4, W7
-- [ ] D7. Settings and Keychain. Needs: D3
-- [ ] D8. `nookctl`. Needs: D4, D5
-- [ ] D9. LaunchAgent scripts. Needs: D4
+- [x] D1. Workspace, config, and socket server. Needs: C1, S1
+- [x] D2. Migrations and database layer. Needs: D1
+- [x] D3. Worker supervisor. Needs: D1, W1
+- [x] D4. The `send_message` flow. Needs: D2, D3, W2
+- [x] D5. List, get, and delete. Needs: D4, W8
+- [x] D6. Cancel. Needs: D4, W7
+- [x] D7. Settings and Keychain. Needs: D3
+- [x] D8. `nookctl`. Needs: D4, D5
+- [x] D9. LaunchAgent scripts. Needs: D4
 
 ## Phase P: Panel
 

@@ -15,6 +15,19 @@ jobs:
   lint-and-test:
     name: Code Quality and Tests
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: nook
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - name: Checkout code
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -40,6 +53,18 @@ jobs:
       - name: Run Ruff formatter check
         run: ruff format --check .
 
+      - name: Run Cargo clippy
+        run: |
+          cd daemon
+          cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Run Cargo tests
+        env:
+          NOOK_DATABASE_URL: postgresql://postgres@localhost:5432/nook
+        run: |
+          cd daemon
+          cargo test --workspace
+
       - name: Run Pyright on model-check
         run: |
           cd model-check
@@ -52,3 +77,13 @@ jobs:
 
       - name: Run contract tests
         run: pytest tests/contracts
+
+      - name: Run Worker tests and Pyright
+        env:
+          NOOK_DATABASE_URL: postgresql://postgres@localhost:5432/nook
+        run: |
+          cd worker
+          uv venv
+          uv pip install --no-build --require-hashes -r requirements.txt
+          ./.venv/bin/pyright
+          ./.venv/bin/pytest

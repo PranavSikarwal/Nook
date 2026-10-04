@@ -90,11 +90,20 @@ def test_process_attachment_exceeds_max_size(
     txt_file = tmp_path / "oversized.txt"
     txt_file.write_text("Hello", encoding="utf-8")
 
+    import stat
     from unittest.mock import MagicMock
 
     stat_mock = MagicMock()
     stat_mock.st_size = 11 * 1024 * 1024
-    monkeypatch.setattr(Path, "stat", lambda _: stat_mock)
+    stat_mock.st_mode = stat.S_IFREG | 0o644
+    real_stat = Path.stat
+    monkeypatch.setattr(
+        Path,
+        "stat",
+        lambda self, *args, **kwargs: (
+            stat_mock if self == txt_file else real_stat(self, *args, **kwargs)
+        ),
+    )
 
     att = Attachment(
         id=uuid4(),
