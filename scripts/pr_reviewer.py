@@ -148,6 +148,171 @@ def parse_comment(comment_body: str) -> tuple[str, str]:
     return level, instructions
 
 
+CODE_REVIEW_LEVELS = {
+    "max": (
+        "- Intensity: MAX (Exhaustive audit)\n"
+        "- Confidence threshold: 50/100 (include subtle bugs, edge cases, and architectural friction).\n"
+        "- Inspect every file thoroughly for boundary conditions and unintended side effects."
+    ),
+    "low": (
+        "- Intensity: LOW (Quick scan)\n"
+        "- Confidence threshold: 30/100.\n"
+        "- Focus on quick wins, minor readability, naming, and low-impact suggestions."
+    ),
+    "high": (
+        "- Intensity: HIGH (Strict filter, default)\n"
+        "- Confidence threshold: 80/100.\n"
+        "- Report only verified, high-confidence bugs and repository instruction violations. Filter all minor nitpicks."
+    ),
+}
+
+EXPERT_REVIEW_LEVELS = {
+    "max": (
+        "- Intensity: MAX (Exhaustive architecture and security audit)\n"
+        "- Report all P0, P1, P2, and P3 findings in detail.\n"
+        "- Provide in-depth analysis on modular boundaries, SOLID principles, and dead code removal plans."
+    ),
+    "low": (
+        "- Intensity: LOW (High-level architecture scan)\n"
+        "- Focus only on immediate structural concerns and critical code smells."
+    ),
+    "high": (
+        "- Intensity: HIGH (Standard expert review, default)\n"
+        "- Classify all issues into P0, P1, P2, and P3 severity categories with actionable solutions."
+    ),
+}
+
+
+def _build_code_review_prompt(
+    pr_meta: dict,
+    diff: str,
+    repo_root: Path,
+    level: str,
+    user_focus: str,
+    repo_guidelines: str,
+) -> tuple[str, str]:
+    skill_content = load_file_content(
+        repo_root / ".github" / "skills" / "code-review.md"
+    )
+    level_instructions = CODE_REVIEW_LEVELS.get(level, CODE_REVIEW_LEVELS["high"])
+    system_prompt = (
+        f"You are an expert pull request reviewer running at intensity level '{level.upper()}'. "
+        "You perform code audits based on repository instructions and bug scans."
+    )
+    user_prompt = f"""Follow the instructions below to review this pull request:
+
+## Instructions
+{skill_content}
+
+## Active Review Settings
+{level_instructions}
+{user_focus}
+## Repository Context
+{repo_guidelines}
+
+## Pull Request Details
+- Title: {pr_meta.get("title")}
+- Number: #{pr_meta.get("number")}
+- Base branch: {pr_meta.get("baseRefName")}
+- Head branch: {pr_meta.get("headRefName")}
+
+### Pull Request Description
+{pr_meta.get("body") or "(No description provided)"}
+
+### Git Diff
+```diff
+{diff}
+```
+"""
+    return system_prompt, user_prompt
+
+
+def _build_expert_review_prompt(
+    pr_meta: dict,
+    diff: str,
+    repo_root: Path,
+    level: str,
+    user_focus: str,
+    repo_guidelines: str,
+) -> tuple[str, str]:
+    skill_content = load_file_content(
+        repo_root / ".github" / "skills" / "code-review-expert.md"
+    )
+    level_instructions = EXPERT_REVIEW_LEVELS.get(level, EXPERT_REVIEW_LEVELS["high"])
+    system_prompt = (
+        f"You are a senior software architect running at intensity level '{level.upper()}'. "
+        "You audit pull requests for SOLID design, modular coupling, and security risks with P0-P3 classifications."
+    )
+    user_prompt = f"""Follow the instructions below to review this pull request:
+
+## Instructions
+{skill_content}
+
+## Active Review Settings
+{level_instructions}
+{user_focus}
+## Repository Context
+{repo_guidelines}
+
+## Pull Request Details
+- Title: {pr_meta.get("title")}
+- Number: #{pr_meta.get("number")}
+
+### Pull Request Description
+{pr_meta.get("body") or "(No description provided)"}
+
+### Git Diff
+```diff
+{diff}
+```
+"""
+    return system_prompt, user_prompt
+
+
+def _build_resolution_prompt(
+    pr_meta: dict, diff: str, pr_number: int
+) -> tuple[str, str]:
+    comments_json, reviews_json = get_previous_feedback(pr_number)
+    commits = pr_meta.get("commits", [])
+    commit_messages = "\n".join(
+        f"- {c.get('messageHeadline', '')}" for c in commits[-10:]
+    )
+    system_prompt = (
+        "You are an automated pull request reviewer verifying whether issues from previous "
+        "reviews have been resolved by recent commits."
+    )
+    user_prompt = f"""Verify whether the author has addressed previous review feedback.
+
+## Task
+1. Inspect the previous review comments and reviews below.
+2. Examine the recent commit messages and current git diff.
+3. For each previous finding, classify it as:
+   - [RESOLVED]: The issue was fixed correctly.
+   - [UNRESOLVED]: The issue was not fixed or the fix is incomplete.
+   - [NEW ISSUE]: A regression or new problem was introduced.
+4. Output a concise markdown report with specific file citations.
+
+## Previous Inline Comments
+```json
+{comments_json or "[]"}
+```
+
+## Previous Review Summaries
+```json
+{reviews_json or "[]"}
+```
+
+## Recent Commits on Branch
+{commit_messages or "(No commit history)"}
+
+## Current Git Diff
+```diff
+{diff}
+```
+"""
+    return system_prompt, user_prompt
+
+
 def build_prompt(
     mode: str,
     pr_number: int,
@@ -179,148 +344,17 @@ def build_prompt(
         )
 
     if mode == "code-review":
-        skill_content = load_file_content(
-            repo_root / ".github" / "skills" / "code-review.md"
+        return _build_code_review_prompt(
+            pr_meta, diff, repo_root, level, user_focus, repo_guidelines
         )
-        if level == "max":
-            level_instructions = (
-                "- Intensity: MAX (Exhaustive audit)\n"
-                "- Confidence threshold: 50/100 (include subtle bugs, edge cases, and architectural friction).\n"
-                "- Inspect every file thoroughly for boundary conditions and unintended side effects."
-            )
-        elif level == "low":
-            level_instructions = (
-                "- Intensity: LOW (Quick scan)\n"
-                "- Confidence threshold: 30/100.\n"
-                "- Focus on quick wins, minor readability, naming, and low-impact suggestions."
-            )
-        else:
-            level_instructions = (
-                "- Intensity: HIGH (Strict filter, default)\n"
-                "- Confidence threshold: 80/100.\n"
-                "- Report only verified, high-confidence bugs and repository instruction violations. Filter all minor nitpicks."
-            )
-
-        system_prompt = (
-            f"You are an expert pull request reviewer running at intensity level '{level.upper()}'. "
-            "You perform code audits based on repository instructions and bug scans."
+    if mode == "code-review-expert":
+        return _build_expert_review_prompt(
+            pr_meta, diff, repo_root, level, user_focus, repo_guidelines
         )
-        user_prompt = f"""Follow the instructions below to review this pull request:
+    if mode == "feedback-on-resolution":
+        return _build_resolution_prompt(pr_meta, diff, pr_number)
 
-## Instructions
-{skill_content}
-
-## Active Review Settings
-{level_instructions}
-{user_focus}
-## Repository Context
-{repo_guidelines}
-
-## Pull Request Details
-- Title: {pr_meta.get("title")}
-- Number: #{pr_number}
-- Base branch: {pr_meta.get("baseRefName")}
-- Head branch: {pr_meta.get("headRefName")}
-
-### Pull Request Description
-{pr_meta.get("body") or "(No description provided)"}
-
-### Git Diff
-```diff
-{diff}
-```
-"""
-    elif mode == "code-review-expert":
-        skill_content = load_file_content(
-            repo_root / ".github" / "skills" / "code-review-expert.md"
-        )
-        if level == "max":
-            level_instructions = (
-                "- Intensity: MAX (Exhaustive architecture and security audit)\n"
-                "- Report all P0, P1, P2, and P3 findings in detail.\n"
-                "- Provide in-depth analysis on modular boundaries, SOLID principles, and dead code removal plans."
-            )
-        elif level == "low":
-            level_instructions = (
-                "- Intensity: LOW (High-level architecture scan)\n"
-                "- Focus only on immediate structural concerns and critical code smells."
-            )
-        else:
-            level_instructions = (
-                "- Intensity: HIGH (Standard expert review, default)\n"
-                "- Classify all issues into P0, P1, P2, and P3 severity categories with actionable solutions."
-            )
-
-        system_prompt = (
-            f"You are a senior software architect running at intensity level '{level.upper()}'. "
-            "You audit pull requests for SOLID design, modular coupling, and security risks with P0-P3 classifications."
-        )
-        user_prompt = f"""Follow the instructions below to review this pull request:
-
-## Instructions
-{skill_content}
-
-## Active Review Settings
-{level_instructions}
-{user_focus}
-## Repository Context
-{repo_guidelines}
-
-## Pull Request Details
-- Title: {pr_meta.get("title")}
-- Number: #{pr_number}
-
-### Pull Request Description
-{pr_meta.get("body") or "(No description provided)"}
-
-### Git Diff
-```diff
-{diff}
-```
-"""
-    elif mode == "feedback-on-resolution":
-        comments_json, reviews_json = get_previous_feedback(pr_number)
-        commits = pr_meta.get("commits", [])
-        commit_messages = "\n".join(
-            f"- {c.get('messageHeadline', '')}" for c in commits[-10:]
-        )
-        system_prompt = (
-            "You are an automated pull request reviewer verifying whether issues from previous "
-            "reviews have been resolved by recent commits."
-        )
-        user_prompt = f"""Verify whether the author has addressed previous review feedback.
-
-## Task
-1. Inspect the previous review comments and reviews below.
-2. Examine the recent commit messages and current git diff.
-3. For each previous finding, classify it as:
-   - [RESOLVED]: The issue was fixed correctly.
-   - [UNRESOLVED]: The issue was not fixed or the fix is incomplete.
-   - [NEW ISSUE]: A regression or new problem was introduced.
-4. Output a concise markdown report with specific file citations.
-
-## Previous Inline Comments
-```json
-{comments_json or "[]"}
-```
-
-## Previous Review Summaries
-```json
-{reviews_json or "[]"}
-```
-
-## Recent Commits on Branch
-{commit_messages or "(No commit history)"}
-
-## Current Git Diff
-```diff
-{diff}
-```
-"""
-    else:
-        sys.exit(f"Unknown review mode: {mode}")
-
-    return system_prompt, user_prompt
+    sys.exit(f"Unknown review mode: {mode}")
 
 
 def post_review(pr_number: int, content: str) -> None:
