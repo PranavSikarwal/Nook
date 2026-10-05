@@ -32,8 +32,8 @@ fi
 
 # 4. Verify worker virtual environment
 if [[ ! -d "$ROOT_DIR/worker/.venv" ]]; then
-    echo "Worker environment not found. Syncing worker dependencies..."
-    (cd "$ROOT_DIR/worker" && uv sync --quiet)
+    echo "Error: worker environment not found at $ROOT_DIR/worker/.venv. Run 'uv sync' in worker directory first." >&2
+    exit 1
 fi
 
 # 5. Stop any existing running nookd process to ensure a clean test instance
