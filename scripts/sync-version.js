@@ -13,38 +13,42 @@ if (!rawTag) {
 
 const version = rawTag.startsWith('v') ? rawTag.slice(1) : rawTag
 
+function isValidCorePart(part) {
+  if (!part || !/^\d+$/.test(part)) return false
+  return !(part.length > 1 && part.startsWith('0'))
+}
+
+function isValidCore(core) {
+  const parts = core.split('.')
+  return parts.length === 3 && parts.every(isValidCorePart)
+}
+
+function isValidPrereleaseId(id) {
+  if (!id || !/^[0-9A-Za-z-]+$/.test(id)) return false
+  return !(/^\d+$/.test(id) && id.length > 1 && id.startsWith('0'))
+}
+
+function isValidPrerelease(pre) {
+  if (!pre) return false
+  return pre.split('.').every(isValidPrereleaseId)
+}
+
+function isValidBuild(build) {
+  if (!build) return false
+  return build.split('.').every((id) => Boolean(id) && /^[0-9A-Za-z-]+$/.test(id))
+}
+
 function isValidSemver(v) {
   if (!v || typeof v !== 'string') return false
 
   const [mainAndPre, ...buildParts] = v.split('+')
   if (buildParts.length > 1) return false
-  if (buildParts.length === 1) {
-    const build = buildParts[0]
-    if (!build) return false
-    const buildIds = build.split('.')
-    for (const id of buildIds) {
-      if (!id || !/^[0-9A-Za-z-]+$/.test(id)) return false
-    }
-  }
+  if (buildParts.length === 1 && !isValidBuild(buildParts[0])) return false
 
   const [core, ...preParts] = mainAndPre.split('-')
-  if (preParts.length > 0) {
-    const pre = preParts.join('-')
-    if (!pre) return false
-    const preIds = pre.split('.')
-    for (const id of preIds) {
-      if (!id || !/^[0-9A-Za-z-]+$/.test(id)) return false
-      if (/^\d+$/.test(id) && id.length > 1 && id.startsWith('0')) return false
-    }
-  }
+  if (preParts.length > 0 && !isValidPrerelease(preParts.join('-'))) return false
 
-  const parts = core.split('.')
-  if (parts.length !== 3) return false
-  for (const p of parts) {
-    if (!p || !/^\d+$/.test(p)) return false
-    if (p.length > 1 && p.startsWith('0')) return false
-  }
-  return true
+  return isValidCore(core)
 }
 
 if (!isValidSemver(version)) {
