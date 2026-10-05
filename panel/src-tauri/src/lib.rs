@@ -438,7 +438,23 @@ pub fn run() {
         )
         .manage(DaemonState::default())
         .setup(move |app| {
-            let _ = app.global_shortcut().register(shortcut);
+            #[cfg(target_os = "macos")]
+            {
+                let _ = app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+            }
+
+            if let Err(e) = app.global_shortcut().register(shortcut) {
+                eprintln!("Failed to register global shortcut: {e}");
+            } else {
+                eprintln!("Registered global shortcut: {shortcut_str}");
+            }
+
+            // Initially show window centered, then user can toggle
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -459,12 +475,28 @@ pub fn run() {
 
 fn toggle_window_internal<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("main") {
+        eprintln!("Toggling window visibility...");
         if window.is_visible().unwrap_or(false) {
             window.hide().map_err(|e| e.to_string())?;
         } else {
             window.show().map_err(|e| e.to_string())?;
             window.set_focus().map_err(|e| e.to_string())?;
         }
+    } else {
+        eprintln!("Warning: Webview window 'main' not found!");
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_shortcuts() {
+        let opt: Result<Shortcut, _> = "Option+Space".parse();
+        println!("Option+Space parse: {:?}", opt);
+        let alt: Result<Shortcut, _> = "Alt+Space".parse();
+        println!("Alt+Space parse: {:?}", alt);
+    }
 }
