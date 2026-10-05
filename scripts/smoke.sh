@@ -36,25 +36,21 @@ if [[ ! -d "$ROOT_DIR/worker/.venv" ]]; then
     exit 1
 fi
 
-# 5. Stop any existing running nookd process to ensure a clean test instance
-if pgrep -x "nookd" >/dev/null 2>&1; then
-    echo "Stopping existing nookd process..."
-    pkill -TERM -x "nookd" || true
-    sleep 2
-fi
-
+# 5. Check if nookd is already running and healthy
 SOCKET_PATH="$HOME/Library/Application Support/Nook/daemon.sock"
-if [[ -S "$SOCKET_PATH" ]]; then
-    rm -f "$SOCKET_PATH"
-fi
-
-# 6. Start daemon in background and capture logs
-SMOKE_LOG=$(mktemp /tmp/nookd-smoke.XXXXXX.log)
-echo "Starting nookd in background (log: $SMOKE_LOG)..."
-"$NOOKD_BIN" > "$SMOKE_LOG" 2>&1 &
-DAEMON_PID=$!
-
+DAEMON_PID=""
+SMOKE_LOG=""
 TEST_IMG=""
+
+if [[ -S "$SOCKET_PATH" ]] && "$NOOKCTL_BIN" ping >/dev/null 2>&1; then
+    echo "nookd daemon is already active and responding to ping."
+else
+    # 6. Start daemon in background and capture logs
+    SMOKE_LOG=$(mktemp /tmp/nookd-smoke.XXXXXX.log)
+    echo "Starting nookd in background (log: $SMOKE_LOG)..."
+    "$NOOKD_BIN" > "$SMOKE_LOG" 2>&1 &
+    DAEMON_PID=$!
+fi
 
 cleanup() {
     local exit_code=$?

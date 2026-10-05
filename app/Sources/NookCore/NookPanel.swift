@@ -14,6 +14,7 @@ public final class NookPanel: NSPanel {
         self.backgroundColor = .clear
         self.isOpaque = false
         self.hasShadow = true
+        self.isMovableByWindowBackground = true
     }
 
     public override var canBecomeKey: Bool {
