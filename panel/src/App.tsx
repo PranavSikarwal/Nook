@@ -218,7 +218,7 @@ export default function App() {
     if (failedIdx === -1) return
 
     const userMsg = messages[failedIdx - 1]
-    if (!userMsg || userMsg.role !== 'user') return
+    if (userMsg?.role !== 'user') return
 
     setMessages((prev) => {
       const updated = [...prev]
