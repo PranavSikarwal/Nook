@@ -3,31 +3,29 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-APP_DIR="$ROOT_DIR/app"
+PANEL_DIR="$ROOT_DIR/panel"
 BUILD_DIR="$ROOT_DIR/build"
 BUNDLE_DIR="$BUILD_DIR/Nook.app"
 
-echo "Building Nook release binary with SwiftPM..."
-(cd "$APP_DIR" && swift build -c release --product Nook)
+echo "Building Nook frontend..."
+(cd "$PANEL_DIR" && npm run build)
 
-BINARY_PATH="$APP_DIR/.build/release/Nook"
-if [ ! -f "$BINARY_PATH" ]; then
-    # In some toolchain setups, the path may be arm64-apple-macosx/release
-    BINARY_PATH=$(find "$APP_DIR/.build" -type f -name Nook -perm +111 | head -n 1)
-fi
+echo "Building Nook release binary with Tauri..."
+(cd "$PANEL_DIR/src-tauri" && cargo build --release)
 
-if [ ! -f "$BINARY_PATH" ]; then
-    echo "Error: Release binary not found." >&2
-    exit 1
-fi
+VERSION=$(node -p "require('$PANEL_DIR/src-tauri/tauri.conf.json').version || '0.1.0'")
 
-echo "Creating bundle structure at $BUNDLE_DIR..."
+echo "Creating bundle structure at $BUNDLE_DIR (version $VERSION)..."
 rm -rf "$BUNDLE_DIR"
 mkdir -p "$BUNDLE_DIR/Contents/MacOS"
 mkdir -p "$BUNDLE_DIR/Contents/Resources"
 
-cp "$BINARY_PATH" "$BUNDLE_DIR/Contents/MacOS/Nook"
+cp "$PANEL_DIR/src-tauri/target/release/nook-panel" "$BUNDLE_DIR/Contents/MacOS/Nook"
 chmod +x "$BUNDLE_DIR/Contents/MacOS/Nook"
+
+if [ -f "$PANEL_DIR/src-tauri/icons/icon.icns" ]; then
+    cp "$PANEL_DIR/src-tauri/icons/icon.icns" "$BUNDLE_DIR/Contents/Resources/icon.icns"
+fi
 
 cat <<EOF > "$BUNDLE_DIR/Contents/Info.plist"
 <?xml version="1.0" encoding="UTF-8"?>
@@ -44,8 +42,10 @@ cat <<EOF > "$BUNDLE_DIR/Contents/Info.plist"
     <string>APPL</string>
     <key>CFBundleExecutable</key>
     <string>Nook</string>
+    <key>CFBundleIconFile</key>
+    <string>icon</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.1.0</string>
+    <string>$VERSION</string>
     <key>CFBundleVersion</key>
     <string>1</string>
     <key>LSUIElement</key>

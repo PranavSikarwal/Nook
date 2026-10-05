@@ -49,7 +49,7 @@ Follow these steps for every change:
    - Python linting: `uv tool run ruff check .` and `uv tool run ruff format --check .`
    - Python type checking: `uv run --with pyright pyright` (in Python packages) or `uv run --with pyright --with pytest --with jsonschema pyright tests/contracts` (for root tests)
    - Rust linting: `cd daemon && cargo clippy --all-targets -- -D warnings` and `cargo fmt --check`
-   - Swift tests: `cd app && swift test`
+   - Panel build and lint: `cd panel && npm run build` and `cd src-tauri && cargo clippy --all-targets -- -D warnings`
    - Contract tests: `uv run --with pytest --with jsonschema pytest tests/contracts`
 4. Stage and commit your changes using concise commit messages.
    ```sh

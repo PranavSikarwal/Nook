@@ -5,7 +5,7 @@ Nook is a macOS overlay chatbot. It lets you ask questions with Option+Space, re
 ## Architecture
 
 Nook consists of three processes:
-1. Panel: AppKit and SwiftUI overlay window in `app/`. It receives key events and presents the chat transcript.
+1. Panel: Cross-platform desktop overlay in `panel/` built with Tauri v2, React, and Tailwind CSS. It receives key events and presents the chat transcript.
 2. Daemon: Rust background process in `daemon/`. It coordinates chats, transcripts, and watches the worker process over a Unix domain socket.
 3. Worker: Python process in `worker/`. It runs Deep Agents, persists memory checkpoints in Postgres, and streams completions from the OpenAI-compatible model endpoint.
 
@@ -160,10 +160,12 @@ cd daemon
 cargo test
 ```
 
-Run panel unit tests:
+Build and check the panel:
 ```sh
-cd app
-swift run NookTests
+cd panel
+npm run build
+cd src-tauri
+cargo clippy --all-targets -- -D warnings
 ```
 
 ### Model check
