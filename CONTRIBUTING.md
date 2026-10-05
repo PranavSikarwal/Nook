@@ -143,18 +143,23 @@ git config --local credential.helper '!f() { echo username=PranavSikarwal; echo 
 
 This modifies `.git/config` for Nook only and leaves your global git settings untouched.
 
-### GitHub CLI queries and pull requests
+### GitHub CLI wrapper for multi-account setups
 
-Do not run `gh auth switch`. Running `gh auth switch` alters global configuration in `~/.config/gh/hosts.yml`, which affects other workspaces and repositories.
+If your machine has multiple GitHub accounts configured and you want to ensure commands always use your intended profile without altering global state via `gh auth switch`:
 
-Instead, run each GitHub CLI command through the repository wrapper script `scripts/gh`:
+Create an optional local wrapper script at `scripts/gh`:
 
 ```sh
-scripts/gh pr create ...
-scripts/gh pr list
+#!/bin/sh
+exec env GH_TOKEN="$(gh auth token --user <your-github-username>)" gh "$@"
 ```
 
-This passes the `PranavSikarwal` account token automatically on every call without altering the active account for other tools or projects. Do not run `gh` directly and do not run `gh auth token`.
+Make it executable:
+```sh
+chmod +x scripts/gh
+```
+
+`scripts/gh` is untracked and gitignored so your personal account name remains strictly local to your machine. The codebase tooling will automatically detect and use `scripts/gh` if present.
 
 ## Stacked pull requests
 
