@@ -918,28 +918,29 @@ def _execute_with_loop_guard(
 
 def _process_single_tool_call(
     repo_root: Path, tool_call: Any, recent_calls: list[str]
-) -> tuple[dict[str, Any], bool, dict[str, Any] | None]:
+) -> tuple[dict[str, Any], bool, dict[str, Any] | None, str]:
     tool_name = tool_call.function.name
     try:
         tool_args = json.loads(tool_call.function.arguments or "{}")
     except json.JSONDecodeError:
         tool_args = {}
 
-    print(f"  -> Tool Call: {tool_name}({tool_args})")
+    action_desc = _format_tool_action(tool_name, tool_args)
+    print(f"##[group]  -> {action_desc}")
     tool_output, is_final, review_data = _execute_with_loop_guard(
         repo_root, tool_name, tool_args, recent_calls
     )
 
     if not is_final:
-        snippet = tool_output[:120] + "..." if len(tool_output) > 120 else tool_output
-        print(f"     Observation: {snippet}")
+        print(tool_output)
+    print("##[endgroup]")
 
     tool_msg = {
         "role": "tool",
         "tool_call_id": tool_call.id,
         "content": tool_output,
     }
-    return tool_msg, is_final, review_data
+    return tool_msg, is_final, review_data, action_desc
 
 
 def query_model_with_retry(
@@ -1010,6 +1011,107 @@ def _prune_message_history(
             )
 
 
+def _format_tool_action(tool_name: str, args: dict[str, Any]) -> str:
+    if tool_name == "read_file":
+        path = args.get("path", "")
+        start_line = args.get("start_line", 1)
+        end_line = args.get("end_line", 500)
+        return f"Read file `{path}` (lines {start_line}-{end_line})"
+    if tool_name == "run_command":
+        return f"Execute shell command `{args.get('command', '')}`"
+    if tool_name == "search_code":
+        return f"Search code for `{args.get('query', '')}` in `{args.get('path', '.')}`"
+    if tool_name == "git_blame":
+        return f"Git blame on `{args.get('path', '')}` (lines {args.get('start_line')}-{args.get('end_line')})"
+    if tool_name == "submit_review":
+        return "Submit completed review"
+    return f"Invoke tool `{tool_name}`"
+
+
+def _write_transcripts(
+    repo_root: Path,
+    pr_number: int,
+    mode: str,
+    level: str,
+    model: str,
+    elapsed: float,
+    total_calls: int,
+    trace: list[dict[str, Any]],
+    summary: str,
+    inline_comments: list[dict[str, Any]],
+    messages: list[dict[str, Any]],
+) -> None:
+    """Generate both human-readable Markdown and structured JSON transcripts."""
+    md_lines: list[str] = [
+        "# Autonomous Code Review Transcript\n",
+        f"- **Pull Request**: #{pr_number}",
+        f"- **Review Mode**: `{mode}`",
+        f"- **Intensity Level**: `{level.upper()}`",
+        f"- **Model**: `{model}`",
+        f"- **Total Model Interactions**: {total_calls}",
+        f"- **Elapsed Execution Time**: {elapsed:.1f} seconds",
+        f"- **Generated At**: {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime())}\n",
+        "---\n",
+        "## Investigation Trace\n",
+    ]
+
+    for item in trace:
+        step = item.get("step")
+        thought = item.get("thought", "").strip()
+        action = item.get("action", "")
+        output = item.get("output", "").strip()
+        notice = item.get("notice")
+
+        md_lines.append(f"### Step {step}: {action}\n")
+        if thought:
+            md_lines.append(f"**Agent Reasoning**:\n> {thought}\n")
+        if notice:
+            md_lines.append(f"> ⚠️ **{notice}**\n")
+
+        line_count = len(output.splitlines()) if output else 0
+        md_lines.append(
+            f"<details>\n<summary>View Observation Output ({line_count} lines)</summary>\n"
+        )
+        md_lines.append(f"```text\n{output}\n```\n</details>\n")
+
+    md_lines.append("---\n")
+    md_lines.append("## Final Review Outcome\n")
+    md_lines.append(f"{summary}\n")
+
+    if inline_comments:
+        md_lines.append(f"### Inline Diff Comments ({len(inline_comments)} total)\n")
+        for comment in inline_comments:
+            path = comment.get("path", "")
+            line = comment.get("line", "")
+            body = comment.get("body", "")
+            md_lines.append(f"- **`{path}:{line}`**:\n  {body}\n")
+
+    md_path = repo_root / "review-transcript.md"
+    json_path = repo_root / "review-transcript.json"
+
+    md_path.write_text("\n".join(md_lines), encoding="utf-8")
+
+    json_payload = {
+        "metadata": {
+            "pr_number": pr_number,
+            "mode": mode,
+            "level": level,
+            "model": model,
+            "total_calls": total_calls,
+            "elapsed_seconds": round(elapsed, 1),
+            "timestamp": time.time(),
+        },
+        "trace": trace,
+        "summary": summary,
+        "inline_comments": inline_comments,
+        "raw_messages": messages,
+    }
+    json_path.write_text(
+        json.dumps(json_payload, indent=2, default=str), encoding="utf-8"
+    )
+    print(f"Saved review transcripts to {md_path.name} and {json_path.name}.")
+
+
 def _check_step_milestones(
     step: int, max_steps: int, notice_steps: tuple[int, int]
 ) -> str | None:
@@ -1033,6 +1135,9 @@ def run_agent_loop(
     system_prompt: str,
     user_prompt: str,
     repo_root: Path,
+    pr_number: int,
+    mode: str,
+    level: str,
     max_steps: int = 200,
     notice_steps: tuple[int, int] = (150, 175),
 ) -> tuple[str, list[dict], int]:
@@ -1045,6 +1150,7 @@ def run_agent_loop(
     total_model_calls = 0
     start_time = time.time()
     recent_calls: list[str] = []
+    trace: list[dict[str, Any]] = []
 
     for step in range(1, max_steps + 1):
         _prune_message_history(messages)
@@ -1060,20 +1166,49 @@ def run_agent_loop(
 
         message = response.choices[0].message
         messages.append(message.model_dump(exclude_none=True))
+        model_thought = message.content or ""
+        if model_thought:
+            print(f"[Agent Thoughts]:\n{model_thought.strip()}")
 
         if not message.tool_calls:
-            content = message.content or ""
-            print(f"[Agent]: Direct response generated ({len(content)} chars).")
+            print(f"[Agent]: Direct response generated ({len(model_thought)} chars).")
             elapsed = time.time() - start_time
-            print(
-                f"[Telemetry]: Completed in {elapsed:.1f}s across {total_model_calls} model calls."
+            trace.append(
+                {
+                    "step": step,
+                    "thought": model_thought,
+                    "action": "Generated direct response",
+                    "output": model_thought,
+                }
             )
-            return content, [], total_model_calls
+            _write_transcripts(
+                repo_root,
+                pr_number,
+                mode,
+                level,
+                model,
+                elapsed,
+                total_model_calls,
+                trace,
+                model_thought,
+                [],
+                messages,
+            )
+            return model_thought, [], total_model_calls
 
         for tool_call in message.tool_calls:
-            tool_msg, is_final, review_data = _process_single_tool_call(
+            tool_msg, is_final, review_data, action_desc = _process_single_tool_call(
                 repo_root, tool_call, recent_calls
             )
+            trace.append(
+                {
+                    "step": step,
+                    "thought": model_thought,
+                    "action": action_desc,
+                    "output": str(tool_msg.get("content") or ""),
+                }
+            )
+
             if is_final and review_data:
                 elapsed = time.time() - start_time
                 print(
@@ -1081,6 +1216,19 @@ def run_agent_loop(
                 )
                 summary = str(review_data.get("summary", "")).strip()
                 inline_comments = review_data.get("inline_comments") or []
+                _write_transcripts(
+                    repo_root,
+                    pr_number,
+                    mode,
+                    level,
+                    model,
+                    elapsed,
+                    total_model_calls,
+                    trace,
+                    summary,
+                    inline_comments,
+                    messages,
+                )
                 return summary, inline_comments, total_model_calls
 
             messages.append(tool_msg)
@@ -1089,6 +1237,8 @@ def run_agent_loop(
         if milestone_reminder:
             print(f"  [Milestone Alert]: {milestone_reminder}")
             messages.append({"role": "user", "content": milestone_reminder})
+            if trace:
+                trace[-1]["notice"] = milestone_reminder
 
     elapsed = time.time() - start_time
     print(
@@ -1097,8 +1247,22 @@ def run_agent_loop(
     last_content = (
         messages[-1].get("content", "") if isinstance(messages[-1], dict) else ""
     )
+    fallback_summary = str(last_content) or "Review completed with maximum step limit."
+    _write_transcripts(
+        repo_root,
+        pr_number,
+        mode,
+        level,
+        model,
+        elapsed,
+        total_model_calls,
+        trace,
+        fallback_summary,
+        [],
+        messages,
+    )
     return (
-        str(last_content) or "Review completed with maximum step limit.",
+        fallback_summary,
         [],
         total_model_calls,
     )
@@ -1154,6 +1318,9 @@ def main() -> None:
         system_prompt,
         user_prompt,
         repo_root,
+        pr_number=args.pr,
+        mode=args.mode,
+        level=final_level,
         max_steps=max_steps,
         notice_steps=notice_steps,
     )
