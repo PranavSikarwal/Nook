@@ -287,6 +287,7 @@ async fn send_message<R: Runtime>(
     writer.flush().await.map_err(|e| e.to_string())?;
 
     tauri::async_runtime::spawn(async move {
+        let _keep_writer_alive = writer;
         while let Ok(Some(line)) = lines.next_line().await {
             if let Ok(event) = serde_json::from_str::<DaemonMessage>(&line) {
                 let _ = app.emit("daemon_event", &event);
@@ -475,8 +476,9 @@ pub fn run() {
 
 fn toggle_window_internal<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("main") {
-        eprintln!("Toggling window visibility...");
-        if window.is_visible().unwrap_or(false) {
+        let is_visible = window.is_visible().unwrap_or(false);
+        let is_focused = window.is_focused().unwrap_or(false);
+        if is_visible && is_focused {
             window.hide().map_err(|e| e.to_string())?;
         } else {
             window.show().map_err(|e| e.to_string())?;

@@ -1,4 +1,5 @@
-import { ArrowUp, History, Paperclip, Settings, Square } from 'lucide-react'
+import { getCurrentWindow } from '@tauri-apps/api/window'
+import { ArrowUp, History, Paperclip, Plus, Settings, Square } from 'lucide-react'
 import { useRef } from 'react'
 
 interface InputBarProps {
@@ -6,11 +7,13 @@ interface InputBarProps {
   setInput: (value: string) => void
   onSend: () => void
   onStop?: () => void
+  onNewChat?: () => void
   onToggleHistory: () => void
   onToggleSettings: () => void
   onAttachFiles: (files: FileList) => void
   isStreaming: boolean
   disabled?: boolean
+  standalone?: boolean
 }
 
 export function InputBar({
@@ -18,13 +21,22 @@ export function InputBar({
   setInput,
   onSend,
   onStop,
+  onNewChat,
   onToggleHistory,
   onToggleSettings,
   onAttachFiles,
   isStreaming,
   disabled = false,
+  standalone = false,
 }: InputBarProps) {
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (e.button === 0 && !(e.target as HTMLElement).closest('button, input, textarea, a, select')) {
+      const appWindow = getCurrentWindow()
+      appWindow.startDragging()
+    }
+  }
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -46,10 +58,14 @@ export function InputBar({
 
   const hasContent = input.trim().length > 0
 
+  const containerClasses = standalone
+    ? 'flex items-center gap-2.5 px-3.5 py-2.5 rounded-2xl bg-[#161618]/95 backdrop-blur-xl border border-white/10 shadow-2xl select-none w-full'
+    : 'flex items-center gap-2.5 px-3.5 py-2.5 bg-transparent border-t border-white/5 select-none w-full'
+
   return (
     <div
-      data-tauri-drag-region
-      className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-2xl bg-[#161618]/95 backdrop-blur-xl border border-white/10 shadow-2xl transition-all select-none"
+      onMouseDown={handleMouseDown}
+      className={containerClasses}
     >
       <input
         ref={fileInputRef}
@@ -84,6 +100,17 @@ export function InputBar({
 
       {/* Right controls */}
       <div className="flex items-center gap-1 shrink-0">
+        {onNewChat && (
+          <button
+            onClick={onNewChat}
+            type="button"
+            title="New chat"
+            className="text-zinc-400 hover:text-white transition-colors p-1.5 rounded-lg hover:bg-white/5"
+          >
+            <Plus className="size-4" />
+          </button>
+        )}
+
         <button
           onClick={onToggleHistory}
           type="button"

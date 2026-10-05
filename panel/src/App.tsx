@@ -1,3 +1,4 @@
+import { getCurrentWindow } from '@tauri-apps/api/window'
 import { useEffect, useState } from 'react'
 import { AttachmentChips } from './components/AttachmentChips'
 import { HistoryDrawer } from './components/HistoryDrawer'
@@ -36,6 +37,8 @@ export default function App() {
   const [chats, setChats] = useState<ChatSummary[]>([])
   const [settings, setSettingsData] = useState<SettingsInfo | null>(null)
 
+  const isCompact = activePanel === 'none' && messages.length === 0 && attachments.length === 0
+
   // Sync window size with view state
   useEffect(() => {
     if (activePanel !== 'none') {
@@ -43,9 +46,9 @@ export default function App() {
     } else if (messages.length > 0) {
       setWindowSize(640, 520)
     } else if (attachments.length > 0) {
-      setWindowSize(640, 116)
+      setWindowSize(640, 110)
     } else {
-      setWindowSize(640, 72)
+      setWindowSize(640, 56)
     }
   }, [activePanel, messages.length, attachments.length])
 
@@ -141,6 +144,13 @@ export default function App() {
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [activePanel])
+
+  const handleContainerMouseDown = (e: React.MouseEvent) => {
+    if (e.button === 0 && !(e.target as HTMLElement).closest('button, input, textarea, a, select')) {
+      const appWindow = getCurrentWindow()
+      appWindow.startDragging()
+    }
+  }
 
   const handleSend = async () => {
     if (!input.trim() || isStreaming) return
@@ -265,13 +275,42 @@ export default function App() {
     setSettingsData(updated)
   }
 
+  const handleNewChat = () => {
+    setChatId(crypto.randomUUID())
+    setMessages([])
+    setAttachments([])
+    setInput('')
+    setActivePanel('none')
+    setIsStreaming(false)
+  }
+
+  // In compact mode: only render the single pill without any outer wrapper
+  if (isCompact) {
+    return (
+      <div className="w-full h-full flex items-center justify-center p-0.5 select-none bg-transparent">
+        <InputBar
+          input={input}
+          setInput={setInput}
+          onSend={handleSend}
+          onStop={handleStop}
+          onNewChat={handleNewChat}
+          onToggleHistory={() => setActivePanel('history')}
+          onToggleSettings={() => setActivePanel('settings')}
+          onAttachFiles={handleAttachFiles}
+          isStreaming={isStreaming}
+          standalone={true}
+        />
+      </div>
+    )
+  }
+
+  // In expanded mode: render unified card with transcript/drawer and input at bottom
   return (
-    <div className="flex flex-col h-full w-full p-2 select-none">
-      {/* Outer container with sleek rounded pill geometry */}
-      <div
-        data-tauri-drag-region
-        className="flex flex-col flex-1 rounded-2xl bg-[#161618]/95 backdrop-blur-2xl border border-white/10 shadow-[0_20px_50px_rgba(0,0,0,0.6)] overflow-hidden transition-all duration-200"
-      >
+    <div
+      onMouseDown={handleContainerMouseDown}
+      className="flex flex-col h-full w-full p-1 select-none bg-transparent"
+    >
+      <div className="flex flex-col flex-1 rounded-2xl bg-[#161618]/95 backdrop-blur-2xl border border-white/10 shadow-[0_20px_50px_rgba(0,0,0,0.6)] overflow-hidden">
         {/* Expanded Drawer Area */}
         {activePanel === 'history' && (
           <div className="flex-1 min-h-0">
@@ -309,12 +348,13 @@ export default function App() {
           onRemove={(idx) => setAttachments((prev) => prev.filter((_, i) => i !== idx))}
         />
 
-        {/* Compact Input Bar */}
+        {/* Unified Input Bar at bottom */}
         <InputBar
           input={input}
           setInput={setInput}
           onSend={handleSend}
           onStop={handleStop}
+          onNewChat={handleNewChat}
           onToggleHistory={() =>
             setActivePanel((prev) => (prev === 'history' ? 'none' : 'history'))
           }
@@ -323,6 +363,7 @@ export default function App() {
           }
           onAttachFiles={handleAttachFiles}
           isStreaming={isStreaming}
+          standalone={false}
         />
       </div>
     </div>

@@ -13,13 +13,13 @@
         "label": "main",
         "title": "Nook",
         "width": 640,
-        "height": 72,
+        "height": 56,
         "resizable": true,
         "decorations": false,
         "transparent": true,
-        "alwaysOnTop": true,
+        "alwaysOnTop": false,
         "skipTaskbar": true,
-        "shadow": true,
+        "shadow": false,
         "center": true,
         "visible": false
       }
