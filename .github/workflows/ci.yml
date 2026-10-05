@@ -65,25 +65,17 @@ jobs:
           cd daemon
           cargo test --workspace
 
-      - name: Run Pyright on model-check
-        run: |
-          cd model-check
-          uv venv
-          uv pip install --no-build --require-hashes -r requirements.txt
-          pyright
-
-      - name: Run Pyright on tests/contracts
-        run: pyright tests/contracts
-
       - name: Run contract tests
         run: pytest tests/contracts
 
-      - name: Run Worker tests and Pyright
+      - name: Set up Worker environment and run tests
         env:
           NOOK_DATABASE_URL: postgresql://postgres@localhost:5432/nook
         run: |
           cd worker
           uv venv
           uv pip install --no-build --require-hashes -r requirements.txt
-          ./.venv/bin/pyright
           ./.venv/bin/pytest
+
+      - name: Run repository-wide Pyright
+        run: worker/.venv/bin/pyright

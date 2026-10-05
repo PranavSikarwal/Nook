@@ -2,6 +2,7 @@ from pathlib import Path
 from uuid import UUID
 
 import pytest
+
 from nook_worker.protocol import (
     CancelRequest,
     DeleteChatRequest,
@@ -28,7 +29,7 @@ def test_parse_examples_file():
     examples_path = root / "contracts" / "examples" / "daemon-worker.ndjson"
     assert examples_path.is_file(), f"Examples file not found at {examples_path}"
 
-    with open(examples_path, "r", encoding="utf-8") as f:
+    with open(examples_path, encoding="utf-8") as f:
         lines = [line.strip() for line in f if line.strip()]
 
     assert len(lines) == 14

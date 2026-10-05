@@ -3,6 +3,7 @@ from collections.abc import AsyncIterator
 from uuid import UUID, uuid4
 
 import pytest
+
 from nook_worker.fake_agent import FakeAgentRunner
 from nook_worker.main import run_worker
 from nook_worker.protocol import (

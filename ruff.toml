@@ -1,0 +1,19 @@
+target-version = "py313"
+line-length = 88
+
+[lint]
+select = [
+    "E4",
+    "E7",
+    "E9",
+    "F",
+    "I",      # isort import sorting
+    "UP",     # pyupgrade
+    "B",      # flake8-bugbear
+]
+ignore = [
+    "E501",   # line length is handled by ruff format
+]
+
+[lint.isort]
+known-first-party = ["nook_worker"]

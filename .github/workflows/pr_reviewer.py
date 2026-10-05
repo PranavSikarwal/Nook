@@ -11,7 +11,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from openai import APIError, OpenAI
 
@@ -847,8 +847,8 @@ def query_model_with_retry(
         try:
             return client.chat.completions.create(
                 model=model,
-                messages=messages,
-                tools=tools,
+                messages=cast(Any, messages),
+                tools=cast(Any, tools),
                 tool_choice="auto",
                 temperature=0.2,
             )
