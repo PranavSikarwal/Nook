@@ -23,6 +23,17 @@ mkdir -p "$BUNDLE_DIR/Contents/Resources"
 cp "$PANEL_DIR/src-tauri/target/release/nook-panel" "$BUNDLE_DIR/Contents/MacOS/Nook"
 chmod +x "$BUNDLE_DIR/Contents/MacOS/Nook"
 
+# Embed nookd daemon binary into bundle so the app starts it automatically
+NOOKD_SRC="$ROOT_DIR/daemon/target/release/nookd"
+if [ ! -f "$NOOKD_SRC" ]; then
+    NOOKD_SRC="$ROOT_DIR/daemon/target/debug/nookd"
+fi
+if [ -f "$NOOKD_SRC" ]; then
+    cp "$NOOKD_SRC" "$BUNDLE_DIR/Contents/MacOS/nookd"
+    chmod +x "$BUNDLE_DIR/Contents/MacOS/nookd"
+    echo "Embedded nookd into app bundle at Contents/MacOS/nookd"
+fi
+
 if [ -f "$PANEL_DIR/src-tauri/icons/icon.icns" ]; then
     cp "$PANEL_DIR/src-tauri/icons/icon.icns" "$BUNDLE_DIR/Contents/Resources/icon.icns"
 fi

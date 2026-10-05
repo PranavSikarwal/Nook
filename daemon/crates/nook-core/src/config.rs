@@ -1,5 +1,5 @@
-use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Config {
@@ -42,13 +42,39 @@ impl Default for Config {
 
 impl Config {
     pub fn app_dir() -> PathBuf {
-        if let Some(home) = std::env::var_os("HOME") {
-            PathBuf::from(home)
-                .join("Library")
-                .join("Application Support")
-                .join("Nook")
-        } else {
-            PathBuf::from("nook_data")
+        #[cfg(target_os = "macos")]
+        {
+            if let Some(home) = std::env::var_os("HOME") {
+                PathBuf::from(home)
+                    .join("Library")
+                    .join("Application Support")
+                    .join("Nook")
+            } else {
+                PathBuf::from("nook_data")
+            }
+        }
+        #[cfg(target_os = "windows")]
+        {
+            if let Some(appdata) = std::env::var_os("APPDATA") {
+                PathBuf::from(appdata).join("Nook")
+            } else if let Some(userprofile) = std::env::var_os("USERPROFILE") {
+                PathBuf::from(userprofile)
+                    .join("AppData")
+                    .join("Roaming")
+                    .join("Nook")
+            } else {
+                PathBuf::from("nook_data")
+            }
+        }
+        #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+        {
+            if let Some(xdg) = std::env::var_os("XDG_CONFIG_HOME") {
+                PathBuf::from(xdg).join("nook")
+            } else if let Some(home) = std::env::var_os("HOME") {
+                PathBuf::from(home).join(".config").join("nook")
+            } else {
+                PathBuf::from("nook_data")
+            }
         }
     }
 
@@ -132,7 +158,10 @@ impl Config {
         Ok(cfg)
     }
 
-    pub fn save_to_file(&self, path: &Path) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub fn save_to_file(
+        &self,
+        path: &Path,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
