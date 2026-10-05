@@ -69,7 +69,11 @@ AGENT_TOOLS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "read_file",
-            "description": "Read contents of a file from the repository, optionally with line bounds.",
+            "description": (
+                "Read contents of a file from the repository, optionally with line bounds. "
+                "Note: Deleted files do not exist on disk in the current checkout; to view a deleted "
+                "file, run 'git show origin/<base>:<path>' via run_command."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -131,7 +135,10 @@ AGENT_TOOLS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "run_command",
-            "description": "Run a read-only verification command such as 'cargo test', 'pytest', or 'git log -n 5'.",
+            "description": (
+                "Run a read-only verification command such as 'cargo test', 'pytest', "
+                "'git show origin/<base>:<path>' (to inspect deleted files), or 'git log -n 5'."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -483,6 +490,7 @@ def _build_code_review_prompt(
         "You are an autonomous AI code reviewer operating with an interactive tool loop. "
         "You actively read files, check git history, and run test suites before submitting your findings."
     )
+    base_ref = pr_meta.get("baseRefName") or "main"
     user_prompt = f"""Follow these instructions to audit this pull request:
 
 ## Instructions
@@ -497,7 +505,7 @@ def _build_code_review_prompt(
 ## Pull Request Details
 - Title: {pr_meta.get("title")}
 - Number: #{pr_meta.get("number")}
-- Base branch: {pr_meta.get("baseRefName")}
+- Base branch: {base_ref}
 - Head branch: {pr_meta.get("headRefName")}
 
 ### Pull Request Description
@@ -507,6 +515,10 @@ def _build_code_review_prompt(
 ```diff
 {diff_text}
 ```
+
+### Working Tree and Diff Notes
+- The working directory contains the PR checkout at its head commit. `git status` shows a clean tree because the commit is already checked out. To inspect changes against the base branch, compare against `origin/{base_ref}` (e.g. `git diff origin/{base_ref}...HEAD`).
+- Deleted files in this PR no longer exist on disk. `read_file` cannot read them directly. To inspect the contents of a deleted file before its removal, run `git show origin/{base_ref}:<path>` via `run_command`.
 
 Use your available tools (`read_file`, `search_code`, `git_blame`, `run_command`) to inspect context.
 When your audit is complete, call `submit_review(summary=..., inline_comments=...)` with your report.
@@ -526,6 +538,7 @@ def _build_expert_review_prompt(
         "You are a senior software architect and security auditor operating with an interactive tool loop. "
         "You investigate SOLID design principles, modular boundaries, security vulnerabilities, and code quality."
     )
+    base_ref = pr_meta.get("baseRefName") or "main"
     user_prompt = f"""Audit this pull request against SOLID design and security standards:
 
 ## Instructions
@@ -540,6 +553,8 @@ def _build_expert_review_prompt(
 ## Pull Request Details
 - Title: {pr_meta.get("title")}
 - Number: #{pr_meta.get("number")}
+- Base branch: {base_ref}
+- Head branch: {pr_meta.get("headRefName")}
 
 ### Pull Request Description
 {pr_meta.get("body") or "(No description provided)"}
@@ -548,6 +563,10 @@ def _build_expert_review_prompt(
 ```diff
 {diff_text}
 ```
+
+### Working Tree and Diff Notes
+- The working directory contains the PR checkout at its head commit. `git status` shows a clean tree because the commit is already checked out. To inspect changes against the base branch, compare against `origin/{base_ref}` (e.g. `git diff origin/{base_ref}...HEAD`).
+- Deleted files in this PR no longer exist on disk. `read_file` cannot read them directly. To inspect the contents of a deleted file before its removal, run `git show origin/{base_ref}:<path>` via `run_command`.
 
 Use your available tools to check code and run tests.
 When complete, call `submit_review(summary=..., inline_comments=...)` with your structured report.
