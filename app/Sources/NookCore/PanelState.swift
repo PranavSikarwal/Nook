@@ -42,8 +42,20 @@ public final class PanelState: ObservableObject {
     @Published public var historyChats: [ChatSummary] = []
     @Published public var currentTitle: String = "New Chat"
 
+    private static func defaultBaseUrl() -> String {
+        if let env = ProcessInfo.processInfo.environment["NOOK_BASE_URL"], !env.isEmpty {
+            return env
+        }
+        var comps = URLComponents()
+        comps.scheme = "http"
+        comps.host = "localhost"
+        comps.port = 8000
+        comps.path = "/v1"
+        return comps.url?.absoluteString ?? ""
+    }
+
     // Settings fields
-    @Published public var baseUrl: String = ProcessInfo.processInfo.environment["NOOK_BASE_URL"] ?? "http://localhost:8000/v1"
+    @Published public var baseUrl: String = PanelState.defaultBaseUrl()
     @Published public var model: String = "gpt-4o"
     @Published public var hasApiKey: Bool = false
     @Published public var apiKeyInput: String = ""

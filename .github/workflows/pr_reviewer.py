@@ -1069,14 +1069,14 @@ def _write_transcripts(
             md_lines.append(f"> ⚠️ **{notice}**\n")
 
         line_count = len(output.splitlines()) if output else 0
-        md_lines.append(
-            f"<details>\n<summary>View Observation Output ({line_count} lines)</summary>\n"
+        md_lines.extend(
+            [
+                f"<details>\n<summary>View Observation Output ({line_count} lines)</summary>\n",
+                f"```text\n{output}\n```\n</details>\n",
+            ]
         )
-        md_lines.append(f"```text\n{output}\n```\n</details>\n")
 
-    md_lines.append("---\n")
-    md_lines.append("## Final Review Outcome\n")
-    md_lines.append(f"{summary}\n")
+    md_lines.extend(["---\n", "## Final Review Outcome\n", f"{summary}\n"])
 
     if inline_comments:
         md_lines.append(f"### Inline Diff Comments ({len(inline_comments)} total)\n")
@@ -1126,6 +1126,37 @@ def _check_step_milestones(
             f"Urgent notice: You have reached step {step} of {max_steps}. "
             f"You have only {remaining} steps remaining before the hard limit. Call submit_review now."
         )
+    return None
+
+
+def _execute_step_tool_calls(
+    step: int,
+    tool_calls: list[Any],
+    model_thought: str,
+    repo_root: Path,
+    recent_calls: list[str],
+    trace: list[dict[str, Any]],
+    messages: list[dict[str, Any]],
+) -> tuple[str, list[dict[str, Any]]] | None:
+    for tool_call in tool_calls:
+        tool_msg, is_final, review_data, action_desc = _process_single_tool_call(
+            repo_root, tool_call, recent_calls
+        )
+        trace.append(
+            {
+                "step": step,
+                "thought": model_thought,
+                "action": action_desc,
+                "output": str(tool_msg.get("content") or ""),
+            }
+        )
+
+        if is_final and review_data:
+            summary = str(review_data.get("summary", "")).strip()
+            inline_comments = review_data.get("inline_comments") or []
+            return summary, inline_comments
+
+        messages.append(tool_msg)
     return None
 
 
@@ -1196,42 +1227,35 @@ def run_agent_loop(
             )
             return model_thought, [], total_model_calls
 
-        for tool_call in message.tool_calls:
-            tool_msg, is_final, review_data, action_desc = _process_single_tool_call(
-                repo_root, tool_call, recent_calls
+        final_result = _execute_step_tool_calls(
+            step,
+            message.tool_calls,
+            model_thought,
+            repo_root,
+            recent_calls,
+            trace,
+            messages,
+        )
+        if final_result:
+            summary, inline_comments = final_result
+            elapsed = time.time() - start_time
+            print(
+                f"\n[Agent]: Final review submitted at step {step} ({elapsed:.1f}s, {total_model_calls} calls)."
             )
-            trace.append(
-                {
-                    "step": step,
-                    "thought": model_thought,
-                    "action": action_desc,
-                    "output": str(tool_msg.get("content") or ""),
-                }
+            _write_transcripts(
+                repo_root,
+                pr_number,
+                mode,
+                level,
+                model,
+                elapsed,
+                total_model_calls,
+                trace,
+                summary,
+                inline_comments,
+                messages,
             )
-
-            if is_final and review_data:
-                elapsed = time.time() - start_time
-                print(
-                    f"\n[Agent]: Final review submitted at step {step} ({elapsed:.1f}s, {total_model_calls} calls)."
-                )
-                summary = str(review_data.get("summary", "")).strip()
-                inline_comments = review_data.get("inline_comments") or []
-                _write_transcripts(
-                    repo_root,
-                    pr_number,
-                    mode,
-                    level,
-                    model,
-                    elapsed,
-                    total_model_calls,
-                    trace,
-                    summary,
-                    inline_comments,
-                    messages,
-                )
-                return summary, inline_comments, total_model_calls
-
-            messages.append(tool_msg)
+            return summary, inline_comments, total_model_calls
 
         milestone_reminder = _check_step_milestones(step, max_steps, notice_steps)
         if milestone_reminder:
