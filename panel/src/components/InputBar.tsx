@@ -1,6 +1,6 @@
-import { getCurrentWindow } from '@tauri-apps/api/window'
 import { ArrowUp, History, Paperclip, Plus, Settings, Square } from 'lucide-react'
 import { useRef } from 'react'
+import { startDrag } from '../lib/daemon'
 
 interface InputBarProps {
   input: string
@@ -33,8 +33,7 @@ export function InputBar({
 
   const handleMouseDown = (e: React.MouseEvent) => {
     if (e.button === 0 && !(e.target as HTMLElement).closest('button, input, textarea, a, select')) {
-      const appWindow = getCurrentWindow()
-      appWindow.startDragging()
+      startDrag()
     }
   }
 
@@ -59,11 +58,12 @@ export function InputBar({
   const hasContent = input.trim().length > 0
 
   const containerClasses = standalone
-    ? 'flex items-center gap-2.5 px-3.5 py-2.5 rounded-2xl bg-[#161618]/95 backdrop-blur-xl border border-white/10 shadow-2xl select-none w-full'
+    ? 'flex items-center gap-2.5 px-3.5 py-2.5 rounded-2xl bg-[#161618]/95 backdrop-blur-xl border border-white/10 shadow-2xl select-none w-full cursor-move'
     : 'flex items-center gap-2.5 px-3.5 py-2.5 bg-transparent border-t border-white/5 select-none w-full'
 
   return (
     <div
+      data-tauri-drag-region
       onMouseDown={handleMouseDown}
       className={containerClasses}
     >
@@ -95,7 +95,7 @@ export function InputBar({
         placeholder="Ask anything..."
         disabled={disabled}
         autoFocus
-        className="flex-1 bg-transparent text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none caret-[#a855f7] tracking-normal font-normal"
+        className="flex-1 bg-transparent text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none caret-[#a855f7] tracking-normal font-normal cursor-text"
       />
 
       {/* Right controls */}

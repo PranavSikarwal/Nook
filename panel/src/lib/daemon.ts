@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core'
+import { Channel, invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import type {
   AttachmentInput,
@@ -33,12 +33,26 @@ export async function sendMessage(
   chatId: string,
   text: string,
   attachments: AttachmentInput[] = [],
+  onEvent?: (event: DaemonEvent) => void,
 ): Promise<void> {
+  const channel = new Channel<DaemonEvent>()
+  if (onEvent) {
+    channel.onmessage = onEvent
+  }
   await invoke('send_message', {
     chatId,
     text,
     attachments,
+    onEvent: channel,
   })
+}
+
+export async function startDrag(): Promise<void> {
+  try {
+    await invoke('start_drag')
+  } catch {
+    // fallback
+  }
 }
 
 export async function cancelMessage(targetId: string): Promise<void> {

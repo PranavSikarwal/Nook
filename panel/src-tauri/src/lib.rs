@@ -206,6 +206,7 @@ async fn send_message<R: Runtime>(
     chat_id: Uuid,
     text: String,
     attachments: Vec<AttachmentInput>,
+    on_event: tauri::ipc::Channel<DaemonMessage>,
 ) -> Result<(), String> {
     if attachments.len() > 5 {
         return Err("Maximum 5 attachments allowed per message".to_string());
@@ -290,6 +291,7 @@ async fn send_message<R: Runtime>(
         let _keep_writer_alive = writer;
         while let Ok(Some(line)) = lines.next_line().await {
             if let Ok(event) = serde_json::from_str::<DaemonMessage>(&line) {
+                let _ = on_event.send(event.clone());
                 let _ = app.emit("daemon_event", &event);
                 if matches!(
                     event,
@@ -418,6 +420,14 @@ async fn toggle_window<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+async fn start_drag<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.start_dragging();
+    }
+    Ok(())
+}
+
 pub fn run() {
     #[cfg(target_os = "macos")]
     let shortcut_str = "Option+Space";
@@ -469,6 +479,7 @@ pub fn run() {
             set_settings,
             set_window_size,
             toggle_window,
+            start_drag,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -1,4 +1,3 @@
-import { getCurrentWindow } from '@tauri-apps/api/window'
 import { useEffect, useState } from 'react'
 import { AttachmentChips } from './components/AttachmentChips'
 import { HistoryDrawer } from './components/HistoryDrawer'
@@ -14,6 +13,7 @@ import {
   sendMessage,
   setSettings,
   setWindowSize,
+  startDrag,
   subscribeToDaemonEvents,
 } from './lib/daemon'
 import type {
@@ -58,75 +58,76 @@ export default function App() {
     listChats().then(setChats).catch(() => {})
   }, [])
 
-  // Listen to daemon events
+  // Process incoming daemon events
+  const handleDaemonEvent = (event: DaemonEvent) => {
+    if (event.type === 'text_delta') {
+      setMessages((prev) => {
+        const last = prev[prev.length - 1]
+        if (last && last.role === 'assistant') {
+          return [
+            ...prev.slice(0, -1),
+            { ...last, text: last.text + event.text },
+          ]
+        }
+        return [
+          ...prev,
+          {
+            id: event.message_id,
+            role: 'assistant',
+            text: event.text,
+            status: 'streaming',
+            attachments: [],
+            created_at: new Date().toISOString(),
+          },
+        ]
+      })
+    } else if (event.type === 'message_finished') {
+      setIsStreaming(false)
+      setMessages((prev) => {
+        const last = prev[prev.length - 1]
+        if (last && last.role === 'assistant') {
+          return [
+            ...prev.slice(0, -1),
+            { ...last, status: event.status === 'error' ? 'error' : 'complete' },
+          ]
+        }
+        return prev
+      })
+      listChats().then(setChats).catch(() => {})
+    } else if (event.type === 'chat_titled') {
+      listChats().then(setChats).catch(() => {})
+    } else if (event.type === 'error') {
+      setIsStreaming(false)
+      setMessages((prev) => {
+        const last = prev[prev.length - 1]
+        if (last && last.role === 'assistant') {
+          return [
+            ...prev.slice(0, -1),
+            { ...last, status: 'error', error: event.error },
+          ]
+        }
+        return [
+          ...prev,
+          {
+            id: crypto.randomUUID(),
+            role: 'assistant',
+            text: 'An error occurred while communicating with the model endpoint.',
+            status: 'error',
+            error: event.error,
+            attachments: [],
+            created_at: new Date().toISOString(),
+          },
+        ]
+      })
+    }
+  }
+
+  // Also listen globally as secondary bus
   useEffect(() => {
     let unlisten: (() => void) | undefined
-
-    subscribeToDaemonEvents((event: DaemonEvent) => {
-      if (event.type === 'text_delta') {
-        setMessages((prev) => {
-          const last = prev[prev.length - 1]
-          if (last && last.role === 'assistant') {
-            return [
-              ...prev.slice(0, -1),
-              { ...last, text: last.text + event.text },
-            ]
-          }
-          return [
-            ...prev,
-            {
-              id: event.message_id,
-              role: 'assistant',
-              text: event.text,
-              status: 'streaming',
-              attachments: [],
-              created_at: new Date().toISOString(),
-            },
-          ]
-        })
-      } else if (event.type === 'message_finished') {
-        setIsStreaming(false)
-        setMessages((prev) => {
-          const last = prev[prev.length - 1]
-          if (last && last.role === 'assistant') {
-            return [
-              ...prev.slice(0, -1),
-              { ...last, status: event.status === 'error' ? 'error' : 'complete' },
-            ]
-          }
-          return prev
-        })
-        listChats().then(setChats).catch(() => {})
-      } else if (event.type === 'chat_titled') {
-        listChats().then(setChats).catch(() => {})
-      } else if (event.type === 'error') {
-        setIsStreaming(false)
-        setMessages((prev) => {
-          const last = prev[prev.length - 1]
-          if (last && last.role === 'assistant') {
-            return [
-              ...prev.slice(0, -1),
-              { ...last, status: 'error', error: event.error },
-            ]
-          }
-          return [
-            ...prev,
-            {
-              id: crypto.randomUUID(),
-              role: 'assistant',
-              text: 'An error occurred while communicating with the model endpoint.',
-              status: 'error',
-              error: event.error,
-              attachments: [],
-              created_at: new Date().toISOString(),
-            },
-          ]
-        })
-      }
-    }).then((fn) => {
+    subscribeToDaemonEvents(handleDaemonEvent).then((fn) => {
       unlisten = fn
-    })
-
+    }).catch(() => {})
     return () => {
       unlisten?.()
     }
@@ -147,8 +148,7 @@ export default function App() {
 
   const handleContainerMouseDown = (e: React.MouseEvent) => {
     if (e.button === 0 && !(e.target as HTMLElement).closest('button, input, textarea, a, select')) {
-      const appWindow = getCurrentWindow()
-      appWindow.startDragging()
+      startDrag()
     }
   }
 
@@ -188,7 +188,7 @@ export default function App() {
     setActivePanel('none')
 
     try {
-      await sendMessage(chatId, question, currentAtts)
+      await sendMessage(chatId, question, currentAtts, handleDaemonEvent)
     } catch (err) {
       setIsStreaming(false)
       setMessages((prev) => [
@@ -307,6 +307,7 @@ export default function App() {
   // In expanded mode: render unified card with transcript/drawer and input at bottom
   return (
     <div
+      data-tauri-drag-region
       onMouseDown={handleContainerMouseDown}
       className="flex flex-col h-full w-full p-1 select-none bg-transparent"
     >
