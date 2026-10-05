@@ -1,6 +1,5 @@
 import { ArrowUp, History, Paperclip, Plus, Settings, Square } from 'lucide-react'
 import { useRef } from 'react'
-import { startDrag } from '../lib/daemon'
 
 interface InputBarProps {
   readonly input: string
@@ -31,12 +30,6 @@ export function InputBar({
 }: InputBarProps) {
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const handleMouseDown = (e: React.MouseEvent) => {
-    if (e.button === 0 && !(e.target as HTMLElement).closest('button, input, textarea, a, select')) {
-      void startDrag()
-    }
-  }
-
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
@@ -64,7 +57,6 @@ export function InputBar({
   return (
     <div
       data-tauri-drag-region
-      onMouseDown={handleMouseDown}
       className={containerClasses}
     >
       <input

@@ -41,7 +41,7 @@ export default function App() {
   const [attachments, setAttachments] = useState<AttachmentInput[]>([])
   const [isStreaming, setIsStreaming] = useState(false)
   const [chats, setChats] = useState<ChatSummary[]>([])
-  const [settings, setSettingsData] = useState<SettingsInfo | null>(null)
+  const [settingsInfo, setSettingsInfo] = useState<SettingsInfo | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
   const isCompact = activePanel === 'none' && messages.length === 0 && attachments.length === 0
@@ -61,7 +61,7 @@ export default function App() {
 
   // Load initial settings and history
   useEffect(() => {
-    void getSettings().then(setSettingsData).catch(() => {})
+    void getSettings().then(setSettingsInfo).catch(() => {})
     void listChats().then(setChats).catch(() => {})
   }, [])
 
@@ -70,7 +70,7 @@ export default function App() {
     if (event.type === 'text_delta') {
       setMessages((prev) => {
         const last = prev[prev.length - 1]
-        if (last && last.role === 'assistant') {
+        if (last?.role === 'assistant') {
           return [
             ...prev.slice(0, -1),
             { ...last, text: last.text + event.text },
@@ -92,7 +92,7 @@ export default function App() {
       setIsStreaming(false)
       setMessages((prev) => {
         const last = prev[prev.length - 1]
-        if (last && last.role === 'assistant') {
+        if (last?.role === 'assistant') {
           return [
             ...prev.slice(0, -1),
             { ...last, status: event.status === 'error' ? 'error' : 'complete' },
@@ -107,7 +107,7 @@ export default function App() {
       setIsStreaming(false)
       setMessages((prev) => {
         const last = prev[prev.length - 1]
-        if (last && last.role === 'assistant') {
+        if (last?.role === 'assistant') {
           return [
             ...prev.slice(0, -1),
             { ...last, status: 'error', error: event.error },
@@ -142,18 +142,23 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [activePanel])
 
-  const handleContainerMouseDown = (e: React.MouseEvent) => {
-    if (e.button === 0 && !(e.target as HTMLElement).closest('button, input, textarea, a, select')) {
-      void startDrag()
+  // Native window dragging on non-interactive background areas
+  useEffect(() => {
+    const handleGlobalMouseDown = (e: MouseEvent) => {
+      if (e.button === 0 && !(e.target as HTMLElement).closest('button, input, textarea, a, select')) {
+        void startDrag()
+      }
     }
-  }
+    window.addEventListener('mousedown', handleGlobalMouseDown)
+    return () => window.removeEventListener('mousedown', handleGlobalMouseDown)
+  }, [])
 
   const handleSend = async (overrideText?: string, overrideAttachments?: readonly AttachmentInput[]) => {
-    const textToSend = overrideText !== undefined ? overrideText : input
+    const textToSend = overrideText ?? input
     if (!textToSend.trim() || isStreaming) return
 
     const question = textToSend.trim()
-    const currentAtts = overrideAttachments !== undefined ? [...overrideAttachments] : [...attachments]
+    const currentAtts = overrideAttachments ? [...overrideAttachments] : [...attachments]
     const userMsg: ChatMessage = {
       id: crypto.randomUUID(),
       role: 'user',
@@ -228,33 +233,32 @@ export default function App() {
   }
 
   const handleAttachFiles = async (files: FileList) => {
-    const newItems: AttachmentInput[] = []
-    for (let i = 0; i < files.length && attachments.length + newItems.length < 5; i++) {
-      const file = files[i]
-      if (!file) continue
-
+    const fileList = Array.from(files).slice(0, 5 - attachments.length)
+    const validFiles = fileList.filter((file) => {
       if (file.size > 10 * 1024 * 1024) {
         setErrorMessage(`File ${file.name} exceeds 10MB limit`)
-        continue
+        return false
       }
+      return true
+    })
 
-      const reader = new FileReader()
-      const base64Promise = new Promise<string>((resolve) => {
-        reader.onload = () => {
-          const res = reader.result as string
-          const b64 = res.split(',')[1] || ''
-          resolve(b64)
-        }
+    const newItems = await Promise.all(
+      validFiles.map((file) => {
+        return new Promise<AttachmentInput>((resolve) => {
+          const reader = new FileReader()
+          reader.onload = () => {
+            const res = reader.result as string
+            const b64 = res.split(',')[1] ?? ''
+            resolve({
+              name: file.name,
+              mime: file.type || 'text/plain',
+              data_base64: b64,
+            })
+          }
+          reader.readAsDataURL(file)
+        })
       })
-      reader.readAsDataURL(file)
-      const b64 = await base64Promise
-
-      newItems.push({
-        name: file.name,
-        mime: file.type || 'text/plain',
-        data_base64: b64,
-      })
-    }
+    )
     setAttachments((prev) => [...prev, ...newItems].slice(0, 5))
   }
 
@@ -284,7 +288,7 @@ export default function App() {
 
   const handleSaveSettings = async (payload: SettingsPayload) => {
     const updated = await setSettings(payload)
-    setSettingsData(updated)
+    setSettingsInfo(updated)
   }
 
   const handleNewChat = () => {
@@ -320,7 +324,6 @@ export default function App() {
   return (
     <div
       data-tauri-drag-region
-      onMouseDown={handleContainerMouseDown}
       className="flex flex-col h-full w-full p-1 select-none bg-transparent"
     >
       <div className="flex flex-col flex-1 rounded-2xl bg-[#161618]/95 backdrop-blur-2xl border border-white/10 shadow-[0_20px_50px_rgba(0,0,0,0.6)] overflow-hidden">
@@ -356,7 +359,7 @@ export default function App() {
         {activePanel === 'settings' && (
           <div className="flex-1 min-h-0">
             <SettingsModal
-              currentSettings={settings}
+              currentSettings={settingsInfo}
               onSave={handleSaveSettings}
               onClose={() => setActivePanel('none')}
             />
