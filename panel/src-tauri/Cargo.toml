@@ -1,0 +1,25 @@
+[package]
+name = "nook-panel"
+version = "0.1.0"
+description = "Nook cross-platform overlay panel"
+authors = ["Nook Contributors"]
+edition = "2021"
+
+[lib]
+name = "nook_panel_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-shell = "2"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1", features = ["full"] }
+uuid = { version = "1.10", features = ["v4"] }
+base64 = "0.22"
+libc = "0.2"
+nook-core = { path = "../../daemon/crates/nook-core" }

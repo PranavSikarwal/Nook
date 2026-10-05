@@ -1,0 +1,330 @@
+import { useEffect, useState } from 'react'
+import { AttachmentChips } from './components/AttachmentChips'
+import { HistoryDrawer } from './components/HistoryDrawer'
+import { InputBar } from './components/InputBar'
+import { SettingsModal } from './components/SettingsModal'
+import { TranscriptView } from './components/TranscriptView'
+import {
+  cancelMessage,
+  deleteChat,
+  getChat,
+  getSettings,
+  listChats,
+  sendMessage,
+  setSettings,
+  setWindowSize,
+  subscribeToDaemonEvents,
+} from './lib/daemon'
+import type {
+  AttachmentInput,
+  ChatMessage,
+  ChatSummary,
+  DaemonEvent,
+  SettingsInfo,
+  SettingsPayload,
+} from './lib/types'
+
+type ActivePanel = 'none' | 'history' | 'settings'
+
+export default function App() {
+  const [activePanel, setActivePanel] = useState<ActivePanel>('none')
+  const [chatId, setChatId] = useState<string>(() => crypto.randomUUID())
+  const [messages, setMessages] = useState<ChatMessage[]>([])
+  const [input, setInput] = useState('')
+  const [attachments, setAttachments] = useState<AttachmentInput[]>([])
+  const [isStreaming, setIsStreaming] = useState(false)
+  const [chats, setChats] = useState<ChatSummary[]>([])
+  const [settings, setSettingsData] = useState<SettingsInfo | null>(null)
+
+  // Sync window size with view state
+  useEffect(() => {
+    if (activePanel !== 'none') {
+      setWindowSize(640, 440)
+    } else if (messages.length > 0) {
+      setWindowSize(640, 520)
+    } else if (attachments.length > 0) {
+      setWindowSize(640, 116)
+    } else {
+      setWindowSize(640, 72)
+    }
+  }, [activePanel, messages.length, attachments.length])
+
+  // Load initial settings and history
+  useEffect(() => {
+    getSettings().then(setSettingsData).catch(() => {})
+    listChats().then(setChats).catch(() => {})
+  }, [])
+
+  // Listen to daemon events
+  useEffect(() => {
+    let unlisten: (() => void) | undefined
+
+    subscribeToDaemonEvents((event: DaemonEvent) => {
+      if (event.type === 'text_delta') {
+        setMessages((prev) => {
+          const last = prev[prev.length - 1]
+          if (last && last.role === 'assistant') {
+            return [
+              ...prev.slice(0, -1),
+              { ...last, text: last.text + event.text },
+            ]
+          }
+          return [
+            ...prev,
+            {
+              id: event.message_id,
+              role: 'assistant',
+              text: event.text,
+              status: 'streaming',
+              attachments: [],
+              created_at: new Date().toISOString(),
+            },
+          ]
+        })
+      } else if (event.type === 'message_finished') {
+        setIsStreaming(false)
+        setMessages((prev) => {
+          const last = prev[prev.length - 1]
+          if (last && last.role === 'assistant') {
+            return [
+              ...prev.slice(0, -1),
+              { ...last, status: event.status === 'error' ? 'error' : 'complete' },
+            ]
+          }
+          return prev
+        })
+        listChats().then(setChats).catch(() => {})
+      } else if (event.type === 'chat_titled') {
+        listChats().then(setChats).catch(() => {})
+      } else if (event.type === 'error') {
+        setIsStreaming(false)
+        setMessages((prev) => {
+          const last = prev[prev.length - 1]
+          if (last && last.role === 'assistant') {
+            return [
+              ...prev.slice(0, -1),
+              { ...last, status: 'error', error: event.error },
+            ]
+          }
+          return [
+            ...prev,
+            {
+              id: crypto.randomUUID(),
+              role: 'assistant',
+              text: 'An error occurred while communicating with the model endpoint.',
+              status: 'error',
+              error: event.error,
+              attachments: [],
+              created_at: new Date().toISOString(),
+            },
+          ]
+        })
+      }
+    }).then((fn) => {
+      unlisten = fn
+    })
+
+    return () => {
+      unlisten?.()
+    }
+  }, [])
+
+  // Escape key handler
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (activePanel !== 'none') {
+          setActivePanel('none')
+        }
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [activePanel])
+
+  const handleSend = async () => {
+    if (!input.trim() || isStreaming) return
+
+    const question = input.trim()
+    const currentAtts = [...attachments]
+    const userMsg: ChatMessage = {
+      id: crypto.randomUUID(),
+      role: 'user',
+      text: question,
+      status: 'complete',
+      attachments: currentAtts.map((a) => ({
+        id: crypto.randomUUID(),
+        kind: a.mime.startsWith('image/') ? 'image' : 'text',
+        name: a.name,
+        mime: a.mime,
+        size_bytes: 0,
+      })),
+      created_at: new Date().toISOString(),
+    }
+
+    const assistantMsg: ChatMessage = {
+      id: crypto.randomUUID(),
+      role: 'assistant',
+      text: '',
+      status: 'streaming',
+      attachments: [],
+      created_at: new Date().toISOString(),
+    }
+
+    setMessages((prev) => [...prev, userMsg, assistantMsg])
+    setInput('')
+    setAttachments([])
+    setIsStreaming(true)
+    setActivePanel('none')
+
+    try {
+      await sendMessage(chatId, question, currentAtts)
+    } catch (err) {
+      setIsStreaming(false)
+      setMessages((prev) => [
+        ...prev.slice(0, -1),
+        {
+          ...assistantMsg,
+          status: 'error',
+          error: {
+            code: 'internal',
+            message: err instanceof Error ? err.message : String(err),
+            retryable: true,
+          },
+        },
+      ])
+    }
+  }
+
+  const handleStop = async () => {
+    setIsStreaming(false)
+    try {
+      await cancelMessage(chatId)
+    } catch {
+      // Ignore cancel error
+    }
+  }
+
+  const handleAttachFiles = async (files: FileList) => {
+    const newItems: AttachmentInput[] = []
+    for (let i = 0; i < files.length && attachments.length + newItems.length < 5; i++) {
+      const file = files[i]
+      if (!file) continue
+
+      if (file.size > 10 * 1024 * 1024) {
+        alert(`File ${file.name} exceeds 10MB limit`)
+        continue
+      }
+
+      const reader = new FileReader()
+      const base64Promise = new Promise<string>((resolve) => {
+        reader.onload = () => {
+          const res = reader.result as string
+          const b64 = res.split(',')[1] || ''
+          resolve(b64)
+        }
+      })
+      reader.readAsDataURL(file)
+      const b64 = await base64Promise
+
+      newItems.push({
+        name: file.name,
+        mime: file.type || 'text/plain',
+        data_base64: b64,
+      })
+    }
+    setAttachments((prev) => [...prev, ...newItems].slice(0, 5))
+  }
+
+  const handleSelectChat = async (selectedId: string) => {
+    try {
+      const transcript = await getChat(selectedId)
+      setChatId(transcript.chat_id)
+      setMessages(transcript.messages)
+      setActivePanel('none')
+    } catch (err) {
+      alert(`Failed to load chat: ${err}`)
+    }
+  }
+
+  const handleDeleteChat = async (targetId: string) => {
+    try {
+      await deleteChat(targetId)
+      setChats((prev) => prev.filter((c) => c.chat_id !== targetId))
+      if (chatId === targetId) {
+        setChatId(crypto.randomUUID())
+        setMessages([])
+      }
+    } catch (err) {
+      alert(`Failed to delete chat: ${err}`)
+    }
+  }
+
+  const handleSaveSettings = async (payload: SettingsPayload) => {
+    const updated = await setSettings(payload)
+    setSettingsData(updated)
+  }
+
+  return (
+    <div className="flex flex-col h-full w-full p-2 select-none">
+      {/* Outer container with sleek rounded pill geometry */}
+      <div
+        data-tauri-drag-region
+        className="flex flex-col flex-1 rounded-2xl bg-[#161618]/95 backdrop-blur-2xl border border-white/10 shadow-[0_20px_50px_rgba(0,0,0,0.6)] overflow-hidden transition-all duration-200"
+      >
+        {/* Expanded Drawer Area */}
+        {activePanel === 'history' && (
+          <div className="flex-1 min-h-0">
+            <HistoryDrawer
+              chats={chats}
+              activeChatId={chatId}
+              onSelectChat={handleSelectChat}
+              onDeleteChat={handleDeleteChat}
+              onClose={() => setActivePanel('none')}
+            />
+          </div>
+        )}
+
+        {activePanel === 'settings' && (
+          <div className="flex-1 min-h-0">
+            <SettingsModal
+              currentSettings={settings}
+              onSave={handleSaveSettings}
+              onClose={() => setActivePanel('none')}
+            />
+          </div>
+        )}
+
+        {activePanel === 'none' && messages.length > 0 && (
+          <TranscriptView
+            messages={messages}
+            isStreaming={isStreaming}
+            onRetry={handleSend}
+          />
+        )}
+
+        {/* Attachment chips preview */}
+        <AttachmentChips
+          attachments={attachments}
+          onRemove={(idx) => setAttachments((prev) => prev.filter((_, i) => i !== idx))}
+        />
+
+        {/* Compact Input Bar */}
+        <InputBar
+          input={input}
+          setInput={setInput}
+          onSend={handleSend}
+          onStop={handleStop}
+          onToggleHistory={() =>
+            setActivePanel((prev) => (prev === 'history' ? 'none' : 'history'))
+          }
+          onToggleSettings={() =>
+            setActivePanel((prev) => (prev === 'settings' ? 'none' : 'settings'))
+          }
+          onAttachFiles={handleAttachFiles}
+          isStreaming={isStreaming}
+        />
+      </div>
+    </div>
+  )
+}
