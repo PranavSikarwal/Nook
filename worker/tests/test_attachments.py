@@ -3,6 +3,7 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
+
 from nook_worker.attachments import (
     AttachmentError,
     process_attachment,

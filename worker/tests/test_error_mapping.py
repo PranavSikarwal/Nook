@@ -3,6 +3,7 @@ from uuid import UUID
 import httpx
 import openai
 import psycopg
+
 from nook_worker.agent import map_exception_to_error_info
 from nook_worker.attachments import AttachmentError
 from nook_worker.protocol import Attachment
