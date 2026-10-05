@@ -399,33 +399,30 @@ async fn set_settings(payload: SettingsPayload) -> Result<SettingsInfo, String> 
 
 #[tauri::command]
 async fn set_window_size<R: Runtime>(app: AppHandle<R>, width: f64, height: f64) -> Result<(), String> {
-    if let Some(window) = app.get_webview_window("main") {
-        window
-            .set_size(tauri::Size::Logical(tauri::LogicalSize { width, height }))
-            .map_err(|e| e.to_string())?;
-    }
-    Ok(())
-}
-
-#[tauri::command]
-async fn toggle_window<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
-    if let Some(window) = app.get_webview_window("main") {
-        if window.is_visible().unwrap_or(false) {
-            window.hide().map_err(|e| e.to_string())?;
-        } else {
-            window.show().map_err(|e| e.to_string())?;
-            window.set_focus().map_err(|e| e.to_string())?;
+    let app_clone = app.clone();
+    app.run_on_main_thread(move || {
+        if let Some(window) = app_clone.get_webview_window("main") {
+            let _ = window.set_visible_on_all_workspaces(true);
+            let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize { width, height }));
         }
-    }
+    }).map_err(|e| e.to_string())?;
     Ok(())
 }
 
 #[tauri::command]
 async fn start_drag<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
-    if let Some(window) = app.get_webview_window("main") {
-        let _ = window.start_dragging();
-    }
+    let app_clone = app.clone();
+    app.run_on_main_thread(move || {
+        if let Some(window) = app_clone.get_webview_window("main") {
+            let _ = window.start_dragging();
+        }
+    }).map_err(|e| e.to_string())?;
     Ok(())
+}
+
+#[tauri::command]
+async fn toggle_window<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
+    toggle_window_internal(&app)
 }
 
 pub fn run() {
@@ -454,15 +451,16 @@ pub fn run() {
                 app.set_activation_policy(tauri::ActivationPolicy::Accessory);
             }
 
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.set_visible_on_all_workspaces(true);
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+
             if let Err(e) = app.global_shortcut().register(shortcut) {
                 eprintln!("Failed to register global shortcut: {e}");
             } else {
                 eprintln!("Registered global shortcut: {shortcut_str}");
-            }
-
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.show();
-                let _ = window.set_focus();
             }
 
             Ok(())
@@ -485,45 +483,19 @@ pub fn run() {
 }
 
 fn toggle_window_internal<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
-    if let Some(window) = app.get_webview_window("main") {
-        let is_visible = window.is_visible().unwrap_or(false);
-        let is_focused = window.is_focused().unwrap_or(false);
-        if is_visible && is_focused {
-            window.hide().map_err(|e| e.to_string())?;
-        } else {
-            #[cfg(target_os = "macos")]
-            {
-                if let Ok(ns_win_ptr) = window.ns_window() {
-                    use objc2_app_kit::{NSWindow, NSWindowCollectionBehavior};
-                    unsafe {
-                        let ns_win: &NSWindow = &*(ns_win_ptr as *const NSWindow);
-                        ns_win.setCollectionBehavior(
-                            NSWindowCollectionBehavior::CanJoinAllSpaces
-                                | NSWindowCollectionBehavior::MoveToActiveSpace
-                                | NSWindowCollectionBehavior::FullScreenAuxiliary,
-                        );
-                        ns_win.orderFrontRegardless();
-                    }
-                }
+    let app_handle = app.clone();
+    app.run_on_main_thread(move || {
+        if let Some(window) = app_handle.get_webview_window("main") {
+            let _ = window.set_visible_on_all_workspaces(true);
+            let is_visible = window.is_visible().unwrap_or(false);
+            let is_focused = window.is_focused().unwrap_or(false);
+            if is_visible && is_focused {
+                let _ = window.hide();
+            } else {
+                let _ = window.show();
+                let _ = window.set_focus();
             }
-            window.show().map_err(|e| e.to_string())?;
-            window.set_focus().map_err(|e| e.to_string())?;
         }
-    } else {
-        eprintln!("Warning: Webview window 'main' not found!");
-    }
+    }).map_err(|e| e.to_string())?;
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_parse_shortcuts() {
-        let opt: Result<Shortcut, _> = "Option+Space".parse();
-        println!("Option+Space parse: {:?}", opt);
-        let alt: Result<Shortcut, _> = "Alt+Space".parse();
-        println!("Alt+Space parse: {:?}", alt);
-    }
 }
