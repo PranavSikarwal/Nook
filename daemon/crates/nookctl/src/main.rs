@@ -41,6 +41,7 @@ enum Commands {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    nook_core::config::Config::load_env_file();
     let cli = Cli::parse();
     let socket_path = Config::default_socket_path();
 
@@ -66,12 +67,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let msg = ClientMessage::Ping { id: req_id };
             send_json(&mut writer, &msg).await?;
 
+            let mut received_pong = false;
             if let Some(line) = lines.next_line().await? {
                 if let Ok(DaemonMessage::Pong { .. }) = serde_json::from_str(&line) {
                     println!("pong");
+                    received_pong = true;
                 } else {
                     println!("{line}");
                 }
+            }
+            if !received_pong {
+                eprintln!("Error: Connection closed before pong received");
+                std::process::exit(1);
             }
         }
 
@@ -80,7 +87,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let msg = ClientMessage::ListChats { id: req_id };
             send_json(&mut writer, &msg).await?;
 
+            let mut received = false;
             if let Some(line) = lines.next_line().await? {
+                received = true;
                 match serde_json::from_str::<DaemonMessage>(&line)? {
                     DaemonMessage::Chats { chats, .. } => {
                         if chats.is_empty() {
@@ -95,9 +104,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                     DaemonMessage::Error { error, .. } => {
                         eprintln!("Error: {}", error.message);
+                        std::process::exit(1);
                     }
                     _ => println!("{line}"),
                 }
+            }
+            if !received {
+                eprintln!("Error: Connection closed before receiving chat list");
+                std::process::exit(1);
             }
         }
 
@@ -106,7 +120,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let msg = ClientMessage::GetChat { id: req_id, chat_id };
             send_json(&mut writer, &msg).await?;
 
+            let mut received = false;
             if let Some(line) = lines.next_line().await? {
+                received = true;
                 match serde_json::from_str::<DaemonMessage>(&line)? {
                     DaemonMessage::Chat { title, messages, .. } => {
                         println!("=== {} ({chat_id}) ===", title);
@@ -120,9 +136,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                     DaemonMessage::Error { error, .. } => {
                         eprintln!("Error: {}", error.message);
+                        std::process::exit(1);
                     }
                     _ => println!("{line}"),
                 }
+            }
+            if !received {
+                eprintln!("Error: Connection closed before receiving chat");
+                std::process::exit(1);
             }
         }
 
@@ -131,16 +152,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let msg = ClientMessage::DeleteChat { id: req_id, chat_id };
             send_json(&mut writer, &msg).await?;
 
+            let mut received = false;
             if let Some(line) = lines.next_line().await? {
+                received = true;
                 match serde_json::from_str::<DaemonMessage>(&line)? {
                     DaemonMessage::Deleted { chat_id, .. } => {
                         println!("Deleted chat {chat_id}");
                     }
                     DaemonMessage::Error { error, .. } => {
                         eprintln!("Error: {}", error.message);
+                        std::process::exit(1);
                     }
                     _ => println!("{line}"),
                 }
+            }
+            if !received {
+                eprintln!("Error: Connection closed before deletion confirmed");
+                std::process::exit(1);
             }
         }
 
@@ -190,6 +218,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             send_json(&mut writer, &msg).await?;
 
             use std::io::Write;
+            let mut completed = false;
             while let Some(line) = lines.next_line().await? {
                 if let Ok(event) = serde_json::from_str::<DaemonMessage>(&line) {
                     match event {
@@ -204,15 +233,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         DaemonMessage::ToolCallFinished { .. } => {}
                         DaemonMessage::MessageFinished { .. } => {
                             println!();
+                            completed = true;
                             break;
                         }
                         DaemonMessage::Error { error, .. } => {
                             eprintln!("\nError: {}", error.message);
-                            break;
+                            std::process::exit(1);
                         }
                         _ => {}
                     }
                 }
+            }
+            if !completed {
+                eprintln!("\nError: Connection closed before message completed");
+                std::process::exit(1);
             }
         }
     }

@@ -13,6 +13,9 @@ use tracing::{error, info, warn};
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     tracing_subscriber::fmt::init();
 
+    // 0. Load .env if present
+    Config::load_env_file();
+
     // 1. Read config
     let config_path = Config::default_config_path();
     let config = Config::from_file(&config_path)?;
@@ -74,10 +77,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     let shutdown_tx_clone = shutdown_tx.clone();
     tokio::spawn(async move {
-        if let Ok(()) = tokio::signal::ctrl_c().await {
-            info!("Received Ctrl+C, shutting down daemon");
-            let _ = shutdown_tx_clone.send(());
+        #[cfg(unix)]
+        {
+            use tokio::signal::unix::{signal, SignalKind};
+            let mut sigterm = signal(SignalKind::terminate()).ok();
+            tokio::select! {
+                _ = tokio::signal::ctrl_c() => {
+                    info!("Received Ctrl+C (SIGINT), shutting down daemon");
+                }
+                _ = async {
+                    if let Some(ref mut sig) = sigterm {
+                        sig.recv().await
+                    } else {
+                        std::future::pending().await
+                    }
+                } => {
+                    info!("Received SIGTERM, shutting down daemon");
+                }
+            }
         }
+        #[cfg(not(unix))]
+        {
+            if let Ok(()) = tokio::signal::ctrl_c().await {
+                info!("Received Ctrl+C, shutting down daemon");
+            }
+        }
+        let _ = shutdown_tx_clone.send(());
     });
 
     server.run().await?;
