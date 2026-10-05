@@ -32,7 +32,7 @@ public final class HotkeyManager {
 
         let selfPtr = Unmanaged.passUnretained(self).toOpaque()
         let installErr = InstallEventHandler(
-            GetApplicationEventTarget(),
+            GetEventDispatcherTarget(),
             handlerFunction,
             1,
             &eventType,
@@ -50,7 +50,7 @@ public final class HotkeyManager {
             keyCode,
             modifiers,
             hotKeyID,
-            GetApplicationEventTarget(),
+            GetEventDispatcherTarget(),
             0,
             &hotKeyRef
         )

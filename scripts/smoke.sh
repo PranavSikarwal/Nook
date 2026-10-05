@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # 1. Load environment variables from .env if present without echoing any secrets
-if [ -f "$ROOT_DIR/.env" ]; then
+if [[ -f "$ROOT_DIR/.env" ]]; then
     set -a
     # shellcheck disable=SC1091
     . "$ROOT_DIR/.env"
@@ -16,7 +16,7 @@ echo "=== Nook End-to-End Smoke Test ==="
 
 # 2. Check PostgreSQL availability
 if ! pg_isready -d "${NOOK_DATABASE_URL:-postgres://localhost/nook}" >/dev/null 2>&1; then
-    echo "Error: PostgreSQL is not ready or database 'nook' is unreachable."
+    echo "Error: PostgreSQL is not ready or database 'nook' is unreachable." >&2
     exit 1
 fi
 echo "PostgreSQL is reachable."
@@ -25,14 +25,16 @@ echo "PostgreSQL is reachable."
 NOOKD_BIN="$ROOT_DIR/daemon/target/debug/nookd"
 NOOKCTL_BIN="$ROOT_DIR/daemon/target/debug/nookctl"
 
-if [ ! -f "$NOOKD_BIN" ] || [ ! -f "$NOOKCTL_BIN" ]; then
+if [[ ! -f "$NOOKD_BIN" ]] || [[ ! -f "$NOOKCTL_BIN" ]]; then
     echo "Building nookd and nookctl..."
     (cd "$ROOT_DIR/daemon" && cargo build -p nookd -p nookctl)
 fi
 
-# 4. Sync worker dependencies
-echo "Ensuring worker environment is synced..."
-(cd "$ROOT_DIR/worker" && uv sync --quiet)
+# 4. Verify worker virtual environment
+if [[ ! -d "$ROOT_DIR/worker/.venv" ]]; then
+    echo "Worker environment not found. Syncing worker dependencies..."
+    (cd "$ROOT_DIR/worker" && uv sync --quiet)
+fi
 
 # 5. Stop any existing running nookd process to ensure a clean test instance
 if pgrep -x "nookd" >/dev/null 2>&1; then
@@ -42,7 +44,7 @@ if pgrep -x "nookd" >/dev/null 2>&1; then
 fi
 
 SOCKET_PATH="$HOME/Library/Application Support/Nook/daemon.sock"
-if [ -S "$SOCKET_PATH" ]; then
+if [[ -S "$SOCKET_PATH" ]]; then
     rm -f "$SOCKET_PATH"
 fi
 
@@ -57,26 +59,26 @@ TEST_IMG=""
 cleanup() {
     local exit_code=$?
     echo "Cleaning up smoke test resources..."
-    if [ -n "${DAEMON_PID:-}" ] && kill -0 "$DAEMON_PID" 2>/dev/null; then
+    if [[ -n "${DAEMON_PID:-}" ]] && kill -0 "$DAEMON_PID" 2>/dev/null; then
         echo "Stopping daemon (PID $DAEMON_PID)..."
         kill -TERM "$DAEMON_PID" 2>/dev/null || true
         wait "$DAEMON_PID" 2>/dev/null || true
     fi
-    if [ -n "${TEST_IMG:-}" ] && [ -f "$TEST_IMG" ]; then
+    if [[ -n "${TEST_IMG:-}" ]] && [[ -f "$TEST_IMG" ]]; then
         rm -f "$TEST_IMG"
     fi
-    if [ $exit_code -ne 0 ]; then
-        echo "Smoke test FAILED with exit code $exit_code."
-        if [ -f "$SMOKE_LOG" ]; then
-            echo "--- Last 50 lines of daemon log ---"
-            tail -n 50 "$SMOKE_LOG" || true
-            echo "-----------------------------------"
+    if [[ $exit_code -ne 0 ]]; then
+        echo "Smoke test FAILED with exit code $exit_code." >&2
+        if [[ -f "$SMOKE_LOG" ]]; then
+            echo "--- Last 50 lines of daemon log ---" >&2
+            tail -n 50 "$SMOKE_LOG" >&2 || true
+            echo "-----------------------------------" >&2
         fi
     else
         echo "Smoke test PASSED successfully."
         rm -f "$SMOKE_LOG"
     fi
-    exit $exit_code
+    exit "$exit_code"
 }
 trap cleanup EXIT INT TERM
 
@@ -84,19 +86,19 @@ trap cleanup EXIT INT TERM
 echo "Waiting for nookd socket and ping..."
 READY=0
 for _ in $(seq 1 30); do
-    if [ -S "$SOCKET_PATH" ] && "$NOOKCTL_BIN" ping >/dev/null 2>&1; then
+    if [[ -S "$SOCKET_PATH" ]] && "$NOOKCTL_BIN" ping >/dev/null 2>&1; then
         READY=1
         break
     fi
     if ! kill -0 "$DAEMON_PID" 2>/dev/null; then
-        echo "Error: nookd process exited prematurely."
+        echo "Error: nookd process exited prematurely." >&2
         exit 1
     fi
     sleep 1
 done
 
-if [ "$READY" -ne 1 ]; then
-    echo "Error: nookd failed to respond to ping within 30 seconds."
+if [[ "$READY" -ne 1 ]]; then
+    echo "Error: nookd failed to respond to ping within 30 seconds." >&2
     exit 1
 fi
 echo "nookd is ready and responding to ping."
@@ -109,8 +111,8 @@ echo "Using test Chat ID: $CHAT_ID"
 echo "Sending Turn 1: establishing memory..."
 TURN1_RESP=$("$NOOKCTL_BIN" send "Remember that the secret phrase is CRIMSON-SPARROW-42. Reply with only OK." --chat "$CHAT_ID")
 echo "Turn 1 reply received."
-if [ -z "$TURN1_RESP" ]; then
-    echo "Error: Turn 1 response was empty."
+if [[ -z "$TURN1_RESP" ]]; then
+    echo "Error: Turn 1 response was empty." >&2
     exit 1
 fi
 
@@ -119,7 +121,7 @@ echo "Sending Turn 2: checking memory recall in same chat..."
 TURN2_RESP=$("$NOOKCTL_BIN" send "What is the secret phrase?" --chat "$CHAT_ID")
 echo "Turn 2 reply: $TURN2_RESP"
 if ! echo "$TURN2_RESP" | grep -iq "CRIMSON-SPARROW-42"; then
-    echo "Error: Turn 2 failed to recall 'CRIMSON-SPARROW-42'."
+    echo "Error: Turn 2 failed to recall 'CRIMSON-SPARROW-42'." >&2
     exit 1
 fi
 echo "Turn 2 successfully recalled secret phrase."
@@ -132,8 +134,8 @@ echo "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAAKElEQVR4nO3NsQ0AAAzCMP5/un
 echo "Sending Turn 3: question with image attachment..."
 TURN3_RESP=$("$NOOKCTL_BIN" send "What color is this image?" --chat "$CHAT_ID" --attach "$TEST_IMG")
 echo "Turn 3 reply: $TURN3_RESP"
-if [ -z "$TURN3_RESP" ]; then
-    echo "Error: Turn 3 response was empty."
+if [[ -z "$TURN3_RESP" ]]; then
+    echo "Error: Turn 3 response was empty." >&2
     exit 1
 fi
 echo "Turn 3 successfully processed image attachment."
@@ -143,7 +145,7 @@ echo "Listing chats..."
 LIST_RESP=$("$NOOKCTL_BIN" list)
 echo "$LIST_RESP"
 if ! echo "$LIST_RESP" | grep -q "$CHAT_ID"; then
-    echo "Error: Chat ID $CHAT_ID not found in chat list."
+    echo "Error: Chat ID $CHAT_ID not found in chat list." >&2
     exit 1
 fi
 echo "Chat ID $CHAT_ID verified in chat list."
@@ -156,7 +158,7 @@ echo "$DEL_RESP"
 echo "Verifying chat deletion..."
 LIST_AFTER=$("$NOOKCTL_BIN" list)
 if echo "$LIST_AFTER" | grep -q "$CHAT_ID"; then
-    echo "Error: Chat ID $CHAT_ID is still present after deletion."
+    echo "Error: Chat ID $CHAT_ID is still present after deletion." >&2
     exit 1
 fi
 echo "Chat ID $CHAT_ID confirmed removed from chat list."

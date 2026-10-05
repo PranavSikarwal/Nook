@@ -167,8 +167,16 @@ mod tests {
         cfg.save_to_file(&path).unwrap();
 
         let loaded = Config::from_file(&path).unwrap();
-        assert_eq!(loaded.base_url, "https://example.com/v1");
-        assert_eq!(loaded.model, "test-model");
-        assert_eq!(loaded.database_url, "postgres://localhost/test_db");
+        assert_eq!(loaded.max_input_tokens, 500_000);
+        assert_eq!(loaded.summarize_at_tokens, 350_000);
+        if std::env::var("NOOK_BASE_URL").is_err() {
+            assert_eq!(loaded.base_url, "https://example.com/v1");
+        }
+        if std::env::var("NOOK_MODEL").is_err() {
+            assert_eq!(loaded.model, "test-model");
+        }
+        if std::env::var("NOOK_DATABASE_URL").is_err() {
+            assert_eq!(loaded.database_url, "postgres://localhost/test_db");
+        }
     }
 }
