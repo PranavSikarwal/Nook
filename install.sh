@@ -56,7 +56,7 @@ fi
 if [ "$IS_LOCAL" -eq 1 ]; then
     echo "Running local repository build and installation..."
     (cd "$ROOT_DIR/daemon" && cargo build --release -p nookd -p nookctl)
-    (cd "$ROOT_DIR/panel" && npm install --silent && npm run build)
+    (cd "$ROOT_DIR/panel" && npm install --silent --ignore-scripts && npm run build)
     (cd "$ROOT_DIR/panel/src-tauri" && cargo build --release)
 
     cp "$ROOT_DIR/daemon/target/release/nookd" "$BIN_DIR/nookd"
@@ -74,7 +74,7 @@ if [ "$IS_LOCAL" -eq 1 ]; then
 else
     echo "Fetching latest release from GitHub ($GITHUB_REPO)..."
     API_URL="https://api.github.com/repos/${GITHUB_REPO}/releases/latest"
-    RELEASE_DATA=$(curl -fsSL "$API_URL" 2>/dev/null || true)
+    RELEASE_DATA=$(curl --proto '=https' --tlsv1.2 -fsSL "$API_URL" 2>/dev/null || true)
 
     if [ -z "$RELEASE_DATA" ]; then
         echo "Notice: No pre-built release found on GitHub yet."
@@ -95,7 +95,7 @@ else
         TMP_DMG=$(mktemp /tmp/nook-installer.XXXXXX.dmg)
 
         echo "Downloading $DMG_NAME..."
-        if curl -fSL "$DMG_URL" -o "$TMP_DMG" 2>/dev/null; then
+        if curl --proto '=https' --tlsv1.2 -fSL "$DMG_URL" -o "$TMP_DMG" 2>/dev/null; then
             echo "Mounting disk image and installing to /Applications..."
             MOUNT_DIR=$(mktemp -d /tmp/nook-mount.XXXXXX)
             hdiutil attach "$TMP_DMG" -mountpoint "$MOUNT_DIR" -nobrowse -quiet
@@ -111,7 +111,7 @@ else
         DEB_URL="${DOWNLOAD_BASE}/${DEB_NAME}"
         TMP_DEB=$(mktemp /tmp/nook-installer.XXXXXX.deb)
 
-        if curl -fSL "$DEB_URL" -o "$TMP_DEB" 2>/dev/null; then
+        if curl --proto '=https' --tlsv1.2 -fSL "$DEB_URL" -o "$TMP_DEB" 2>/dev/null; then
             echo "Installing Debian package..."
             sudo dpkg -i "$TMP_DEB" || sudo apt-get install -f -y
             rm -f "$TMP_DEB"
