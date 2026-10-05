@@ -30,5 +30,8 @@ attachments/
 .env
 *.env
 
+# Local developer scripts
+scripts/gh
+
 # Worktrees
 .worktrees/

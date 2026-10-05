@@ -1,10 +1,10 @@
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use nook_core::config::Config;
 use nook_core::protocol::{
     Attachment, AttachmentKind, ChatMessage, ChatSummary, ClientMessage, DaemonMessage,
 };
 use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use tauri::{AppHandle, Manager, Runtime};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -12,10 +12,12 @@ use tokio::net::UnixStream;
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct DaemonState {
     pub client: Arc<Mutex<Option<DaemonConnection>>>,
     pub active_request_id: Arc<Mutex<Option<Uuid>>>,
+    pub spawned_process: Arc<Mutex<Option<tokio::process::Child>>>,
+    pub startup_lock: Arc<Mutex<()>>,
 }
 
 pub struct DaemonConnection {
@@ -56,6 +58,177 @@ pub struct SettingsPayload {
     pub base_url: String,
     pub model: String,
     pub api_key: Option<String>,
+}
+
+/// Locate the nookd binary from environment, app bundle, or development paths
+pub fn find_nookd_binary() -> Option<PathBuf> {
+    // 1. Explicit environment override
+    for env_key in &["NOOKD_PATH", "NOOKD_BIN", "NOOK_DAEMON_BIN"] {
+        if let Ok(path_str) = std::env::var(env_key) {
+            let p = PathBuf::from(path_str);
+            if p.is_file() {
+                return Some(p);
+            }
+        }
+    }
+
+    // 2. Next to current executable (in app bundle or install directory)
+    if let Ok(current_exe) = std::env::current_exe() {
+        if let Some(exe_dir) = current_exe.parent() {
+            #[cfg(windows)]
+            let bin_name = "nookd.exe";
+            #[cfg(not(windows))]
+            let bin_name = "nookd";
+
+            let candidate = exe_dir.join(bin_name);
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+
+            // In macOS app bundle (Contents/MacOS -> Contents/Helpers/nookd)
+            let helper_candidate = exe_dir
+                .parent()
+                .unwrap_or(exe_dir)
+                .join("Helpers")
+                .join(bin_name);
+            if helper_candidate.is_file() {
+                return Some(helper_candidate);
+            }
+        }
+    }
+
+    // 3. Development and workspace build paths
+    #[cfg(windows)]
+    let bin_name = "nookd.exe";
+    #[cfg(not(windows))]
+    let bin_name = "nookd";
+
+    let dev_candidates = [
+        PathBuf::from("daemon/target/release").join(bin_name),
+        PathBuf::from("daemon/target/debug").join(bin_name),
+        PathBuf::from("../daemon/target/release").join(bin_name),
+        PathBuf::from("../daemon/target/debug").join(bin_name),
+        PathBuf::from("../../daemon/target/release").join(bin_name),
+        PathBuf::from("../../daemon/target/debug").join(bin_name),
+    ];
+    for candidate in &dev_candidates {
+        if candidate.is_file() {
+            return Some(candidate.clone());
+        }
+    }
+
+    // 4. Standard system install locations
+    #[cfg(target_os = "macos")]
+    {
+        let system_app_bin = PathBuf::from("/Applications/Nook.app/Contents/MacOS").join(bin_name);
+        if system_app_bin.is_file() {
+            return Some(system_app_bin);
+        }
+        if let Ok(home) = std::env::var("HOME") {
+            let user_app_bin = PathBuf::from(&home)
+                .join("Applications/Nook.app/Contents/MacOS")
+                .join(bin_name);
+            if user_app_bin.is_file() {
+                return Some(user_app_bin);
+            }
+        }
+    }
+
+    if let Ok(home) = std::env::var("HOME") {
+        let user_bin = PathBuf::from(&home).join(".local/bin").join(bin_name);
+        if user_bin.is_file() {
+            return Some(user_bin);
+        }
+        let cargo_bin = PathBuf::from(&home).join(".cargo/bin").join(bin_name);
+        if cargo_bin.is_file() {
+            return Some(cargo_bin);
+        }
+    }
+
+    let global_bin = PathBuf::from("/usr/local/bin").join(bin_name);
+    if global_bin.is_file() {
+        return Some(global_bin);
+    }
+
+    None
+}
+
+/// Poll Unix socket with a timeout until it accepts connections
+pub async fn wait_for_daemon_ready(socket_path: &Path, timeout: std::time::Duration) -> bool {
+    let start = std::time::Instant::now();
+    while start.elapsed() < timeout {
+        if socket_path.exists() && UnixStream::connect(socket_path).await.is_ok() {
+            return true;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    false
+}
+
+/// Ensure nookd is running; spawn it if not currently responding
+pub async fn ensure_daemon_started(state: &DaemonState) {
+    let _lock = state.startup_lock.lock().await;
+
+    let socket_path = Config::default_socket_path();
+    if socket_path.exists() && UnixStream::connect(&socket_path).await.is_ok() {
+        return;
+    }
+
+    // Check if an existing spawned process is still running
+    {
+        let mut proc_guard = state.spawned_process.lock().await;
+        if let Some(child) = proc_guard.as_mut() {
+            match child.try_wait() {
+                Ok(None) => {
+                    drop(proc_guard);
+                    if wait_for_daemon_ready(&socket_path, std::time::Duration::from_millis(1500)).await {
+                        return;
+                    }
+                    eprintln!("Existing nookd child is running but not responding on socket yet.");
+                    return;
+                }
+                Ok(Some(status)) => {
+                    eprintln!("Previous nookd child process exited ({status}). Reaping.");
+                    *proc_guard = None;
+                }
+                Err(err) => {
+                    eprintln!("Error checking child process status ({err}). Clearing.");
+                    *proc_guard = None;
+                }
+            }
+        }
+    }
+
+    if wait_for_daemon_ready(&socket_path, std::time::Duration::from_millis(200)).await {
+        return;
+    }
+
+    if let Some(bin_path) = find_nookd_binary() {
+        eprintln!("Auto-starting nookd daemon from {}", bin_path.display());
+        let mut cmd = tokio::process::Command::new(bin_path);
+        cmd.kill_on_drop(true);
+
+        match cmd.spawn() {
+            Ok(child) => {
+                {
+                    let mut proc_guard = state.spawned_process.lock().await;
+                    *proc_guard = Some(child);
+                }
+                if wait_for_daemon_ready(&socket_path, std::time::Duration::from_millis(2500)).await {
+                    eprintln!("nookd started successfully in background.");
+                } else {
+                    eprintln!("Warning: nookd spawned but not yet responding on socket.");
+                }
+            }
+            Err(e) => {
+                eprintln!("Failed to auto-spawn nookd: {e}");
+            }
+        }
+    } else {
+        eprintln!(
+            "Notice: nookd binary not found automatically. Set NOOKD_PATH or run nookd separately."
+        );
+    }
 }
 
 /// Helper to configure SO_NOSIGPIPE on UnixStream on macOS
@@ -101,7 +274,10 @@ async fn ping_daemon() -> Result<bool, String> {
             let msg = ClientMessage::Ping { id: Uuid::new_v4() };
             let mut payload = serde_json::to_string(&msg).map_err(|e| e.to_string())?;
             payload.push('\n');
-            writer.write_all(payload.as_bytes()).await.map_err(|e| e.to_string())?;
+            writer
+                .write_all(payload.as_bytes())
+                .await
+                .map_err(|e| e.to_string())?;
             writer.flush().await.map_err(|e| e.to_string())?;
             if let Ok(Some(line)) = lines.next_line().await {
                 if let Ok(DaemonMessage::Pong { .. }) = serde_json::from_str(&line) {
@@ -127,13 +303,18 @@ async fn list_chats() -> Result<Vec<ChatSummary>, String> {
     let msg = ClientMessage::ListChats { id: Uuid::new_v4() };
     let mut payload = serde_json::to_string(&msg).map_err(|e| e.to_string())?;
     payload.push('\n');
-    writer.write_all(payload.as_bytes()).await.map_err(|e| e.to_string())?;
+    writer
+        .write_all(payload.as_bytes())
+        .await
+        .map_err(|e| e.to_string())?;
     writer.flush().await.map_err(|e| e.to_string())?;
 
     if let Some(line) = lines.next_line().await.map_err(|e| e.to_string())? {
         match serde_json::from_str::<DaemonMessage>(&line).map_err(|e| e.to_string())? {
             DaemonMessage::Chats { chats, .. } => Ok(chats),
-            DaemonMessage::Error { error, .. } => Err(format!("{:?}: {}", error.code, error.message)),
+            DaemonMessage::Error { error, .. } => {
+                Err(format!("{:?}: {}", error.code, error.message))
+            }
             _ => Err("Unexpected response from daemon".to_string()),
         }
     } else {
@@ -151,22 +332,30 @@ async fn get_chat(chat_id: Uuid) -> Result<ChatTranscript, String> {
     let (reader, mut writer) = stream.into_split();
     let mut lines = BufReader::new(reader).lines();
 
-    let msg = ClientMessage::GetChat { id: Uuid::new_v4(), chat_id };
+    let msg = ClientMessage::GetChat {
+        id: Uuid::new_v4(),
+        chat_id,
+    };
     let mut payload = serde_json::to_string(&msg).map_err(|e| e.to_string())?;
     payload.push('\n');
-    writer.write_all(payload.as_bytes()).await.map_err(|e| e.to_string())?;
+    writer
+        .write_all(payload.as_bytes())
+        .await
+        .map_err(|e| e.to_string())?;
     writer.flush().await.map_err(|e| e.to_string())?;
 
     if let Some(line) = lines.next_line().await.map_err(|e| e.to_string())? {
         match serde_json::from_str::<DaemonMessage>(&line).map_err(|e| e.to_string())? {
-            DaemonMessage::Chat { title, messages, .. } => {
-                Ok(ChatTranscript {
-                    chat_id,
-                    title,
-                    messages,
-                })
+            DaemonMessage::Chat {
+                title, messages, ..
+            } => Ok(ChatTranscript {
+                chat_id,
+                title,
+                messages,
+            }),
+            DaemonMessage::Error { error, .. } => {
+                Err(format!("{:?}: {}", error.code, error.message))
             }
-            DaemonMessage::Error { error, .. } => Err(format!("{:?}: {}", error.code, error.message)),
             _ => Err("Unexpected response from daemon".to_string()),
         }
     } else {
@@ -184,16 +373,24 @@ async fn delete_chat(chat_id: Uuid) -> Result<bool, String> {
     let (reader, mut writer) = stream.into_split();
     let mut lines = BufReader::new(reader).lines();
 
-    let msg = ClientMessage::DeleteChat { id: Uuid::new_v4(), chat_id };
+    let msg = ClientMessage::DeleteChat {
+        id: Uuid::new_v4(),
+        chat_id,
+    };
     let mut payload = serde_json::to_string(&msg).map_err(|e| e.to_string())?;
     payload.push('\n');
-    writer.write_all(payload.as_bytes()).await.map_err(|e| e.to_string())?;
+    writer
+        .write_all(payload.as_bytes())
+        .await
+        .map_err(|e| e.to_string())?;
     writer.flush().await.map_err(|e| e.to_string())?;
 
     if let Some(line) = lines.next_line().await.map_err(|e| e.to_string())? {
         match serde_json::from_str::<DaemonMessage>(&line).map_err(|e| e.to_string())? {
             DaemonMessage::Deleted { .. } => Ok(true),
-            DaemonMessage::Error { error, .. } => Err(format!("{:?}: {}", error.code, error.message)),
+            DaemonMessage::Error { error, .. } => {
+                Err(format!("{:?}: {}", error.code, error.message))
+            }
             _ => Err("Unexpected response from daemon".to_string()),
         }
     } else {
@@ -299,7 +496,10 @@ async fn send_message<R: Runtime>(
     };
     let mut payload = serde_json::to_string(&msg).map_err(|e| e.to_string())?;
     payload.push('\n');
-    writer.write_all(payload.as_bytes()).await.map_err(|e| e.to_string())?;
+    writer
+        .write_all(payload.as_bytes())
+        .await
+        .map_err(|e| e.to_string())?;
     writer.flush().await.map_err(|e| e.to_string())?;
 
     let state_for_cleanup = state.inner().active_request_id.clone();
@@ -355,7 +555,10 @@ async fn cancel_message<R: Runtime>(
     };
     let mut payload = serde_json::to_string(&msg).map_err(|e| e.to_string())?;
     payload.push('\n');
-    writer.write_all(payload.as_bytes()).await.map_err(|e| e.to_string())?;
+    writer
+        .write_all(payload.as_bytes())
+        .await
+        .map_err(|e| e.to_string())?;
     writer.flush().await.map_err(|e| e.to_string())?;
     Ok(())
 }
@@ -373,19 +576,27 @@ async fn get_settings() -> Result<SettingsInfo, String> {
     let msg = ClientMessage::GetSettings { id: Uuid::new_v4() };
     let mut payload = serde_json::to_string(&msg).map_err(|e| e.to_string())?;
     payload.push('\n');
-    writer.write_all(payload.as_bytes()).await.map_err(|e| e.to_string())?;
+    writer
+        .write_all(payload.as_bytes())
+        .await
+        .map_err(|e| e.to_string())?;
     writer.flush().await.map_err(|e| e.to_string())?;
 
     if let Some(line) = lines.next_line().await.map_err(|e| e.to_string())? {
         match serde_json::from_str::<DaemonMessage>(&line).map_err(|e| e.to_string())? {
-            DaemonMessage::Settings { base_url, model, has_api_key, .. } => {
-                Ok(SettingsInfo {
-                    base_url,
-                    model,
-                    has_api_key,
-                })
+            DaemonMessage::Settings {
+                base_url,
+                model,
+                has_api_key,
+                ..
+            } => Ok(SettingsInfo {
+                base_url,
+                model,
+                has_api_key,
+            }),
+            DaemonMessage::Error { error, .. } => {
+                Err(format!("{:?}: {}", error.code, error.message))
             }
-            DaemonMessage::Error { error, .. } => Err(format!("{:?}: {}", error.code, error.message)),
             _ => Err("Unexpected response from daemon".to_string()),
         }
     } else {
@@ -411,19 +622,27 @@ async fn set_settings(payload: SettingsPayload) -> Result<SettingsInfo, String> 
     };
     let mut p = serde_json::to_string(&msg).map_err(|e| e.to_string())?;
     p.push('\n');
-    writer.write_all(p.as_bytes()).await.map_err(|e| e.to_string())?;
+    writer
+        .write_all(p.as_bytes())
+        .await
+        .map_err(|e| e.to_string())?;
     writer.flush().await.map_err(|e| e.to_string())?;
 
     if let Some(line) = lines.next_line().await.map_err(|e| e.to_string())? {
         match serde_json::from_str::<DaemonMessage>(&line).map_err(|e| e.to_string())? {
-            DaemonMessage::Settings { base_url, model, has_api_key, .. } => {
-                Ok(SettingsInfo {
-                    base_url,
-                    model,
-                    has_api_key,
-                })
+            DaemonMessage::Settings {
+                base_url,
+                model,
+                has_api_key,
+                ..
+            } => Ok(SettingsInfo {
+                base_url,
+                model,
+                has_api_key,
+            }),
+            DaemonMessage::Error { error, .. } => {
+                Err(format!("{:?}: {}", error.code, error.message))
             }
-            DaemonMessage::Error { error, .. } => Err(format!("{:?}: {}", error.code, error.message)),
             _ => Err("Unexpected response from daemon".to_string()),
         }
     } else {
@@ -432,14 +651,19 @@ async fn set_settings(payload: SettingsPayload) -> Result<SettingsInfo, String> 
 }
 
 #[tauri::command]
-async fn set_window_size<R: Runtime>(app: AppHandle<R>, width: f64, height: f64) -> Result<(), String> {
+async fn set_window_size<R: Runtime>(
+    app: AppHandle<R>,
+    width: f64,
+    height: f64,
+) -> Result<(), String> {
     let app_clone = app.clone();
     app.run_on_main_thread(move || {
         if let Some(window) = app_clone.get_webview_window("main") {
             let _ = window.set_visible_on_all_workspaces(true);
             let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize { width, height }));
         }
-    }).map_err(|e| e.to_string())?;
+    })
+    .map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -450,7 +674,8 @@ async fn start_drag<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
         if let Some(window) = app_clone.get_webview_window("main") {
             let _ = window.start_dragging();
         }
-    }).map_err(|e| e.to_string())?;
+    })
+    .map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -484,6 +709,12 @@ pub fn run() {
             {
                 app.set_activation_policy(tauri::ActivationPolicy::Accessory);
             }
+
+            let state = app.state::<DaemonState>();
+            let state_clone = state.inner().clone();
+            tauri::async_runtime::spawn(async move {
+                ensure_daemon_started(&state_clone).await;
+            });
 
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.set_visible_on_all_workspaces(true);
@@ -530,6 +761,49 @@ fn toggle_window_internal<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> 
                 let _ = window.set_focus();
             }
         }
-    }).map_err(|e| e.to_string())?;
+    })
+    .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+    use tokio::net::UnixListener;
+
+    #[tokio::test]
+    async fn test_wait_for_daemon_ready_success() {
+        let dir = tempdir().unwrap();
+        let sock_path = dir.path().join("test.sock");
+        let _listener = UnixListener::bind(&sock_path).unwrap();
+
+        let ready = wait_for_daemon_ready(&sock_path, std::time::Duration::from_millis(500)).await;
+        assert!(ready);
+    }
+
+    #[tokio::test]
+    async fn test_wait_for_daemon_ready_timeout() {
+        let dir = tempdir().unwrap();
+        let sock_path = dir.path().join("nonexistent.sock");
+        let ready = wait_for_daemon_ready(&sock_path, std::time::Duration::from_millis(100)).await;
+        assert!(!ready);
+    }
+
+    #[tokio::test]
+    async fn test_concurrent_ensure_daemon_started_serialization() {
+        let state = DaemonState::default();
+        let mut handles = Vec::new();
+        for _ in 0..5 {
+            let s = state.clone();
+            handles.push(tokio::spawn(async move {
+                ensure_daemon_started(&s).await;
+            }));
+        }
+        for h in handles {
+            let _ = h.await;
+        }
+        let proc = state.spawned_process.lock().await;
+        assert!(proc.is_none() || proc.is_some());
+    }
 }

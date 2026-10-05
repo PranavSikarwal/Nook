@@ -105,7 +105,7 @@ echo "Using test Chat ID: $CHAT_ID"
 
 # 9. Turn 1: Establish memory
 echo "Sending Turn 1: establishing memory..."
-TURN1_RESP=$("$NOOKCTL_BIN" send "Remember that the secret phrase is CRIMSON-SPARROW-42. Reply with only OK." --chat "$CHAT_ID")
+TURN1_RESP=$("$NOOKCTL_BIN" send "Remember that the project code is CRIMSON-SPARROW-42. Reply with only OK." --chat "$CHAT_ID")
 echo "Turn 1 reply received."
 if [[ -z "$TURN1_RESP" ]]; then
     echo "Error: Turn 1 response was empty." >&2
@@ -114,13 +114,13 @@ fi
 
 # 10. Turn 2: Test memory recall
 echo "Sending Turn 2: checking memory recall in same chat..."
-TURN2_RESP=$("$NOOKCTL_BIN" send "What is the secret phrase?" --chat "$CHAT_ID")
+TURN2_RESP=$("$NOOKCTL_BIN" send "What is the project code?" --chat "$CHAT_ID")
 echo "Turn 2 reply: $TURN2_RESP"
 if ! echo "$TURN2_RESP" | grep -iq "CRIMSON-SPARROW-42"; then
     echo "Error: Turn 2 failed to recall 'CRIMSON-SPARROW-42'." >&2
     exit 1
 fi
-echo "Turn 2 successfully recalled secret phrase."
+echo "Turn 2 successfully recalled project code."
 
 # 11. Turn 3: Attach an image
 echo "Preparing test image attachment..."

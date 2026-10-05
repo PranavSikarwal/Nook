@@ -24,6 +24,9 @@ base64 = "0.22"
 libc = "0.2"
 nook-core = { path = "../../daemon/crates/nook-core" }
 
+[dev-dependencies]
+tempfile = "3"
+
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", features = ["NSWindow"] }

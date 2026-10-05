@@ -29,15 +29,15 @@ jobs:
     runs-on: ${{ matrix.platform.os }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Set up Node.js
-        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a # v4.2.0
         with:
           node-version: 22
 
       - name: Set up Rust
-        uses: dtolnay/rust-toolchain@a54407399d81640960ea77f5231b576081e649aa # stable
+        uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # v1
 
       - name: Install Ubuntu WebKit dependencies
         if: matrix.platform.os == 'ubuntu-22.04'
@@ -59,7 +59,7 @@ jobs:
           npm run build
 
       - name: Build and package Tauri app
-        uses: tauri-apps/tauri-action@945e43c1626f8c4749f5ce624268ea82ce57b018 # v0.5.17
+        uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0.5.17
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
