@@ -1,3 +1,4 @@
+import { AlertCircle, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { AttachmentChips } from './components/AttachmentChips'
 import { HistoryDrawer } from './components/HistoryDrawer'
@@ -26,6 +27,12 @@ import type {
 
 type ActivePanel = 'none' | 'history' | 'settings'
 
+const WINDOW_WIDTH = 640
+const COMPACT_HEIGHT = 56
+const ATTACHMENTS_HEIGHT = 110
+const DRAWER_HEIGHT = 440
+const EXPANDED_HEIGHT = 520
+
 export default function App() {
   const [activePanel, setActivePanel] = useState<ActivePanel>('none')
   const [chatId, setChatId] = useState<string>(() => crypto.randomUUID())
@@ -35,26 +42,27 @@ export default function App() {
   const [isStreaming, setIsStreaming] = useState(false)
   const [chats, setChats] = useState<ChatSummary[]>([])
   const [settings, setSettingsData] = useState<SettingsInfo | null>(null)
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
   const isCompact = activePanel === 'none' && messages.length === 0 && attachments.length === 0
 
   // Sync window size with view state
   useEffect(() => {
     if (activePanel !== 'none') {
-      setWindowSize(640, 440)
+      void setWindowSize(WINDOW_WIDTH, DRAWER_HEIGHT)
     } else if (messages.length > 0) {
-      setWindowSize(640, 520)
+      void setWindowSize(WINDOW_WIDTH, EXPANDED_HEIGHT)
     } else if (attachments.length > 0) {
-      setWindowSize(640, 110)
+      void setWindowSize(WINDOW_WIDTH, ATTACHMENTS_HEIGHT)
     } else {
-      setWindowSize(640, 56)
+      void setWindowSize(WINDOW_WIDTH, COMPACT_HEIGHT)
     }
   }, [activePanel, messages.length, attachments.length])
 
   // Load initial settings and history
   useEffect(() => {
-    getSettings().then(setSettingsData).catch(() => {})
-    listChats().then(setChats).catch(() => {})
+    void getSettings().then(setSettingsData).catch(() => {})
+    void listChats().then(setChats).catch(() => {})
   }, [])
 
   // Process incoming daemon events
@@ -92,9 +100,9 @@ export default function App() {
         }
         return prev
       })
-      listChats().then(setChats).catch(() => {})
+      void listChats().then(setChats).catch(() => {})
     } else if (event.type === 'chat_titled') {
-      listChats().then(setChats).catch(() => {})
+      void listChats().then(setChats).catch(() => {})
     } else if (event.type === 'error') {
       setIsStreaming(false)
       setMessages((prev) => {
@@ -136,15 +144,16 @@ export default function App() {
 
   const handleContainerMouseDown = (e: React.MouseEvent) => {
     if (e.button === 0 && !(e.target as HTMLElement).closest('button, input, textarea, a, select')) {
-      startDrag()
+      void startDrag()
     }
   }
 
-  const handleSend = async () => {
-    if (!input.trim() || isStreaming) return
+  const handleSend = async (overrideText?: string, overrideAttachments?: readonly AttachmentInput[]) => {
+    const textToSend = overrideText !== undefined ? overrideText : input
+    if (!textToSend.trim() || isStreaming) return
 
-    const question = input.trim()
-    const currentAtts = [...attachments]
+    const question = textToSend.trim()
+    const currentAtts = overrideAttachments !== undefined ? [...overrideAttachments] : [...attachments]
     const userMsg: ChatMessage = {
       id: crypto.randomUUID(),
       role: 'user',
@@ -156,6 +165,7 @@ export default function App() {
         name: a.name,
         mime: a.mime,
         size_bytes: 0,
+        path: a.file_path,
       })),
       created_at: new Date().toISOString(),
     }
@@ -170,8 +180,10 @@ export default function App() {
     }
 
     setMessages((prev) => [...prev, userMsg, assistantMsg])
-    setInput('')
-    setAttachments([])
+    if (overrideText === undefined) {
+      setInput('')
+      setAttachments([])
+    }
     setIsStreaming(true)
     setActivePanel('none')
 
@@ -194,10 +206,22 @@ export default function App() {
     }
   }
 
+  const handleRetry = () => {
+    const lastUser = [...messages].reverse().find((m) => m.role === 'user')
+    if (lastUser) {
+      const attsInput: AttachmentInput[] = lastUser.attachments.map((a) => ({
+        name: a.name,
+        mime: a.mime,
+        file_path: a.path,
+      }))
+      void handleSend(lastUser.text, attsInput)
+    }
+  }
+
   const handleStop = async () => {
     setIsStreaming(false)
     try {
-      await cancelMessage(chatId)
+      await cancelMessage()
     } catch {
       // Ignore cancel error
     }
@@ -210,7 +234,7 @@ export default function App() {
       if (!file) continue
 
       if (file.size > 10 * 1024 * 1024) {
-        alert(`File ${file.name} exceeds 10MB limit`)
+        setErrorMessage(`File ${file.name} exceeds 10MB limit`)
         continue
       }
 
@@ -241,7 +265,7 @@ export default function App() {
       setMessages(transcript.messages)
       setActivePanel('none')
     } catch (err) {
-      alert(`Failed to load chat: ${err}`)
+      setErrorMessage(`Failed to load chat: ${err instanceof Error ? err.message : String(err)}`)
     }
   }
 
@@ -254,7 +278,7 @@ export default function App() {
         setMessages([])
       }
     } catch (err) {
-      alert(`Failed to delete chat: ${err}`)
+      setErrorMessage(`Failed to delete chat: ${err instanceof Error ? err.message : String(err)}`)
     }
   }
 
@@ -279,12 +303,12 @@ export default function App() {
         <InputBar
           input={input}
           setInput={setInput}
-          onSend={handleSend}
-          onStop={handleStop}
+          onSend={() => void handleSend()}
+          onStop={() => void handleStop()}
           onNewChat={handleNewChat}
           onToggleHistory={() => setActivePanel('history')}
           onToggleSettings={() => setActivePanel('settings')}
-          onAttachFiles={handleAttachFiles}
+          onAttachFiles={(files) => void handleAttachFiles(files)}
           isStreaming={isStreaming}
           standalone={true}
         />
@@ -300,14 +324,30 @@ export default function App() {
       className="flex flex-col h-full w-full p-1 select-none bg-transparent"
     >
       <div className="flex flex-col flex-1 rounded-2xl bg-[#161618]/95 backdrop-blur-2xl border border-white/10 shadow-[0_20px_50px_rgba(0,0,0,0.6)] overflow-hidden">
+        {errorMessage && (
+          <div className="flex items-center justify-between px-3 py-1.5 bg-red-500/10 border-b border-red-500/20 text-red-300 text-xs">
+            <div className="flex items-center gap-1.5">
+              <AlertCircle className="size-3.5 text-red-400 shrink-0" />
+              <span>{errorMessage}</span>
+            </div>
+            <button
+              onClick={() => setErrorMessage(null)}
+              type="button"
+              className="text-red-400 hover:text-white"
+            >
+              <X className="size-3" />
+            </button>
+          </div>
+        )}
+
         {/* Expanded Drawer Area */}
         {activePanel === 'history' && (
           <div className="flex-1 min-h-0">
             <HistoryDrawer
               chats={chats}
               activeChatId={chatId}
-              onSelectChat={handleSelectChat}
-              onDeleteChat={handleDeleteChat}
+              onSelectChat={(id) => void handleSelectChat(id)}
+              onDeleteChat={(id) => void handleDeleteChat(id)}
               onClose={() => setActivePanel('none')}
             />
           </div>
@@ -327,7 +367,7 @@ export default function App() {
           <TranscriptView
             messages={messages}
             isStreaming={isStreaming}
-            onRetry={handleSend}
+            onRetry={handleRetry}
           />
         )}
 
@@ -341,8 +381,8 @@ export default function App() {
         <InputBar
           input={input}
           setInput={setInput}
-          onSend={handleSend}
-          onStop={handleStop}
+          onSend={() => void handleSend()}
+          onStop={() => void handleStop()}
           onNewChat={handleNewChat}
           onToggleHistory={() =>
             setActivePanel((prev) => (prev === 'history' ? 'none' : 'history'))
@@ -350,7 +390,7 @@ export default function App() {
           onToggleSettings={() =>
             setActivePanel((prev) => (prev === 'settings' ? 'none' : 'settings'))
           }
-          onAttachFiles={handleAttachFiles}
+          onAttachFiles={(files) => void handleAttachFiles(files)}
           isStreaming={isStreaming}
           standalone={false}
         />

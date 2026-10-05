@@ -3,17 +3,17 @@ import { useRef } from 'react'
 import { startDrag } from '../lib/daemon'
 
 interface InputBarProps {
-  input: string
-  setInput: (value: string) => void
-  onSend: () => void
-  onStop?: () => void
-  onNewChat?: () => void
-  onToggleHistory: () => void
-  onToggleSettings: () => void
-  onAttachFiles: (files: FileList) => void
-  isStreaming: boolean
-  disabled?: boolean
-  standalone?: boolean
+  readonly input: string
+  readonly setInput: (value: string) => void
+  readonly onSend: () => void
+  readonly onStop?: () => void
+  readonly onNewChat?: () => void
+  readonly onToggleHistory: () => void
+  readonly onToggleSettings: () => void
+  readonly onAttachFiles: (files: FileList) => void
+  readonly isStreaming: boolean
+  readonly disabled?: boolean
+  readonly standalone?: boolean
 }
 
 export function InputBar({
@@ -33,7 +33,7 @@ export function InputBar({
 
   const handleMouseDown = (e: React.MouseEvent) => {
     if (e.button === 0 && !(e.target as HTMLElement).closest('button, input, textarea, a, select')) {
-      startDrag()
+      void startDrag()
     }
   }
 
@@ -81,6 +81,7 @@ export function InputBar({
         onClick={() => fileInputRef.current?.click()}
         type="button"
         title="Attach file or image"
+        aria-label="Attach file or image"
         className="text-zinc-400 hover:text-white transition-colors p-1.5 rounded-lg hover:bg-white/5 shrink-0"
       >
         <Paperclip className="size-4" />
@@ -94,7 +95,7 @@ export function InputBar({
         onKeyDown={handleKeyDown}
         placeholder="Ask anything..."
         disabled={disabled}
-        autoFocus
+        aria-label="Ask anything"
         className="flex-1 bg-transparent text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none caret-[#a855f7] tracking-normal font-normal cursor-text"
       />
 
@@ -105,6 +106,7 @@ export function InputBar({
             onClick={onNewChat}
             type="button"
             title="New chat"
+            aria-label="Start new chat"
             className="text-zinc-400 hover:text-white transition-colors p-1.5 rounded-lg hover:bg-white/5"
           >
             <Plus className="size-4" />
@@ -115,6 +117,7 @@ export function InputBar({
           onClick={onToggleHistory}
           type="button"
           title="History"
+          aria-label="Toggle history drawer"
           className="text-zinc-400 hover:text-white transition-colors p-1.5 rounded-lg hover:bg-white/5"
         >
           <History className="size-4" />
@@ -124,6 +127,7 @@ export function InputBar({
           onClick={onToggleSettings}
           type="button"
           title="Settings"
+          aria-label="Toggle settings modal"
           className="text-zinc-400 hover:text-white transition-colors p-1.5 rounded-lg hover:bg-white/5"
         >
           <Settings className="size-4" />
@@ -135,6 +139,7 @@ export function InputBar({
             onClick={onStop}
             type="button"
             title="Stop generation"
+            aria-label="Stop generation"
             className="flex items-center justify-center size-7 rounded-full bg-red-500/20 hover:bg-red-500/30 text-red-400 transition-colors ml-1"
           >
             <Square className="size-3 fill-current" />
@@ -147,6 +152,7 @@ export function InputBar({
             type="button"
             disabled={!hasContent || disabled}
             title="Send question"
+            aria-label="Send question"
             className={`flex items-center justify-center size-7 rounded-full transition-all ml-1 ${
               hasContent
                 ? 'bg-purple-600 hover:bg-purple-500 text-white shadow-sm shadow-purple-600/30 scale-100'

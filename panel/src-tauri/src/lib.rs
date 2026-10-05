@@ -15,6 +15,7 @@ use uuid::Uuid;
 #[derive(Default)]
 pub struct DaemonState {
     pub client: Arc<Mutex<Option<DaemonConnection>>>,
+    pub active_request_id: Arc<Mutex<Option<Uuid>>>,
 }
 
 pub struct DaemonConnection {
@@ -132,11 +133,11 @@ async fn list_chats() -> Result<Vec<ChatSummary>, String> {
     if let Some(line) = lines.next_line().await.map_err(|e| e.to_string())? {
         match serde_json::from_str::<DaemonMessage>(&line).map_err(|e| e.to_string())? {
             DaemonMessage::Chats { chats, .. } => Ok(chats),
-            DaemonMessage::Error { error, .. } => Err(error.message),
+            DaemonMessage::Error { error, .. } => Err(format!("{:?}: {}", error.code, error.message)),
             _ => Err("Unexpected response from daemon".to_string()),
         }
     } else {
-        Err("Daemon connection closed".to_string())
+        Err("Daemon closed connection unexpectedly".to_string())
     }
 }
 
@@ -165,11 +166,11 @@ async fn get_chat(chat_id: Uuid) -> Result<ChatTranscript, String> {
                     messages,
                 })
             }
-            DaemonMessage::Error { error, .. } => Err(error.message),
+            DaemonMessage::Error { error, .. } => Err(format!("{:?}: {}", error.code, error.message)),
             _ => Err("Unexpected response from daemon".to_string()),
         }
     } else {
-        Err("Daemon connection closed".to_string())
+        Err("Daemon closed connection unexpectedly".to_string())
     }
 }
 
@@ -192,17 +193,17 @@ async fn delete_chat(chat_id: Uuid) -> Result<bool, String> {
     if let Some(line) = lines.next_line().await.map_err(|e| e.to_string())? {
         match serde_json::from_str::<DaemonMessage>(&line).map_err(|e| e.to_string())? {
             DaemonMessage::Deleted { .. } => Ok(true),
-            DaemonMessage::Error { error, .. } => Err(error.message),
+            DaemonMessage::Error { error, .. } => Err(format!("{:?}: {}", error.code, error.message)),
             _ => Err("Unexpected response from daemon".to_string()),
         }
     } else {
-        Err("Daemon connection closed".to_string())
+        Err("Daemon closed connection unexpectedly".to_string())
     }
 }
 
 #[tauri::command]
 async fn send_message<R: Runtime>(
-    _app: AppHandle<R>,
+    app: AppHandle<R>,
     chat_id: Uuid,
     text: String,
     attachments: Vec<AttachmentInput>,
@@ -258,11 +259,19 @@ async fn send_message<R: Runtime>(
         }
 
         let kind = if att.mime.starts_with("image/") {
-            AttachmentKind::Image
+            match att.mime.as_str() {
+                "image/png" | "image/jpeg" | "image/webp" | "image/gif" => AttachmentKind::Image,
+                _ => return Err(format!("Unsupported image format: {}", att.mime)),
+            }
         } else if att.mime == "application/pdf" {
             AttachmentKind::Pdf
-        } else {
+        } else if att.mime.starts_with("text/")
+            || att.mime == "application/json"
+            || att.mime == "application/javascript"
+        {
             AttachmentKind::Text
+        } else {
+            return Err(format!("Unsupported attachment MIME type: {}", att.mime));
         };
 
         processed_attachments.push(Attachment {
@@ -276,6 +285,12 @@ async fn send_message<R: Runtime>(
     }
 
     let req_id = Uuid::new_v4();
+    let state = app.state::<DaemonState>();
+    {
+        let mut active = state.active_request_id.lock().await;
+        *active = Some(req_id);
+    }
+
     let msg = ClientMessage::SendMessage {
         id: req_id,
         chat_id,
@@ -287,6 +302,7 @@ async fn send_message<R: Runtime>(
     writer.write_all(payload.as_bytes()).await.map_err(|e| e.to_string())?;
     writer.flush().await.map_err(|e| e.to_string())?;
 
+    let state_for_cleanup = state.inner().active_request_id.clone();
     tauri::async_runtime::spawn(async move {
         let _keep_writer_alive = writer;
         while let Ok(Some(line)) = lines.next_line().await {
@@ -297,17 +313,35 @@ async fn send_message<R: Runtime>(
                 );
                 let _ = on_event.send(event);
                 if is_terminal {
+                    let mut active = state_for_cleanup.lock().await;
+                    *active = None;
                     break;
                 }
             }
         }
+        let mut active = state_for_cleanup.lock().await;
+        *active = None;
     });
 
     Ok(())
 }
 
 #[tauri::command]
-async fn cancel_message(target_id: Uuid) -> Result<(), String> {
+async fn cancel_message<R: Runtime>(
+    app: AppHandle<R>,
+    target_id: Option<Uuid>,
+) -> Result<(), String> {
+    let req_to_cancel = if let Some(id) = target_id {
+        id
+    } else {
+        let state = app.state::<DaemonState>();
+        let active = state.active_request_id.lock().await;
+        match *active {
+            Some(id) => id,
+            None => return Ok(()),
+        }
+    };
+
     let socket_path = Config::default_socket_path();
     let stream = UnixStream::connect(&socket_path)
         .await
@@ -317,7 +351,7 @@ async fn cancel_message(target_id: Uuid) -> Result<(), String> {
 
     let msg = ClientMessage::Cancel {
         id: Uuid::new_v4(),
-        target_id,
+        target_id: req_to_cancel,
     };
     let mut payload = serde_json::to_string(&msg).map_err(|e| e.to_string())?;
     payload.push('\n');
@@ -351,11 +385,11 @@ async fn get_settings() -> Result<SettingsInfo, String> {
                     has_api_key,
                 })
             }
-            DaemonMessage::Error { error, .. } => Err(error.message),
+            DaemonMessage::Error { error, .. } => Err(format!("{:?}: {}", error.code, error.message)),
             _ => Err("Unexpected response from daemon".to_string()),
         }
     } else {
-        Err("Daemon connection closed".to_string())
+        Err("Daemon closed connection unexpectedly".to_string())
     }
 }
 
@@ -389,11 +423,11 @@ async fn set_settings(payload: SettingsPayload) -> Result<SettingsInfo, String> 
                     has_api_key,
                 })
             }
-            DaemonMessage::Error { error, .. } => Err(error.message),
+            DaemonMessage::Error { error, .. } => Err(format!("{:?}: {}", error.code, error.message)),
             _ => Err("Unexpected response from daemon".to_string()),
         }
     } else {
-        Err("Daemon connection closed".to_string())
+        Err("Daemon closed connection unexpectedly".to_string())
     }
 }
 

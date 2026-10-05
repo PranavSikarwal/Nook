@@ -3,9 +3,9 @@ import { useEffect, useState } from 'react'
 import type { SettingsInfo, SettingsPayload } from '../lib/types'
 
 interface SettingsModalProps {
-  currentSettings: SettingsInfo | null
-  onSave: (payload: SettingsPayload) => Promise<void>
-  onClose: () => void
+  readonly currentSettings: SettingsInfo | null
+  readonly onSave: (payload: SettingsPayload) => Promise<void>
+  readonly onClose: () => void
 }
 
 export function SettingsModal({
@@ -54,6 +54,7 @@ export function SettingsModal({
         <button
           onClick={onClose}
           type="button"
+          aria-label="Close settings"
           className="text-zinc-400 hover:text-white transition-colors p-1 rounded-md hover:bg-white/10"
         >
           <X className="size-4" />
@@ -68,10 +69,11 @@ export function SettingsModal({
         )}
 
         <div>
-          <label className="block text-zinc-400 font-medium mb-1 text-[11px]">
+          <label htmlFor="settings-base-url" className="block text-zinc-400 font-medium mb-1 text-[11px]">
             Base URL
           </label>
           <input
+            id="settings-base-url"
             type="text"
             value={baseUrl}
             onChange={(e) => setBaseUrl(e.target.value)}
@@ -82,10 +84,11 @@ export function SettingsModal({
         </div>
 
         <div>
-          <label className="block text-zinc-400 font-medium mb-1 text-[11px]">
+          <label htmlFor="settings-model" className="block text-zinc-400 font-medium mb-1 text-[11px]">
             Model Name
           </label>
           <input
+            id="settings-model"
             type="text"
             value={model}
             onChange={(e) => setModel(e.target.value)}
@@ -97,7 +100,7 @@ export function SettingsModal({
 
         <div>
           <div className="flex items-center justify-between mb-1">
-            <label className="text-zinc-400 font-medium text-[11px]">
+            <label htmlFor="settings-api-key" className="text-zinc-400 font-medium text-[11px]">
               API Key
             </label>
             {currentSettings?.has_api_key && (
@@ -106,6 +109,7 @@ export function SettingsModal({
           </div>
           <div className="relative">
             <input
+              id="settings-api-key"
               type={showApiKey ? 'text' : 'password'}
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
@@ -115,6 +119,7 @@ export function SettingsModal({
             <button
               type="button"
               onClick={() => setShowApiKey(!showApiKey)}
+              aria-label={showApiKey ? 'Hide API key' : 'Show API key'}
               className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-white"
             >
               {showApiKey ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}

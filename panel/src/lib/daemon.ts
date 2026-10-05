@@ -55,7 +55,7 @@ export async function startDrag(): Promise<void> {
   }
 }
 
-export async function cancelMessage(targetId: string): Promise<void> {
+export async function cancelMessage(targetId?: string): Promise<void> {
   await invoke('cancel_message', { targetId })
 }
 

@@ -2,8 +2,8 @@ import { FileText, Image as ImageIcon, X } from 'lucide-react'
 import type { AttachmentInput } from '../lib/types'
 
 interface AttachmentChipsProps {
-  attachments: AttachmentInput[]
-  onRemove: (index: number) => void
+  readonly attachments: readonly AttachmentInput[]
+  readonly onRemove: (index: number) => void
 }
 
 export function AttachmentChips({ attachments, onRemove }: AttachmentChipsProps) {
@@ -33,6 +33,7 @@ export function AttachmentChips({ attachments, onRemove }: AttachmentChipsProps)
             <button
               onClick={() => onRemove(idx)}
               type="button"
+              aria-label={`Remove attachment ${att.name}`}
               className="text-zinc-400 hover:text-white transition-colors p-0.5 rounded-full hover:bg-white/10"
             >
               <X className="size-3" />

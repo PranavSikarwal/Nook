@@ -2,11 +2,11 @@ import { Trash2, X } from 'lucide-react'
 import type { ChatSummary } from '../lib/types'
 
 interface HistoryDrawerProps {
-  chats: ChatSummary[]
-  activeChatId: string | null
-  onSelectChat: (chatId: string) => void
-  onDeleteChat: (chatId: string) => void
-  onClose: () => void
+  readonly chats: readonly ChatSummary[]
+  readonly activeChatId: string | null
+  readonly onSelectChat: (chatId: string) => void
+  readonly onDeleteChat: (chatId: string) => void
+  readonly onClose: () => void
 }
 
 export function HistoryDrawer({
@@ -25,6 +25,7 @@ export function HistoryDrawer({
         <button
           onClick={onClose}
           type="button"
+          aria-label="Close history"
           className="text-zinc-400 hover:text-white transition-colors p-1 rounded-md hover:bg-white/10"
         >
           <X className="size-4" />
@@ -47,9 +48,10 @@ export function HistoryDrawer({
             })
 
             return (
-              <div
+              <button
                 key={chat.chat_id}
-                className={`flex items-center justify-between px-4 py-2.5 hover:bg-white/5 transition-colors cursor-pointer group ${
+                type="button"
+                className={`w-full text-left flex items-center justify-between px-4 py-2.5 hover:bg-white/5 transition-colors cursor-pointer group ${
                   isActive ? 'bg-purple-500/10 border-l-2 border-purple-500' : ''
                 }`}
                 onClick={() => onSelectChat(chat.chat_id)}
@@ -68,11 +70,12 @@ export function HistoryDrawer({
                   }}
                   type="button"
                   title="Delete chat"
+                  aria-label={`Delete chat ${chat.title || 'Untitled'}`}
                   className="opacity-0 group-hover:opacity-100 text-zinc-500 hover:text-red-400 p-1.5 rounded transition-all hover:bg-white/10"
                 >
                   <Trash2 className="size-3.5" />
                 </button>
-              </div>
+              </button>
             )
           })
         )}

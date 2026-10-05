@@ -7,7 +7,6 @@ public final class PanelController {
     public static let shared = PanelController()
 
     public let panel: NookPanel
-    private var globalClickMonitor: Any?
     private var localKeyMonitor: Any?
     private var stateCancellable: AnyCancellable?
 
@@ -78,11 +77,6 @@ public final class PanelController {
 
     public func hide() {
         panel.orderOut(nil)
-
-        if let monitor = globalClickMonitor {
-            NSEvent.removeMonitor(monitor)
-            globalClickMonitor = nil
-        }
 
         if let monitor = localKeyMonitor {
             NSEvent.removeMonitor(monitor)
