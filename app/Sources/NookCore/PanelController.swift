@@ -48,25 +48,15 @@ public final class PanelController {
     }
 
     public func show() {
-        // Opening always starts a fresh Chat in compact mode per spec
-        PanelState.shared.startNewChat()
-
-        updateFrame(for: .compact, animate: false)
-        panel.makeKeyAndOrderFront(nil)
-
-        if globalClickMonitor == nil {
-            globalClickMonitor = NSEvent.addGlobalMonitorForEvents(
-                matching: [.leftMouseDown, .rightMouseDown]
-            ) { [weak self] _ in
-                guard let self = self else { return }
-                let mouseLocation = NSEvent.mouseLocation
-                if !self.panel.frame.contains(mouseLocation) {
-                    DispatchQueue.main.async {
-                        self.hide()
-                    }
-                }
-            }
+        // If the transcript is empty, start in compact mode. Otherwise, keep active transcript visible.
+        if PanelState.shared.messages.isEmpty {
+            PanelState.shared.startNewChat()
+            updateFrame(for: .compact, animate: false)
+        } else {
+            updateFrame(for: PanelState.shared.viewMode, animate: false)
         }
+
+        panel.makeKeyAndOrderFront(nil)
 
         if localKeyMonitor == nil {
             localKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in

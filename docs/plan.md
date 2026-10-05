@@ -187,3 +187,25 @@ Done when: `scripts/smoke.sh` passes against the real endpoint.
 Write the top-level `README.md` section that goes from a clean machine to a working Nook: toolchain, database, config, LaunchAgent, bundling, and a login item for the Panel.
 Depends on: D9, P7, I1.
 Done when: someone else follows the README on the same machine and reaches a working Option+Space overlay.
+
+## Phase T: Tauri cross-platform migration
+
+**T1. Tauri v2 scaffolding and window management.**
+Initialize a Tauri v2 workspace. Configure a frameless, transparent, floating overlay that is draggable by its background, persists in the background across focus changes, and registers global hotkeys (`Option+Space` on macOS, `Alt+Space` on Linux and Windows).
+Depends on: I1, I2.
+Done when: the window opens, floats, is draggable, and toggles with the hotkey without auto-hiding on click-away.
+
+**T2. UI design replication.**
+Replicate the exact dark overlay design in a web frontend: compact input, expanded markdown transcript, code blocks with copy button, history drawer, attachment chips, settings view, stop and retry controls.
+Depends on: T1.
+Done when: the UI renders identically to the AppKit version and passes visual comparison checks.
+
+**T3. Daemon client and contract integration.**
+Connect the Tauri frontend to `nookd` using line-delimited JSON matching `contracts/panel-daemon.schema.json`. Expose typed commands and events for chat streaming, listing, deletion, and settings.
+Depends on: T2, D8.
+Done when: sending a question streams responses, loads history, and manages settings identically to the Swift panel.
+
+**T4. Packaging and multi-platform distribution.**
+Configure Tauri bundler for macOS (`.dmg`, `.app`), Ubuntu (`.deb`, `.AppImage`), and Windows (`.msi`, `.exe`). Add GitHub Actions matrix build workflow.
+Depends on: T3.
+Done when: packages build cleanly for macOS, Ubuntu, and Windows.
