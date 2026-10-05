@@ -47,6 +47,11 @@ html, body, #root {
   -webkit-app-region: drag;
 }
 
+.select-text {
+  user-select: text !important;
+  -webkit-user-select: text !important;
+}
+
 button, input, textarea, a, select {
   app-region: no-drag;
   -webkit-app-region: no-drag;
