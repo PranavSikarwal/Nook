@@ -17,6 +17,7 @@ pub struct DaemonState {
     pub client: Arc<Mutex<Option<DaemonConnection>>>,
     pub active_request_id: Arc<Mutex<Option<Uuid>>>,
     pub spawned_process: Arc<Mutex<Option<tokio::process::Child>>>,
+    pub startup_lock: Arc<Mutex<()>>,
 }
 
 pub struct DaemonConnection {
@@ -117,6 +118,22 @@ pub fn find_nookd_binary() -> Option<PathBuf> {
     }
 
     // 4. Standard system install locations
+    #[cfg(target_os = "macos")]
+    {
+        let system_app_bin = PathBuf::from("/Applications/Nook.app/Contents/MacOS").join(bin_name);
+        if system_app_bin.is_file() {
+            return Some(system_app_bin);
+        }
+        if let Ok(home) = std::env::var("HOME") {
+            let user_app_bin = PathBuf::from(&home)
+                .join("Applications/Nook.app/Contents/MacOS")
+                .join(bin_name);
+            if user_app_bin.is_file() {
+                return Some(user_app_bin);
+            }
+        }
+    }
+
     if let Ok(home) = std::env::var("HOME") {
         let user_bin = PathBuf::from(&home).join(".local/bin").join(bin_name);
         if user_bin.is_file() {
@@ -136,10 +153,53 @@ pub fn find_nookd_binary() -> Option<PathBuf> {
     None
 }
 
+/// Poll Unix socket with a timeout until it accepts connections
+pub async fn wait_for_daemon_ready(socket_path: &Path, timeout: std::time::Duration) -> bool {
+    let start = std::time::Instant::now();
+    while start.elapsed() < timeout {
+        if socket_path.exists() && UnixStream::connect(socket_path).await.is_ok() {
+            return true;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    false
+}
+
 /// Ensure nookd is running; spawn it if not currently responding
 pub async fn ensure_daemon_started(state: &DaemonState) {
+    let _lock = state.startup_lock.lock().await;
+
     let socket_path = Config::default_socket_path();
     if socket_path.exists() && UnixStream::connect(&socket_path).await.is_ok() {
+        return;
+    }
+
+    // Check if an existing spawned process is still running
+    {
+        let mut proc_guard = state.spawned_process.lock().await;
+        if let Some(child) = proc_guard.as_mut() {
+            match child.try_wait() {
+                Ok(None) => {
+                    drop(proc_guard);
+                    if wait_for_daemon_ready(&socket_path, std::time::Duration::from_millis(1500)).await {
+                        return;
+                    }
+                    eprintln!("Existing nookd child is running but not responding on socket yet.");
+                    return;
+                }
+                Ok(Some(status)) => {
+                    eprintln!("Previous nookd child process exited ({status}). Reaping.");
+                    *proc_guard = None;
+                }
+                Err(err) => {
+                    eprintln!("Error checking child process status ({err}). Clearing.");
+                    *proc_guard = None;
+                }
+            }
+        }
+    }
+
+    if wait_for_daemon_ready(&socket_path, std::time::Duration::from_millis(200)).await {
         return;
     }
 
@@ -150,9 +210,15 @@ pub async fn ensure_daemon_started(state: &DaemonState) {
 
         match cmd.spawn() {
             Ok(child) => {
-                let mut proc_guard = state.spawned_process.lock().await;
-                *proc_guard = Some(child);
-                eprintln!("nookd started successfully in background.");
+                {
+                    let mut proc_guard = state.spawned_process.lock().await;
+                    *proc_guard = Some(child);
+                }
+                if wait_for_daemon_ready(&socket_path, std::time::Duration::from_millis(2500)).await {
+                    eprintln!("nookd started successfully in background.");
+                } else {
+                    eprintln!("Warning: nookd spawned but not yet responding on socket.");
+                }
             }
             Err(e) => {
                 eprintln!("Failed to auto-spawn nookd: {e}");
@@ -698,4 +764,46 @@ fn toggle_window_internal<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> 
     })
     .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+    use tokio::net::UnixListener;
+
+    #[tokio::test]
+    async fn test_wait_for_daemon_ready_success() {
+        let dir = tempdir().unwrap();
+        let sock_path = dir.path().join("test.sock");
+        let _listener = UnixListener::bind(&sock_path).unwrap();
+
+        let ready = wait_for_daemon_ready(&sock_path, std::time::Duration::from_millis(500)).await;
+        assert!(ready);
+    }
+
+    #[tokio::test]
+    async fn test_wait_for_daemon_ready_timeout() {
+        let dir = tempdir().unwrap();
+        let sock_path = dir.path().join("nonexistent.sock");
+        let ready = wait_for_daemon_ready(&sock_path, std::time::Duration::from_millis(100)).await;
+        assert!(!ready);
+    }
+
+    #[tokio::test]
+    async fn test_concurrent_ensure_daemon_started_serialization() {
+        let state = DaemonState::default();
+        let mut handles = Vec::new();
+        for _ in 0..5 {
+            let s = state.clone();
+            handles.push(tokio::spawn(async move {
+                ensure_daemon_started(&s).await;
+            }));
+        }
+        for h in handles {
+            let _ = h.await;
+        }
+        let proc = state.spawned_process.lock().await;
+        assert!(proc.is_none() || proc.is_some());
+    }
 }

@@ -7,6 +7,49 @@ set -e
 
 GITHUB_REPO="PranavSikarwal/Nook"
 BIN_DIR="${HOME}/.local/bin"
+TMP_FILES=""
+MOUNT_DIR=""
+INSTALLED_SUCCESS=0
+
+cleanup() {
+    exit_code=$?
+    if [ -n "$MOUNT_DIR" ] && [ -d "$MOUNT_DIR" ]; then
+        hdiutil detach "$MOUNT_DIR" -quiet 2>/dev/null || true
+        rm -rf "$MOUNT_DIR" 2>/dev/null || true
+    fi
+    for f in $TMP_FILES; do
+        rm -rf "$f" 2>/dev/null || true
+    done
+    if [ "$exit_code" -ne 0 ] && [ "$INSTALLED_SUCCESS" -ne 1 ]; then
+        echo "Installation failed." >&2
+    fi
+}
+trap cleanup EXIT INT TERM
+
+install_macos_app() {
+    src_app="$1"
+    if [ ! -d "$src_app" ]; then
+        echo "Error: Source application not found at $src_app" >&2
+        exit 1
+    fi
+
+    target_dir=""
+    if [ -w "/Applications" ]; then
+        target_dir="/Applications"
+    else
+        target_dir="${HOME}/Applications"
+        mkdir -p "$target_dir"
+    fi
+
+    echo "Installing Nook.app to ${target_dir}/Nook.app..."
+    rm -rf "${target_dir}/Nook.app"
+    if cp -R "$src_app" "${target_dir}/Nook.app"; then
+        echo "Successfully installed Nook.app to ${target_dir}/Nook.app"
+    else
+        echo "Error: Failed to copy Nook.app to ${target_dir}" >&2
+        exit 1
+    fi
+}
 
 echo "=== Installing Nook ==="
 
@@ -66,10 +109,7 @@ if [ "$IS_LOCAL" -eq 1 ]; then
 
     if [ "$PLATFORM" = "macos" ]; then
         "$ROOT_DIR/scripts/bundle.sh"
-        if [ -d "/Applications" ] && [ -w "/Applications" ]; then
-            cp -R "$ROOT_DIR/build/Nook.app" "/Applications/Nook.app"
-            echo "Installed Nook.app to /Applications/Nook.app"
-        fi
+        install_macos_app "$ROOT_DIR/build/Nook.app"
     fi
 else
     echo "Fetching latest release from GitHub ($GITHUB_REPO)..."
@@ -87,35 +127,75 @@ else
     VERSION="${TAG_NAME#v}"
     echo "Latest release: $TAG_NAME"
 
-    DOWNLOAD_BASE="https://github.com/${GITHUB_REPO}/releases/download/${TAG_NAME}"
+    find_asset_url() {
+        pattern="$1"
+        echo "$RELEASE_DATA" | grep '"browser_download_url":' | cut -d '"' -f 4 | grep -E "$pattern" | head -n 1
+    }
 
     if [ "$PLATFORM" = "macos" ]; then
-        DMG_NAME="Nook_${VERSION}_${ARCH_NORM}.dmg"
-        DMG_URL="${DOWNLOAD_BASE}/${DMG_NAME}"
-        TMP_DMG=$(mktemp /tmp/nook-installer.XXXXXX.dmg)
-
-        echo "Downloading $DMG_NAME..."
-        if curl --proto '=https' --tlsv1.2 -fSL "$DMG_URL" -o "$TMP_DMG" 2>/dev/null; then
-            echo "Mounting disk image and installing to /Applications..."
-            MOUNT_DIR=$(mktemp -d /tmp/nook-mount.XXXXXX)
-            hdiutil attach "$TMP_DMG" -mountpoint "$MOUNT_DIR" -nobrowse -quiet
-            cp -R "$MOUNT_DIR/Nook.app" "/Applications/Nook.app"
-            hdiutil detach "$MOUNT_DIR" -quiet
-            rm -rf "$TMP_DMG" "$MOUNT_DIR"
-            echo "Successfully installed Nook.app to /Applications/Nook.app"
+        if [ "$ARCH_NORM" = "arm64" ]; then
+            DMG_URL=$(find_asset_url "Nook_.*(aarch64|arm64).*\.dmg$")
         else
-            echo "Could not download $DMG_URL directly."
+            DMG_URL=$(find_asset_url "Nook_.*(x86_64|x64|amd64).*\.dmg$")
         fi
-    elif [ "$PLATFORM" = "linux" ]; then
-        DEB_NAME="nook_${VERSION}_amd64.deb"
-        DEB_URL="${DOWNLOAD_BASE}/${DEB_NAME}"
-        TMP_DEB=$(mktemp /tmp/nook-installer.XXXXXX.deb)
+        if [ -z "$DMG_URL" ]; then
+            DMG_URL=$(find_asset_url "Nook_.*\.dmg$")
+        fi
 
-        if curl --proto '=https' --tlsv1.2 -fSL "$DEB_URL" -o "$TMP_DEB" 2>/dev/null; then
+        if [ -z "$DMG_URL" ]; then
+            echo "Error: No compatible macOS .dmg release asset found for $ARCH_NORM." >&2
+            exit 1
+        fi
+
+        TMP_DMG=$(mktemp /tmp/nook-installer.XXXXXX.dmg)
+        TMP_FILES="$TMP_FILES $TMP_DMG"
+
+        echo "Downloading $DMG_URL..."
+        if ! curl --proto '=https' --tlsv1.2 -fSL "$DMG_URL" -o "$TMP_DMG"; then
+            echo "Error: Failed to download release asset." >&2
+            exit 1
+        fi
+
+        echo "Mounting disk image..."
+        MOUNT_DIR=$(mktemp -d /tmp/nook-mount.XXXXXX)
+        hdiutil attach "$TMP_DMG" -mountpoint "$MOUNT_DIR" -nobrowse -quiet
+        install_macos_app "$MOUNT_DIR/Nook.app"
+        hdiutil detach "$MOUNT_DIR" -quiet
+        rm -rf "$MOUNT_DIR"
+        MOUNT_DIR=""
+    elif [ "$PLATFORM" = "linux" ]; then
+        if [ "$ARCH_NORM" = "x86_64" ]; then
+            DEB_URL=$(find_asset_url "nook_.*(amd64|x86_64|x64).*\.deb$")
+        else
+            DEB_URL=$(find_asset_url "nook_.*(arm64|aarch64).*\.deb$")
+        fi
+
+        if [ -n "$DEB_URL" ]; then
+            TMP_DEB=$(mktemp /tmp/nook-installer.XXXXXX.deb)
+            TMP_FILES="$TMP_FILES $TMP_DEB"
+
+            echo "Downloading $DEB_URL..."
+            if ! curl --proto '=https' --tlsv1.2 -fSL "$DEB_URL" -o "$TMP_DEB"; then
+                echo "Error: Failed to download Debian package." >&2
+                exit 1
+            fi
             echo "Installing Debian package..."
             sudo dpkg -i "$TMP_DEB" || sudo apt-get install -f -y
-            rm -f "$TMP_DEB"
-            echo "Successfully installed Nook on Linux."
+        else
+            if [ "$ARCH_NORM" = "x86_64" ]; then
+                APPIMAGE_URL=$(find_asset_url "nook_.*(amd64|x86_64|x64).*\.AppImage$")
+            else
+                APPIMAGE_URL=$(find_asset_url "nook_.*(arm64|aarch64).*\.AppImage$")
+            fi
+            if [ -n "$APPIMAGE_URL" ]; then
+                TMP_APPIMAGE="${BIN_DIR}/nook-panel"
+                echo "Downloading AppImage to $TMP_APPIMAGE..."
+                curl --proto '=https' --tlsv1.2 -fSL "$APPIMAGE_URL" -o "$TMP_APPIMAGE"
+                chmod +x "$TMP_APPIMAGE"
+            else
+                echo "Error: No compatible Linux release asset (.deb or .AppImage) found." >&2
+                exit 1
+            fi
         fi
     fi
 fi
@@ -124,8 +204,19 @@ fi
 cat << 'EOF' > "$BIN_DIR/nook"
 #!/bin/sh
 # Nook desktop launcher
-if [ "$(uname -s)" = "Darwin" ] && [ -d "/Applications/Nook.app" ]; then
-    open "/Applications/Nook.app"
+if [ "$(uname -s)" = "Darwin" ]; then
+    if [ -d "/Applications/Nook.app" ]; then
+        open "/Applications/Nook.app"
+    elif [ -d "$HOME/Applications/Nook.app" ]; then
+        open "$HOME/Applications/Nook.app"
+    elif [ -x "$HOME/.local/bin/nook-panel" ]; then
+        exec "$HOME/.local/bin/nook-panel" "$@"
+    elif command -v nook-panel >/dev/null 2>&1; then
+        exec nook-panel "$@"
+    else
+        echo "Error: Nook.app not found in /Applications or $HOME/Applications." >&2
+        exit 1
+    fi
 elif [ -x "$HOME/.local/bin/nook-panel" ]; then
     exec "$HOME/.local/bin/nook-panel" "$@"
 elif command -v nook-panel >/dev/null 2>&1; then
@@ -137,6 +228,8 @@ fi
 EOF
 
 chmod +x "$BIN_DIR/nook"
+
+INSTALLED_SUCCESS=1
 
 echo ""
 echo "=== Nook installed successfully! ==="
