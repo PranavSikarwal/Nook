@@ -49,6 +49,20 @@ function CopyMessageButton({ text }: CopyMessageButtonProps) {
   )
 }
 
+function renderAssistantContent(msg: ChatMessage) {
+  if (msg.text.trim().length > 0) {
+    return <MarkdownRenderer content={msg.text} />
+  }
+  if (msg.status === 'streaming') {
+    return null
+  }
+  return (
+    <p className="text-zinc-500 italic text-xs">
+      (Model produced no text response)
+    </p>
+  )
+}
+
 export function TranscriptView({ messages, isStreaming, onRetry }: TranscriptViewProps) {
   const bottomRef = useRef<HTMLDivElement>(null)
 
@@ -94,13 +108,7 @@ export function TranscriptView({ messages, isStreaming, onRetry }: TranscriptVie
         return (
           <div key={msg.id} className="flex justify-start">
             <div className="max-w-[95%] w-full bg-white/[0.04] border border-white/[0.08] px-4 py-3 rounded-2xl rounded-tl-sm text-sm select-text">
-              {msg.text.trim() ? (
-                <MarkdownRenderer content={msg.text} />
-              ) : msg.status === 'streaming' ? null : (
-                <p className="text-zinc-500 italic text-xs">
-                  (Model produced no text response)
-                </p>
-              )}
+              {renderAssistantContent(msg)}
 
               {msg.status === 'streaming' && (
                 <div className="flex items-center gap-1.5 mt-2 text-xs text-purple-400 font-medium select-none">
