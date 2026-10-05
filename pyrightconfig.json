@@ -1,0 +1,19 @@
+{
+  "include": [
+    "."
+  ],
+  "exclude": [
+    "**/__pycache__",
+    "**/.venv",
+    "**/target",
+    "app",
+    ".worktrees"
+  ],
+  "venvPath": "worker",
+  "venv": ".venv",
+  "extraPaths": [
+    "worker/src",
+    "model-check"
+  ],
+  "pythonVersion": "3.13"
+}

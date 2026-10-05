@@ -2,6 +2,7 @@ import asyncio
 from uuid import uuid4
 
 import pytest
+
 from nook_worker.fake_agent import FakeAgentRunner
 from nook_worker.main import run_worker
 from nook_worker.protocol import (

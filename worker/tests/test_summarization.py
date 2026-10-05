@@ -3,9 +3,10 @@ from deepagents.middleware.summarization import SummarizationMiddleware
 from langchain_core.messages import AnyMessage, HumanMessage
 from langchain_core.messages.utils import count_tokens_approximately
 from langchain_openai import ChatOpenAI
+from pydantic import SecretStr
+
 from nook_worker.agent import build_deep_agent
 from nook_worker.config import WorkerConfig
-from pydantic import SecretStr
 
 
 def test_summarization_threshold_configuration():

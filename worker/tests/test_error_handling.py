@@ -5,11 +5,12 @@ from uuid import UUID, uuid4
 import httpx
 import openai
 import pytest
+from pydantic import SecretStr
+
 from nook_worker.agent import RealAgentRunner, build_deep_agent, create_model
 from nook_worker.config import WorkerConfig
 from nook_worker.main import handle_run
 from nook_worker.protocol import ErrorEvent, EventMessage, RunRequest, parse_event
-from pydantic import SecretStr
 
 
 @pytest.mark.asyncio

@@ -1,0 +1,170 @@
+name: Manual PR reviewers
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request:
+    types: [labeled]
+
+permissions:
+  contents: read
+
+jobs:
+  code_review:
+    name: Reviewer (Code review)
+    if: |
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request &&
+       contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association) &&
+       startsWith(github.event.comment.body, '/code-review') && !startsWith(github.event.comment.body, '/code-review-expert')) ||
+      (github.event_name == 'pull_request' && github.event.label.name == 'code-review')
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.event.pull_request.head.sha || format('refs/pull/{0}/head', github.event.issue.number) }}
+          fetch-depth: 0
+
+      - name: Ensure trusted reviewer scripts
+        run: |
+          BASE_REF="origin/${{ github.base_ref || github.event.repository.default_branch }}"
+          if git rev-parse --verify "${BASE_REF}:.github/workflows/pr_reviewer.py" >/dev/null 2>&1; then
+            git checkout "${BASE_REF}" -- .github/workflows/pr_reviewer.py .github/workflows/reviewers-requirements.txt
+          fi
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        with:
+          enable-cache: true
+          version: "0.11.25"
+
+      - name: Set up Python
+        run: uv python install 3.13
+
+      - name: Create virtual environment and install dependencies
+        run: |
+          uv venv
+          echo "$GITHUB_WORKSPACE/.venv/bin" >> $GITHUB_PATH
+          uv pip install --no-build --require-hashes -r .github/workflows/reviewers-requirements.txt
+
+      - name: Run code review
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          REVIEWER_BASE_URL: ${{ secrets.REVIEWER_BASE_URL || secrets.NOOK_BASE_URL }}
+          REVIEWER_API_KEY: ${{ secrets.REVIEWER_API_KEY || secrets.NOOK_API_KEY }}
+          REVIEWER_MODEL: ${{ secrets.REVIEWER_MODEL || secrets.NOOK_MODEL }}
+        run: |
+          python .github/workflows/pr_reviewer.py --mode code-review
+
+  code_review_expert:
+    name: Reviewer (Code review expert)
+    if: |
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request &&
+       contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association) &&
+       startsWith(github.event.comment.body, '/code-review-expert')) ||
+      (github.event_name == 'pull_request' && github.event.label.name == 'code-review-expert')
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.event.pull_request.head.sha || format('refs/pull/{0}/head', github.event.issue.number) }}
+          fetch-depth: 0
+
+      - name: Ensure trusted reviewer scripts
+        run: |
+          BASE_REF="origin/${{ github.base_ref || github.event.repository.default_branch }}"
+          if git rev-parse --verify "${BASE_REF}:.github/workflows/pr_reviewer.py" >/dev/null 2>&1; then
+            git checkout "${BASE_REF}" -- .github/workflows/pr_reviewer.py .github/workflows/reviewers-requirements.txt
+          fi
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        with:
+          enable-cache: true
+          version: "0.11.25"
+
+      - name: Set up Python
+        run: uv python install 3.13
+
+      - name: Create virtual environment and install dependencies
+        run: |
+          uv venv
+          echo "$GITHUB_WORKSPACE/.venv/bin" >> $GITHUB_PATH
+          uv pip install --no-build --require-hashes -r .github/workflows/reviewers-requirements.txt
+
+      - name: Run expert review
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          REVIEWER_BASE_URL: ${{ secrets.REVIEWER_BASE_URL || secrets.NOOK_BASE_URL }}
+          REVIEWER_API_KEY: ${{ secrets.REVIEWER_API_KEY || secrets.NOOK_API_KEY }}
+          REVIEWER_MODEL: ${{ secrets.REVIEWER_MODEL || secrets.NOOK_MODEL }}
+        run: |
+          python .github/workflows/pr_reviewer.py --mode code-review-expert
+
+  feedback_on_resolution:
+    name: Reviewer (Feedback on resolution)
+    if: |
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request &&
+       contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association) &&
+       startsWith(github.event.comment.body, '/feedback-on-resolution')) ||
+      (github.event_name == 'pull_request' && github.event.label.name == 'feedback-on-resolution')
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.event.pull_request.head.sha || format('refs/pull/{0}/head', github.event.issue.number) }}
+          fetch-depth: 0
+
+      - name: Ensure trusted reviewer scripts
+        run: |
+          BASE_REF="origin/${{ github.base_ref || github.event.repository.default_branch }}"
+          if git rev-parse --verify "${BASE_REF}:.github/workflows/pr_reviewer.py" >/dev/null 2>&1; then
+            git checkout "${BASE_REF}" -- .github/workflows/pr_reviewer.py .github/workflows/reviewers-requirements.txt
+          fi
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        with:
+          enable-cache: true
+          version: "0.11.25"
+
+      - name: Set up Python
+        run: uv python install 3.13
+
+      - name: Create virtual environment and install dependencies
+        run: |
+          uv venv
+          echo "$GITHUB_WORKSPACE/.venv/bin" >> $GITHUB_PATH
+          uv pip install --no-build --require-hashes -r .github/workflows/reviewers-requirements.txt
+
+      - name: Run resolution check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          REVIEWER_BASE_URL: ${{ secrets.REVIEWER_BASE_URL || secrets.NOOK_BASE_URL }}
+          REVIEWER_API_KEY: ${{ secrets.REVIEWER_API_KEY || secrets.NOOK_API_KEY }}
+          REVIEWER_MODEL: ${{ secrets.REVIEWER_MODEL || secrets.NOOK_MODEL }}
+        run: |
+          python .github/workflows/pr_reviewer.py --mode feedback-on-resolution

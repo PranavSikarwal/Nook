@@ -3,6 +3,7 @@ from uuid import uuid4
 import httpx
 import psycopg
 import pytest
+
 from nook_worker.agent import RealAgentRunner, build_deep_agent, create_model
 from nook_worker.checkpointer import (
     create_pool,
