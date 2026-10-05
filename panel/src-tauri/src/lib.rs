@@ -451,7 +451,7 @@ pub fn run() {
         .setup(move |app| {
             #[cfg(target_os = "macos")]
             {
-                let _ = app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+                app.set_activation_policy(tauri::ActivationPolicy::Accessory);
             }
 
             if let Err(e) = app.global_shortcut().register(shortcut) {
