@@ -98,6 +98,8 @@ impl Config {
     }
 
     pub fn from_file(path: &Path) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        Self::load_env_file();
+
         let mut cfg = if !path.exists() {
             let default_cfg = Self::default();
             if let Some(parent) = path.parent() {

@@ -128,7 +128,7 @@ echo "Turn 2 successfully recalled secret phrase."
 
 # 11. Turn 3: Attach an image
 echo "Preparing test image attachment..."
-TEST_IMG="/tmp/smoke-test-${CHAT_ID}.png"
+TEST_IMG=$(mktemp "${TMPDIR:-/tmp}/smoke-test.XXXXXX.png")
 echo "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAAKElEQVR4nO3NsQ0AAAzCMP5/un0CNkuZ41wybXsHAAAAAAAAAAAAxR4yw/wuPL6QkAAAAABJRU5ErkJggg==" | base64 -d > "$TEST_IMG"
 
 echo "Sending Turn 3: question with image attachment..."
