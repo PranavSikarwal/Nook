@@ -161,3 +161,9 @@ Delete a conversation:
 ```sh
 cargo run --manifest-path daemon/Cargo.toml --bin nookctl -- delete <chat-id>
 ```
+
+---
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).
