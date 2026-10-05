@@ -27,7 +27,7 @@ public struct MessageBubbleView: View {
                 HStack(spacing: 6) {
                     ForEach(message.attachments, id: \.id) { att in
                         HStack(spacing: 4) {
-                            Image(systemName: att.kind == .image ? "photo" : (att.kind == .pdf ? "doc.richtext" : "doc.text"))
+                            Image(systemName: iconName(for: att.kind))
                                 .font(.system(size: 10))
                             Text(att.name)
                                 .font(.system(size: 11))
@@ -104,6 +104,17 @@ public struct MessageBubbleView: View {
                         .stroke(Color.red.opacity(0.3), lineWidth: 1)
                 )
             }
+        }
+    }
+
+    private func iconName(for kind: AttachmentKind) -> String {
+        switch kind {
+        case .image:
+            return "photo"
+        case .pdf:
+            return "doc.richtext"
+        case .text:
+            return "doc.text"
         }
     }
 }

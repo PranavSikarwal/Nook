@@ -43,7 +43,7 @@ public final class PanelState: ObservableObject {
     @Published public var currentTitle: String = "New Chat"
 
     // Settings fields
-    @Published public var baseUrl: String = "http://127.0.0.1:8000/v1"
+    @Published public var baseUrl: String = ProcessInfo.processInfo.environment["NOOK_BASE_URL"] ?? "http://localhost:8000/v1"
     @Published public var model: String = "gpt-4o"
     @Published public var hasApiKey: Bool = false
     @Published public var apiKeyInput: String = ""

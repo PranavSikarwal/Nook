@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 
 @MainActor
@@ -8,7 +9,7 @@ public final class PanelController: DaemonClientDelegate {
     public let panel: NookPanel
     private var globalClickMonitor: Any?
     private var localKeyMonitor: Any?
-    private var stateObserver: Any?
+    private var stateCancellable: AnyCancellable?
 
     private init() {
         let initialWidth: CGFloat = 640
@@ -20,6 +21,12 @@ public final class PanelController: DaemonClientDelegate {
         let hostingView = NSHostingView(rootView: rootView)
         self.panel.contentView = hostingView
         centerPanel()
+
+        stateCancellable = PanelState.shared.$viewMode
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] mode in
+                self?.updateFrame(for: mode)
+            }
     }
 
     public func setup() {
@@ -45,7 +52,7 @@ public final class PanelController: DaemonClientDelegate {
         // Opening always starts a fresh Chat with a new UUID per spec
         PanelState.shared.startNewChat()
 
-        centerPanel()
+        updateFrame(for: PanelState.shared.viewMode, animate: false)
         panel.makeKeyAndOrderFront(nil)
 
         if globalClickMonitor == nil {
@@ -95,24 +102,42 @@ public final class PanelController: DaemonClientDelegate {
     }
 
     public func centerPanel() {
+        updateFrame(for: PanelState.shared.viewMode, animate: false)
+    }
+
+    private func targetHeight(for mode: ViewMode) -> CGFloat {
+        switch mode {
+        case .compact:
+            return 80
+        case .expanded:
+            return 480
+        case .history:
+            return 480
+        case .settings:
+            return 380
+        }
+    }
+
+    public func updateFrame(for mode: ViewMode, animate: Bool = true) {
         guard let screen = NSScreen.main else { return }
         let screenRect = screen.visibleFrame
-        let panelWidth = panel.frame.width
-        let panelHeight = panel.frame.height
+        let panelWidth: CGFloat = 640
+        let targetH = targetHeight(for: mode)
 
         let x = screenRect.origin.x + (screenRect.width - panelWidth) / 2
-        let y = screenRect.origin.y + screenRect.height * 0.7 - panelHeight / 2
+        let y = screenRect.origin.y + screenRect.height * 0.7 - targetH / 2
 
-        panel.setFrameOrigin(NSPoint(x: x, y: y))
+        let newFrame = NSRect(x: x, y: y, width: panelWidth, height: targetH)
+        panel.setFrame(newFrame, display: true, animate: animate && panel.isVisible)
     }
 
     // MARK: - DaemonClientDelegate
 
-    public func daemonClient(_ client: DaemonClient, didChangeConnectionState isConnected: Bool) {
+    public func daemonClient(_: DaemonClient, didChangeConnectionState isConnected: Bool) {
         PanelState.shared.isConnected = isConnected
     }
 
-    public func daemonClient(_ client: DaemonClient, didReceiveEvent event: DaemonMessage) {
+    public func daemonClient(_: DaemonClient, didReceiveEvent _: DaemonMessage) {
         // Dispatched through onMessage
     }
 }

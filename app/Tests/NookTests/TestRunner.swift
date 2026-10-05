@@ -8,7 +8,7 @@ struct TestRunner {
     static func main() throws {
         print("Running Nook tests...")
 
-        // Test 1: NookPanel configuration
+        // NookPanel configuration
         let panel = NookPanel(contentRect: NSRect(x: 0, y: 0, width: 640, height: 56))
         assert(panel.canBecomeKey, "Panel must be able to become key (Open Point 3)")
         assert(panel.canBecomeMain, "Panel must be able to become main")
@@ -16,15 +16,15 @@ struct TestRunner {
         assert(panel.level == .floating, "Panel level must be .floating")
         assert(panel.collectionBehavior.contains(.canJoinAllSpaces), "Panel must join all spaces")
         assert(panel.collectionBehavior.contains(.fullScreenAuxiliary), "Panel must be fullScreenAuxiliary")
-        print("Test 1 passed: NookPanel properties verified.")
+        print("NookPanel properties verified.")
 
-        // Test 2: PanelController singleton and panel initialization
+        // PanelController singleton and panel initialization
         let controller = PanelController.shared
         assert(controller.panel.canBecomeKey, "Shared panel must be able to become key")
         assert(!controller.panel.isVisible, "Panel should start hidden")
-        print("Test 2 passed: PanelController verified.")
+        print("PanelController verified.")
 
-        // Test 3: Protocol JSON decoding of contracts/examples/panel-daemon.ndjson
+        // Protocol JSON decoding of contracts/examples/panel-daemon.ndjson
         let candidates = [
             URL(fileURLWithPath: "contracts/examples/panel-daemon.ndjson"),
             URL(fileURLWithPath: "../contracts/examples/panel-daemon.ndjson"),
@@ -43,7 +43,7 @@ struct TestRunner {
         let encoder = JSONEncoder()
 
         for (index, line) in lines.enumerated() {
-            let data = line.data(using: .utf8)!
+            guard let data = line.data(using: .utf8) else { continue }
 
             if index < 8 {
                 let clientMsg = try decoder.decode(ClientMessage.self, from: data)
@@ -57,9 +57,9 @@ struct TestRunner {
                 assert(daemonMsg == roundtripMsg, "Line \(index + 1) DaemonMessage roundtrip failed")
             }
         }
-        print("Test 3 passed: All 21 contract example lines decoded and roundtripped.")
+        print("All 21 contract example lines decoded and roundtripped.")
 
-        // Test 4: DaemonClient ping-pong test harness with Unix domain socket
+        // DaemonClient ping-pong test harness with Unix domain socket
         let testSocketPath = "/tmp/nook_test_\(UUID().uuidString.prefix(8)).sock"
         unlink(testSocketPath)
 
@@ -100,17 +100,21 @@ struct TestRunner {
             assert(n > 0, "Server read empty line")
 
             let receivedData = Data(readBuffer[0..<n])
-            let clientMsg = try! JSONDecoder().decode(ClientMessage.self, from: receivedData)
-            if case .ping(let id) = clientMsg {
-                pingReceived.signal()
+            do {
+                let clientMsg = try JSONDecoder().decode(ClientMessage.self, from: receivedData)
+                if case .ping(let id) = clientMsg {
+                    pingReceived.signal()
 
-                let pong = DaemonMessage.pong(id: id)
-                var pongData = try! JSONEncoder().encode(pong)
-                pongData.append(contentsOf: [UInt8(ascii: "\n")])
-                pongData.withUnsafeBytes { raw in
-                    _ = write(clientFD, raw.baseAddress!, pongData.count)
+                    let pong = DaemonMessage.pong(id: id)
+                    var pongData = try JSONEncoder().encode(pong)
+                    pongData.append(contentsOf: [UInt8(ascii: "\n")])
+                    pongData.withUnsafeBytes { raw in
+                        _ = write(clientFD, raw.baseAddress!, pongData.count)
+                    }
+                    pongSent.signal()
                 }
-                pongSent.signal()
+            } catch {
+                NSLog("Server decode/encode error: %@", error.localizedDescription)
             }
 
             _ = testFinished.wait(timeout: .now() + 2)
@@ -144,19 +148,19 @@ struct TestRunner {
 
         testFinished.signal()
         client.disconnect()
-        print("Test 4 passed: DaemonClient connected and received pong for ping.")
+        print("DaemonClient connected and received pong for ping.")
 
-        // Test 5: Attachment validation limits
+        // Attachment validation limits
         assert(AttachmentValidator.validate(name: "doc.pdf", sizeBytes: 500, mime: "application/pdf", kind: .pdf) == nil)
         assert(AttachmentValidator.validate(name: "big.pdf", sizeBytes: 15 * 1024 * 1024, mime: "application/pdf", kind: .pdf) != nil)
         assert(AttachmentValidator.validate(name: "bad.exe", sizeBytes: 100, mime: "application/x-msdownload", kind: .image) != nil)
-        print("Test 5 passed: Attachment validation limits verified.")
+        print("Attachment validation limits verified.")
 
-        // Test 6: Markdown code block parser
+        // Markdown code block parser
         let md = "Here is code:\n```swift\nlet x = 1\n```\nAnd text."
         let parsed = MarkdownView(content: md)
         assert(!parsed.content.isEmpty, "MarkdownView initialized")
-        print("Test 6 passed: Markdown view component verified.")
+        print("Markdown view component verified.")
 
         print("All Nook tests passed.")
     }

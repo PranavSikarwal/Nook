@@ -24,7 +24,7 @@ public final class NookPanel: NSPanel {
         return true
     }
 
-    public override func cancelOperation(_ sender: Any?) {
+    public override func cancelOperation(_: Any?) {
         PanelController.shared.hide()
     }
 }

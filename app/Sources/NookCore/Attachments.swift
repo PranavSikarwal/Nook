@@ -30,7 +30,7 @@ public enum AttachmentValidator {
     public static let maxFileBytes: Int64 = 10 * 1024 * 1024 // 10 MB
     public static let maxAttachments = 5
 
-    public static func validate(name: String, sizeBytes: Int64, mime: String, kind: AttachmentKind) -> String? {
+    public static func validate(name _: String, sizeBytes: Int64, mime: String, kind: AttachmentKind) -> String? {
         if sizeBytes > maxFileBytes {
             return "File exceeds 10 MB limit (\(sizeBytes / (1024 * 1024)) MB)"
         }
