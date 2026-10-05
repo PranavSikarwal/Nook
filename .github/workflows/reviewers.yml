@@ -63,6 +63,16 @@ jobs:
         run: |
           python .github/workflows/pr_reviewer.py --mode code-review
 
+      - name: Upload review transcript
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: review-transcript-code-review-${{ github.event.pull_request.number || github.event.issue.number }}
+          path: |
+            review-transcript.md
+            review-transcript.json
+          if-no-files-found: ignore
+
   code_review_expert:
     name: Reviewer (Code review expert)
     if: |
@@ -116,6 +126,16 @@ jobs:
         run: |
           python .github/workflows/pr_reviewer.py --mode code-review-expert
 
+      - name: Upload review transcript
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: review-transcript-code-review-expert-${{ github.event.pull_request.number || github.event.issue.number }}
+          path: |
+            review-transcript.md
+            review-transcript.json
+          if-no-files-found: ignore
+
   feedback_on_resolution:
     name: Reviewer (Feedback on resolution)
     if: |
@@ -168,3 +188,13 @@ jobs:
           REVIEWER_MODEL: ${{ secrets.REVIEWER_MODEL || secrets.NOOK_MODEL }}
         run: |
           python .github/workflows/pr_reviewer.py --mode feedback-on-resolution
+
+      - name: Upload review transcript
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: review-transcript-feedback-on-resolution-${{ github.event.pull_request.number || github.event.issue.number }}
+          path: |
+            review-transcript.md
+            review-transcript.json
+          if-no-files-found: ignore
