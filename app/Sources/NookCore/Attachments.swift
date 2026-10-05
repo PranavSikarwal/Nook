@@ -16,8 +16,8 @@ public struct PendingAttachment: Identifiable, Equatable, Sendable {
         return errorMessage == nil
     }
 
-    public init(id: UUID = UUID(), name: String, kind: AttachmentKind, mime: String, sizeBytes: Int64, sourceURL: URL?, data: Data? = nil, errorMessage: String? = nil) {
-        self.id = id
+    public init(name: String, kind: AttachmentKind, mime: String, sizeBytes: Int64, sourceURL: URL? = nil, data: Data? = nil, errorMessage: String? = nil) {
+        self.id = UUID()
         self.name = name
         self.kind = kind
         self.mime = mime
@@ -148,16 +148,13 @@ public enum AttachmentValidator {
            let tiffData = image.tiffRepresentation,
            let bitmap = NSBitmapImageRep(data: tiffData),
            let pngData = bitmap.representation(using: .png, properties: [:]) {
-            let id = UUID()
             let size = Int64(pngData.count)
             let error = validate(name: "pasted_image.png", sizeBytes: size, mime: "image/png", kind: .image)
             results.append(PendingAttachment(
-                id: id,
                 name: "pasted_image.png",
                 kind: .image,
                 mime: "image/png",
                 sizeBytes: size,
-                sourceURL: nil,
                 data: pngData,
                 errorMessage: error
             ))
