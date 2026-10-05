@@ -51,6 +51,10 @@ install_macos_app() {
     fi
 }
 
+secure_curl() {
+    curl --proto '=https' --tlsv1.2 "$@"
+}
+
 echo "=== Installing Nook ==="
 
 # 1. Detect operating system and architecture
@@ -114,7 +118,7 @@ if [ "$IS_LOCAL" -eq 1 ]; then
 else
     echo "Fetching latest release from GitHub ($GITHUB_REPO)..."
     API_URL="https://api.github.com/repos/${GITHUB_REPO}/releases/latest"
-    RELEASE_DATA=$(curl --proto '=https' --tlsv1.2 -fsSL "$API_URL" 2>/dev/null || true)
+    RELEASE_DATA=$(secure_curl -fsSL "$API_URL" 2>/dev/null || true)
 
     if [ -z "$RELEASE_DATA" ]; then
         echo "Notice: No pre-built release found on GitHub yet."
@@ -151,7 +155,7 @@ else
         TMP_FILES="$TMP_FILES $TMP_DMG"
 
         echo "Downloading $DMG_URL..."
-        if ! curl --proto '=https' --tlsv1.2 -fSL "$DMG_URL" -o "$TMP_DMG"; then
+        if ! secure_curl -fSL "$DMG_URL" -o "$TMP_DMG"; then
             echo "Error: Failed to download release asset." >&2
             exit 1
         fi
@@ -175,7 +179,7 @@ else
             TMP_FILES="$TMP_FILES $TMP_DEB"
 
             echo "Downloading $DEB_URL..."
-            if ! curl --proto '=https' --tlsv1.2 -fSL "$DEB_URL" -o "$TMP_DEB"; then
+            if ! secure_curl -fSL "$DEB_URL" -o "$TMP_DEB"; then
                 echo "Error: Failed to download Debian package." >&2
                 exit 1
             fi
@@ -190,7 +194,10 @@ else
             if [ -n "$APPIMAGE_URL" ]; then
                 TMP_APPIMAGE="${BIN_DIR}/nook-panel"
                 echo "Downloading AppImage to $TMP_APPIMAGE..."
-                curl --proto '=https' --tlsv1.2 -fSL "$APPIMAGE_URL" -o "$TMP_APPIMAGE"
+                if ! secure_curl -fSL "$APPIMAGE_URL" -o "$TMP_APPIMAGE"; then
+                    echo "Error: Failed to download AppImage." >&2
+                    exit 1
+                fi
                 chmod +x "$TMP_APPIMAGE"
             else
                 echo "Error: No compatible Linux release asset (.deb or .AppImage) found." >&2
