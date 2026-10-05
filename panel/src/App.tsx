@@ -212,15 +212,56 @@ export default function App() {
   }
 
   const handleRetry = () => {
-    const lastUser = [...messages].reverse().find((m) => m.role === 'user')
-    if (lastUser) {
-      const attsInput: AttachmentInput[] = lastUser.attachments.map((a) => ({
+    if (isStreaming) return
+
+    const failedIdx = messages.findLastIndex((m) => m.role === 'assistant' && m.status === 'error')
+    if (failedIdx === -1) return
+
+    const userMsg = messages[failedIdx - 1]
+    if (!userMsg || userMsg.role !== 'user') return
+
+    setMessages((prev) => {
+      const updated = [...prev]
+      const target = updated[failedIdx]
+      if (target) {
+        updated[failedIdx] = {
+          ...target,
+          text: '',
+          status: 'streaming',
+          error: undefined,
+        }
+      }
+      return updated
+    })
+    setIsStreaming(true)
+
+    const attsInput: AttachmentInput[] = userMsg.attachments
+      .filter((a) => a.path)
+      .map((a) => ({
         name: a.name,
         mime: a.mime,
         file_path: a.path,
       }))
-      void handleSend(lastUser.text, attsInput)
-    }
+
+    void sendMessage(chatId, userMsg.text, attsInput, handleDaemonEvent).catch((err) => {
+      setIsStreaming(false)
+      setMessages((prev) => {
+        const updated = [...prev]
+        const target = updated[failedIdx]
+        if (target) {
+          updated[failedIdx] = {
+            ...target,
+            status: 'error',
+            error: {
+              code: 'internal',
+              message: err instanceof Error ? err.message : String(err),
+              retryable: true,
+            },
+          }
+        }
+        return updated
+      })
+    })
   }
 
   const handleStop = async () => {
