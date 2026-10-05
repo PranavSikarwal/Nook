@@ -95,6 +95,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                     DaemonMessage::Error { error, .. } => {
                         eprintln!("Error: {}", error.message);
+                        std::process::exit(1);
                     }
                     _ => println!("{line}"),
                 }
@@ -120,6 +121,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                     DaemonMessage::Error { error, .. } => {
                         eprintln!("Error: {}", error.message);
+                        std::process::exit(1);
                     }
                     _ => println!("{line}"),
                 }
@@ -138,6 +140,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                     DaemonMessage::Error { error, .. } => {
                         eprintln!("Error: {}", error.message);
+                        std::process::exit(1);
                     }
                     _ => println!("{line}"),
                 }
@@ -208,7 +211,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                         DaemonMessage::Error { error, .. } => {
                             eprintln!("\nError: {}", error.message);
-                            break;
+                            std::process::exit(1);
                         }
                         _ => {}
                     }

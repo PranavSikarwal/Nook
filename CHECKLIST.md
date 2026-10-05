@@ -50,5 +50,5 @@ Task details and "done when" checks are in `docs/plan.md`. Specs are in `docs/sp
 
 ## Phase I: Integration
 
-- [ ] I1. End-to-end smoke test. Needs: D8, W4, W8
-- [ ] I2. Install and runbook. Needs: D9, P7, I1
+- [x] I1. End-to-end smoke test. Needs: D8, W4, W8
+- [x] I2. Install and runbook. Needs: D9, P7, I1

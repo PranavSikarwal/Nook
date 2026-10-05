@@ -13,6 +13,9 @@ use tracing::{error, info, warn};
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     tracing_subscriber::fmt::init();
 
+    // 0. Load .env if present
+    Config::load_env_file();
+
     // 1. Read config
     let config_path = Config::default_config_path();
     let config = Config::from_file(&config_path)?;
