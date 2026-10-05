@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 
 @MainActor
@@ -16,6 +17,9 @@ public final class DaemonClient: @unchecked Sendable {
 
     public weak var delegate: DaemonClientDelegate?
 
+    public let messages = PassthroughSubject<DaemonMessage, Never>()
+    public let isConnectedPublisher = CurrentValueSubject<Bool, Never>(false)
+
     private let socketPath: String
     private var socketFD: Int32 = -1
     private var readSource: DispatchSourceRead?
@@ -32,6 +36,7 @@ public final class DaemonClient: @unchecked Sendable {
     public private(set) var isConnected: Bool = false {
         didSet {
             if oldValue != isConnected {
+                isConnectedPublisher.send(isConnected)
                 DispatchQueue.main.async { [weak self] in
                     guard let self = self else { return }
                     self.delegate?.daemonClient(self, didChangeConnectionState: self.isConnected)
@@ -71,6 +76,9 @@ public final class DaemonClient: @unchecked Sendable {
             scheduleReconnect()
             return
         }
+
+        var opt: Int32 = 1
+        setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &opt, socklen_t(MemoryLayout<Int32>.size))
 
         var addr = sockaddr_un()
         addr.sun_family = sa_family_t(AF_UNIX)
@@ -150,6 +158,7 @@ public final class DaemonClient: @unchecked Sendable {
             guard !lineData.isEmpty else { continue }
             do {
                 let message = try decoder.decode(DaemonMessage.self, from: lineData)
+                self.messages.send(message)
                 self.onMessage?(message)
                 DispatchQueue.main.async { [weak self] in
                     guard let self = self else { return }
@@ -213,7 +222,7 @@ public final class DaemonClient: @unchecked Sendable {
         data.append(contentsOf: [UInt8(ascii: "\n")])
 
         queue.async { [weak self] in
-            guard let self = self, self.socketFD >= 0 else {
+            guard let self = self, self.socketFD >= 0, self.isConnected else {
                 NSLog("Cannot send message: socket not connected")
                 return
             }
@@ -223,7 +232,12 @@ public final class DaemonClient: @unchecked Sendable {
                 while totalWritten < data.count {
                     let written = Darwin.write(self.socketFD, base.advanced(by: totalWritten), data.count - totalWritten)
                     if written <= 0 {
-                        NSLog("Failed to write to daemon socket: %s", strerror(errno))
+                        let err = errno
+                        NSLog("Failed to write to daemon socket: %s", strerror(err))
+                        if err == EPIPE || err == ECONNRESET {
+                            self.closeSocket()
+                            self.scheduleReconnect()
+                        }
                         break
                     }
                     totalWritten += written

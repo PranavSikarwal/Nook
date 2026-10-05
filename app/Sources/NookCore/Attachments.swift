@@ -9,19 +9,21 @@ public struct PendingAttachment: Identifiable, Equatable, Sendable {
     public let mime: String
     public let sizeBytes: Int64
     public let sourceURL: URL?
+    public let data: Data?
     public let errorMessage: String?
 
     public var isValid: Bool {
         return errorMessage == nil
     }
 
-    public init(id: UUID = UUID(), name: String, kind: AttachmentKind, mime: String, sizeBytes: Int64, sourceURL: URL?, errorMessage: String? = nil) {
+    public init(id: UUID = UUID(), name: String, kind: AttachmentKind, mime: String, sizeBytes: Int64, sourceURL: URL?, data: Data? = nil, errorMessage: String? = nil) {
         self.id = id
         self.name = name
         self.kind = kind
         self.mime = mime
         self.sizeBytes = sizeBytes
         self.sourceURL = sourceURL
+        self.data = data
         self.errorMessage = errorMessage
     }
 }
@@ -90,10 +92,18 @@ public enum AttachmentValidator {
         let chatDir = appSupport.appendingPathComponent("Nook/attachments/\(chatId.uuidString)")
         try FileManager.default.createDirectory(at: chatDir, withIntermediateDirectories: true)
 
-        let destFileName = "\(attachment.id.uuidString)-\(attachment.name)"
+        let sanitizedName = URL(fileURLWithPath: attachment.name).lastPathComponent
+            .replacingOccurrences(of: "\0", with: "")
+            .replacingOccurrences(of: "/", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let safeName = sanitizedName.isEmpty ? "attachment" : sanitizedName
+
+        let destFileName = "\(attachment.id.uuidString)-\(safeName)"
         let destURL = chatDir.appendingPathComponent(destFileName)
 
-        if let srcURL = attachment.sourceURL {
+        if let data = attachment.data {
+            try data.write(to: destURL, options: .atomic)
+        } else if let srcURL = attachment.sourceURL {
             if FileManager.default.fileExists(atPath: destURL.path) {
                 try FileManager.default.removeItem(at: destURL)
             }
@@ -103,7 +113,7 @@ public enum AttachmentValidator {
         return Attachment(
             id: attachment.id,
             kind: attachment.kind,
-            name: attachment.name,
+            name: safeName,
             mime: attachment.mime,
             sizeBytes: attachment.sizeBytes,
             path: destURL.path
@@ -138,11 +148,7 @@ public enum AttachmentValidator {
            let tiffData = image.tiffRepresentation,
            let bitmap = NSBitmapImageRep(data: tiffData),
            let pngData = bitmap.representation(using: .png, properties: [:]) {
-            let tempDir = FileManager.default.temporaryDirectory
             let id = UUID()
-            let tempFile = tempDir.appendingPathComponent("\(id.uuidString).png")
-            try? pngData.write(to: tempFile)
-
             let size = Int64(pngData.count)
             let error = validate(name: "pasted_image.png", sizeBytes: size, mime: "image/png", kind: .image)
             results.append(PendingAttachment(
@@ -151,7 +157,8 @@ public enum AttachmentValidator {
                 kind: .image,
                 mime: "image/png",
                 sizeBytes: size,
-                sourceURL: tempFile,
+                sourceURL: nil,
+                data: pngData,
                 errorMessage: error
             ))
         }

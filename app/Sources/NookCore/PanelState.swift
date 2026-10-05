@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import Foundation
 import SwiftUI
 
@@ -51,13 +52,23 @@ public final class PanelState: ObservableObject {
 
     private var activeRequestId: UUID?
     private var client: DaemonClient { DaemonClient.shared }
+    private var cancellables = Set<AnyCancellable>()
 
     private init() {
-        self.client.onMessage = { [weak self] message in
-            Task { @MainActor in
+        client.messages
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] message in
                 self?.handleDaemonMessage(message)
             }
-        }
+            .store(in: &cancellables)
+
+        client.isConnectedPublisher
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$isConnected)
+    }
+
+    public func resetToNewChat() {
+        startNewChat()
     }
 
     public func startNewChat() {

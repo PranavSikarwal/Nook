@@ -3,7 +3,7 @@ import Combine
 import SwiftUI
 
 @MainActor
-public final class PanelController: DaemonClientDelegate {
+public final class PanelController {
     public static let shared = PanelController()
 
     public let panel: NookPanel
@@ -30,7 +30,6 @@ public final class PanelController: DaemonClientDelegate {
     }
 
     public func setup() {
-        DaemonClient.shared.delegate = self
         DaemonClient.shared.connect()
 
         HotkeyManager.shared.register { [weak self] in
@@ -49,10 +48,10 @@ public final class PanelController: DaemonClientDelegate {
     }
 
     public func show() {
-        // Opening always starts a fresh Chat with a new UUID per spec
+        // Opening always starts a fresh Chat in compact mode per spec
         PanelState.shared.startNewChat()
 
-        updateFrame(for: PanelState.shared.viewMode, animate: false)
+        updateFrame(for: .compact, animate: false)
         panel.makeKeyAndOrderFront(nil)
 
         if globalClickMonitor == nil {
@@ -99,6 +98,12 @@ public final class PanelController: DaemonClientDelegate {
             NSEvent.removeMonitor(monitor)
             localKeyMonitor = nil
         }
+
+        // Reset to clean compact state for next open if messages were sent
+        if !PanelState.shared.messages.isEmpty {
+            PanelState.shared.startNewChat()
+            updateFrame(for: .compact, animate: false)
+        }
     }
 
     public func centerPanel() {
@@ -129,15 +134,5 @@ public final class PanelController: DaemonClientDelegate {
 
         let newFrame = NSRect(x: x, y: y, width: panelWidth, height: targetH)
         panel.setFrame(newFrame, display: true, animate: animate && panel.isVisible)
-    }
-
-    // MARK: - DaemonClientDelegate
-
-    public func daemonClient(_: DaemonClient, didChangeConnectionState isConnected: Bool) {
-        PanelState.shared.isConnected = isConnected
-    }
-
-    public func daemonClient(_: DaemonClient, didReceiveEvent _: DaemonMessage) {
-        // Dispatched through onMessage
     }
 }

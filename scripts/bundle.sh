@@ -58,7 +58,8 @@ cat <<EOF > "$BUNDLE_DIR/Contents/Info.plist"
 </plist>
 EOF
 
-echo "Signing bundle with ad-hoc identity..."
-codesign --force --deep --sign - "$BUNDLE_DIR"
+SIGN_IDENTITY="${SIGN_IDENTITY:--}"
+echo "Signing bundle with identity '$SIGN_IDENTITY'..."
+codesign --force --deep --sign "$SIGN_IDENTITY" "$BUNDLE_DIR"
 
 echo "Nook.app successfully built and signed at $BUNDLE_DIR"
