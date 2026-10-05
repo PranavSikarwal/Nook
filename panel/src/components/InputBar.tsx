@@ -10,9 +10,35 @@ interface InputBarProps {
   readonly onToggleHistory: () => void
   readonly onToggleSettings: () => void
   readonly onAttachFiles: (files: FileList) => void
+  readonly onAttachPath?: (path: string) => void
   readonly isStreaming: boolean
   readonly disabled?: boolean
   readonly standalone?: boolean
+}
+
+function getMimeFromExtension(filename: string): string | null {
+  const ext = filename.split('.').pop()?.toLowerCase()
+  switch (ext) {
+    case 'png':
+      return 'image/png'
+    case 'jpg':
+    case 'jpeg':
+      return 'image/jpeg'
+    case 'webp':
+      return 'image/webp'
+    case 'gif':
+      return 'image/gif'
+    case 'pdf':
+      return 'application/pdf'
+    case 'txt':
+      return 'text/plain'
+    case 'md':
+      return 'text/markdown'
+    case 'json':
+      return 'application/json'
+    default:
+      return null
+  }
 }
 
 export function InputBar({
@@ -24,6 +50,7 @@ export function InputBar({
   onToggleHistory,
   onToggleSettings,
   onAttachFiles,
+  onAttachPath,
   isStreaming,
   disabled = false,
   standalone = false,
@@ -38,6 +65,42 @@ export function InputBar({
       } else if (input.trim()) {
         onSend()
       }
+    }
+  }
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    const clipboardData = e.clipboardData
+    if (!clipboardData) return
+
+    // 1. Direct file/image data in clipboard (e.g. screenshots or copied images)
+    const items = Array.from(clipboardData.items)
+    const fileItems = items.filter((item) => item.kind === 'file')
+
+    if (fileItems.length > 0) {
+      e.preventDefault()
+      const files: File[] = []
+      for (const item of fileItems) {
+        const file = item.getAsFile()
+        if (file) files.push(file)
+      }
+      if (files.length > 0) {
+        const dataTransfer = new DataTransfer()
+        for (const f of files) {
+          dataTransfer.items.add(f)
+        }
+        onAttachFiles(dataTransfer.files)
+        return
+      }
+    }
+
+    // 2. File path in clipboard (e.g. copied file from Finder)
+    const text = clipboardData.getData('text/plain').trim()
+    const cleanPath = text.replace(/^file:\/\//, '')
+    const mime = getMimeFromExtension(cleanPath)
+
+    if (mime && (cleanPath.startsWith('/') || cleanPath.startsWith('~'))) {
+      e.preventDefault()
+      onAttachPath?.(cleanPath)
     }
   }
 
@@ -85,6 +148,7 @@ export function InputBar({
         value={input}
         onChange={(e) => setInput(e.target.value)}
         onKeyDown={handleKeyDown}
+        onPaste={handlePaste}
         placeholder="Ask anything..."
         disabled={disabled}
         aria-label="Ask anything"

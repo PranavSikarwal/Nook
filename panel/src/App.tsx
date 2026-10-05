@@ -262,6 +262,30 @@ export default function App() {
     setAttachments((prev) => [...prev, ...newItems].slice(0, 5))
   }
 
+  const handleAttachPath = (filePath: string) => {
+    if (attachments.length >= 5) {
+      setErrorMessage('Maximum 5 attachments allowed')
+      return
+    }
+    const name = filePath.split('/').pop() ?? 'attachment'
+    const ext = name.split('.').pop()?.toLowerCase()
+    let mime = 'text/plain'
+    if (ext === 'png') mime = 'image/png'
+    else if (ext === 'jpg' || ext === 'jpeg') mime = 'image/jpeg'
+    else if (ext === 'webp') mime = 'image/webp'
+    else if (ext === 'gif') mime = 'image/gif'
+    else if (ext === 'pdf') mime = 'application/pdf'
+
+    setAttachments((prev) => [
+      ...prev,
+      {
+        name,
+        mime,
+        file_path: filePath,
+      },
+    ].slice(0, 5))
+  }
+
   const handleSelectChat = async (selectedId: string) => {
     try {
       const transcript = await getChat(selectedId)
@@ -313,6 +337,7 @@ export default function App() {
           onToggleHistory={() => setActivePanel('history')}
           onToggleSettings={() => setActivePanel('settings')}
           onAttachFiles={(files) => void handleAttachFiles(files)}
+          onAttachPath={handleAttachPath}
           isStreaming={isStreaming}
           standalone={true}
         />
@@ -394,6 +419,7 @@ export default function App() {
             setActivePanel((prev) => (prev === 'settings' ? 'none' : 'settings'))
           }
           onAttachFiles={(files) => void handleAttachFiles(files)}
+          onAttachPath={handleAttachPath}
           isStreaming={isStreaming}
           standalone={false}
         />
