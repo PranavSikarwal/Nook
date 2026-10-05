@@ -13,7 +13,8 @@ if (!rawTag) {
 
 const version = rawTag.startsWith('v') ? rawTag.slice(1) : rawTag
 
-const semverPattern = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/
+// Official SemVer 2.0 regex from semver.org
+const semverPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$/
 if (!semverPattern.test(version)) {
   console.error(`Error: Invalid semver version '${version}'`)
   process.exit(1)

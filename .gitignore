@@ -1,12 +1,6 @@
 # macOS
 .DS_Store
 
-# Swift
-.build/
-Packages/
-*.xcodeproj
-*.xcworkspace
-
 # Rust
 target/
 **/*.rs.bk

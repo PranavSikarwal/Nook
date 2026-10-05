@@ -13,7 +13,9 @@ echo "Building Nook frontend..."
 echo "Building Nook release binary with Tauri..."
 (cd "$PANEL_DIR/src-tauri" && cargo build --release)
 
-echo "Creating bundle structure at $BUNDLE_DIR..."
+VERSION=$(node -p "require('$PANEL_DIR/src-tauri/tauri.conf.json').version || '0.1.0'")
+
+echo "Creating bundle structure at $BUNDLE_DIR (version $VERSION)..."
 rm -rf "$BUNDLE_DIR"
 mkdir -p "$BUNDLE_DIR/Contents/MacOS"
 mkdir -p "$BUNDLE_DIR/Contents/Resources"
@@ -43,7 +45,7 @@ cat <<EOF > "$BUNDLE_DIR/Contents/Info.plist"
     <key>CFBundleIconFile</key>
     <string>icon</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.1.0</string>
+    <string>$VERSION</string>
     <key>CFBundleVersion</key>
     <string>1</string>
     <key>LSUIElement</key>

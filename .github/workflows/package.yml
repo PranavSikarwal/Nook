@@ -47,8 +47,10 @@ jobs:
 
       - name: Sync version from tag
         if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          TAG_NAME: ${{ github.ref_name }}
         run: |
-          node scripts/sync-version.js "${{ github.ref_name }}"
+          node scripts/sync-version.js "$TAG_NAME"
 
       - name: Build frontend
         run: |
