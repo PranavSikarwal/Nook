@@ -1,37 +1,29 @@
 ---
 name: code-review
 description: Code review a pull request
-allowed-tools: "Bash(gh issue view:*), Bash(gh search:*), Bash(gh issue list:*), Bash(gh pr comment:*), Bash(gh pr diff:*), Bash(gh pr view:*), Bash(gh pr list:*)"
+allowed-tools: "read_file, search_code, git_blame, run_command, submit_review"
 disable-model-invocation: false
 ---
 
 Provide a code review for the given pull request.
 
-For a concrete, step-by-step trace of subagent prompts, tool calls, and common anti-patterns to avoid, refer to `examples/example-execution.md` in this skill directory before beginning.
+To do this, follow these steps systematically using your available tools:
 
-To do this, follow these steps precisely:
-
-1. Use a subagent to check if the pull request (a) is closed, (b) is a draft, (c) does not need a code review (eg. because it is an automated pull request, or is very simple and obviously ok), or (d) already has a code review from you from earlier. If so, do not proceed.
-2. Use another subagent to give you a list of file paths to (but not the contents of) any relevant CLAUDE.md files from the codebase: the root CLAUDE.md file (if one exists), as well as any CLAUDE.md files in the directories whose files the pull request modified
-3. Use a subagent to view the pull request, and ask the agent to return a summary of the change
-4. Then, launch 5 parallel subagents to independently code review the change. The agents should do the following, then return a list of issues and the reason each issue was flagged (eg. CLAUDE.md adherence, bug, historical git context, etc.):
-   a. Agent #1: Audit the changes to make sure they compily with the CLAUDE.md. Note that CLAUDE.md is guidance for Claude as it writes code, so not all instructions will be applicable during code review.
-   b. Agent #2: Read the file changes in the pull request, then do a shallow scan for obvious bugs. Avoid reading extra context beyond the changes, focusing just on the changes themselves. Focus on large bugs, and avoid small issues and nitpicks. Ignore likely false positives.
-   c. Agent #3: Read the git blame and history of the code modified, to identify any bugs in light of that historical context
-   d. Agent #4: Read previous pull requests that touched these files, and check for any comments on those pull requests that may also apply to the current pull request.
-   e. Agent #5: Read code comments in the modified files, and make sure the changes in the pull request comply with any guidance in the comments.
-5. For each issue found in #4, launch a parallel subagent that takes the PR, issue description, and list of CLAUDE.md files (from step 2), and returns a score to indicate the agent's level of confidence for whether the issue is real or false positive. To do that, the agent should score each issue on a scale from 0-100, indicating its level of confidence. For issues that were flagged due to CLAUDE.md instructions, the agent should double check that the CLAUDE.md actually calls out that issue specifically. The scale is (give this rubric to the agent verbatim):
-   a. 0: Not confident at all. This is a false positive that doesn't stand up to light scrutiny, or is a pre-existing issue.
-   b. 25: Somewhat confident. This might be a real issue, but may also be a false positive. The agent wasn't able to verify that it's a real issue. If the issue is stylistic, it is one that was not explicitly called out in the relevant CLAUDE.md.
-   c. 50: Moderately confident. The agent was able to verify this is a real issue, but it might be a nitpick or not happen very often in practice. Relative to the rest of the PR, it's not very important.
-   d. 75: Highly confident. The agent double checked the issue, and verified that it is very likely it is a real issue that will be hit in practice. The existing approach in the PR is insufficient. The issue is very important and will directly impact the code's functionality, or it is an issue that is directly mentioned in the relevant CLAUDE.md.
-   e. 100: Absolutely certain. The agent double checked the issue, and confirmed that it is definitely a real issue, that will happen frequently in practice. The evidence directly confirms this.
-6. Filter out any issues with a score less than 80. If there are no issues that meet this criteria, do not proceed.
-7. Use a subagent to repeat the eligibility check from #1, to make sure that the pull request is still eligible for code review.
-8. Finally, use the gh bash command to comment back on the pull request with the result. When writing your comment, keep in mind to:
-   a. Keep your output brief
-   b. Avoid emojis
-   c. Link and cite relevant code, files, and URLs
+1. Examine the pull request diff, description, and repository guidelines (AGENTS.md and CLAUDE.md).
+2. Audit the modified areas:
+   a. Check repository instructions to make sure the changes comply with repository rules.
+   b. Inspect modified files using `read_file` to understand full context beyond the diff hunks.
+   c. Use `git_blame` to understand historical context for modified lines.
+   d. Use `search_code` to check for broken call sites or contract mismatches across the codebase.
+   e. Optionally run test commands (`cargo test`, `pytest`) to verify behavior.
+3. Score each potential issue on a scale from 0 to 100 indicating confidence:
+   a. 0: False positive or pre-existing issue.
+   b. 25: Somewhat confident. Low verification.
+   c. 50: Moderately confident. Verified issue, but minor nitpick.
+   d. 75: Highly confident. Real issue directly impacting functionality or breaking rules.
+   e. 100: Absolutely certain. Confirmed bug with clear evidence.
+4. Filter out any issues with a score less than 80 (unless in `max` intensity mode where threshold is 50).
+5. When complete, call `submit_review` with your summary and any inline comments. Keep output brief, cite lines, and avoid emojis.
 
 Examples of false positives, for steps 4 and 5:
 

@@ -13,11 +13,21 @@ import time
 from pathlib import Path
 from typing import Any, cast
 
-from openai import APIError, OpenAI
+from openai import APIError, APIStatusError, OpenAI
 
 MAX_AGENT_STEPS = 500
 MAX_DIFF_CHARS = 15000
 ALLOWED_COMMANDS = {"cargo", "pytest", "ruff", "pyright", "git"}
+ALLOWED_GIT_SUBCOMMANDS = {
+    "log",
+    "diff",
+    "show",
+    "status",
+    "branch",
+    "blame",
+    "rev-parse",
+}
+DISALLOWED_GIT_FLAGS = {"-c", "--exec-path", "--config-env", "--paginate", "-p"}
 ERR_PREFIX = "Error:"
 
 CODE_REVIEW_LEVELS = {
@@ -295,17 +305,11 @@ def parse_comment(comment_body: str) -> tuple[str, str]:
     return level, instructions
 
 
-# ---------------------------------------------------------------------------
-# Tool implementations for the agent loop
-# ---------------------------------------------------------------------------
-
-
 def tool_read_file(
     repo_root: Path, path: str, start_line: int = 1, end_line: int = 500
 ) -> str:
-    """Read lines from a file in the workspace."""
     target = (repo_root / path).resolve()
-    if not str(target).startswith(str(repo_root.resolve())):
+    if not target.is_relative_to(repo_root.resolve()):
         return f"{ERR_PREFIX} Path traversal outside repository root is blocked."
     if not target.is_file():
         return f"{ERR_PREFIX} File '{path}' does not exist."
@@ -371,7 +375,6 @@ def tool_git_blame(repo_root: Path, path: str, start_line: int, end_line: int) -
 
 
 def tool_run_command(repo_root: Path, command: str) -> str:
-    """Execute a read-only verification command in the repository workspace."""
     parts = shlex.split(command)
     if not parts:
         return f"{ERR_PREFIX} Empty command."
@@ -379,10 +382,32 @@ def tool_run_command(repo_root: Path, command: str) -> str:
     if base_cmd not in ALLOWED_COMMANDS:
         return f"{ERR_PREFIX} Command '{base_cmd}' is not allowed. Permitted commands: {', '.join(sorted(ALLOWED_COMMANDS))}"
 
+    if base_cmd == "git":
+        subcommands = [arg for arg in parts[1:] if not arg.startswith("-")]
+        if not subcommands or subcommands[0] not in ALLOWED_GIT_SUBCOMMANDS:
+            allowed_sub = ", ".join(sorted(ALLOWED_GIT_SUBCOMMANDS))
+            return f"{ERR_PREFIX} Disallowed git subcommand. Permitted: {allowed_sub}"
+        for arg in parts[1:]:
+            if any(
+                arg == flag or arg.startswith(f"{flag}=")
+                for flag in DISALLOWED_GIT_FLAGS
+            ):
+                return f"{ERR_PREFIX} Disallowed git flag '{arg}'."
+
+    clean_env = {
+        k: v
+        for k, v in os.environ.items()
+        if not any(
+            secret_term in k
+            for secret_term in ("TOKEN", "API_KEY", "SECRET", "BASE_URL")
+        )
+    }
+
     try:
         res = subprocess.run(
             parts,
             cwd=repo_root,
+            env=clean_env,
             capture_output=True,
             text=True,
             timeout=60,
@@ -430,11 +455,6 @@ def execute_tool_call(
         return "Review accepted for submission.", True, tool_args
 
     return f"{ERR_PREFIX} Unknown tool '{tool_name}'", False, None
-
-
-# ---------------------------------------------------------------------------
-# Prompt builders
-# ---------------------------------------------------------------------------
 
 
 def _build_code_review_prompt(
@@ -661,11 +681,6 @@ def build_agent_prompts(
     sys.exit(f"Unknown review mode: {mode}")
 
 
-# ---------------------------------------------------------------------------
-# GitHub Comment and Review submission
-# ---------------------------------------------------------------------------
-
-
 def create_progress_comment(gh: str, pr_number: int, mode: str, level: str) -> str:
     """Post an initial progress comment to the PR and return its comment ID."""
     body = (
@@ -798,15 +813,9 @@ def post_final_review(
         sys.exit(1)
 
 
-# ---------------------------------------------------------------------------
-# Multi-turn Agent Execution Loop
-# ---------------------------------------------------------------------------
-
-
 def _process_single_tool_call(
     repo_root: Path, tool_call: Any
 ) -> tuple[dict[str, Any], bool, dict[str, Any] | None]:
-    """Execute a tool call and return tool message and final submission status."""
     tool_name = tool_call.function.name
     try:
         tool_args = json.loads(tool_call.function.arguments or "{}")
@@ -814,9 +823,16 @@ def _process_single_tool_call(
         tool_args = {}
 
     print(f"  -> Tool Call: {tool_name}({tool_args})")
-    tool_output, is_final, review_data = execute_tool_call(
-        repo_root, tool_name, tool_args
-    )
+    try:
+        tool_output, is_final, review_data = execute_tool_call(
+            repo_root, tool_name, tool_args
+        )
+    except Exception as exc:
+        tool_output = (
+            f"{ERR_PREFIX} Tool '{tool_name}' failed with unexpected error: {exc}"
+        )
+        is_final = False
+        review_data = None
 
     if not is_final:
         snippet = tool_output[:120] + "..." if len(tool_output) > 120 else tool_output
@@ -853,6 +869,17 @@ def query_model_with_retry(
                 temperature=0.2,
             )
         except (APIError, OSError) as exc:
+            if (
+                isinstance(exc, APIStatusError)
+                and 400 <= exc.status_code < 500
+                and exc.status_code != 429
+            ):
+                print(
+                    f"[Model Service]: Non-transient client error {exc.status_code}: {exc}. Halting immediately without retry.",
+                    file=sys.stderr,
+                )
+                raise
+
             elapsed = time.time() - start_wait
             if elapsed >= max_total_wait_seconds:
                 print(
