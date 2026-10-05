@@ -5,7 +5,7 @@ use nook_core::protocol::{
     Attachment, AttachmentKind, ChatMessage, ChatSummary, ClientMessage, DaemonMessage,
 };
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter, Manager, Runtime};
+use tauri::{AppHandle, Manager, Runtime};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
@@ -202,7 +202,7 @@ async fn delete_chat(chat_id: Uuid) -> Result<bool, String> {
 
 #[tauri::command]
 async fn send_message<R: Runtime>(
-    app: AppHandle<R>,
+    _app: AppHandle<R>,
     chat_id: Uuid,
     text: String,
     attachments: Vec<AttachmentInput>,
@@ -291,12 +291,12 @@ async fn send_message<R: Runtime>(
         let _keep_writer_alive = writer;
         while let Ok(Some(line)) = lines.next_line().await {
             if let Ok(event) = serde_json::from_str::<DaemonMessage>(&line) {
-                let _ = on_event.send(event.clone());
-                let _ = app.emit("daemon_event", &event);
-                if matches!(
+                let is_terminal = matches!(
                     event,
                     DaemonMessage::MessageFinished { .. } | DaemonMessage::Error { .. }
-                ) {
+                );
+                let _ = on_event.send(event);
+                if is_terminal {
                     break;
                 }
             }

@@ -14,7 +14,6 @@ import {
   setSettings,
   setWindowSize,
   startDrag,
-  subscribeToDaemonEvents,
 } from './lib/daemon'
 import type {
   AttachmentInput,
@@ -121,17 +120,6 @@ export default function App() {
       })
     }
   }
-
-  // Also listen globally as secondary bus
-  useEffect(() => {
-    let unlisten: (() => void) | undefined
-    subscribeToDaemonEvents(handleDaemonEvent).then((fn) => {
-      unlisten = fn
-    }).catch(() => {})
-    return () => {
-      unlisten?.()
-    }
-  }, [])
 
   // Escape key handler
   useEffect(() => {
