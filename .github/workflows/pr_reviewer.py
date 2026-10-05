@@ -267,28 +267,16 @@ def load_file_content(path: Path) -> str:
     return ""
 
 
-def parse_comment(comment_body: str) -> tuple[str, str]:
-    """Parse review intensity level (max, high, low) and custom instructions from comment."""
-    if not comment_body.strip():
-        return "high", ""
-
-    lines = [line.strip() for line in comment_body.splitlines() if line.strip()]
-    first_line = ""
-    extra_lines: list[str] = []
+def _find_command_line(lines: list[str]) -> tuple[str, list[str]]:
     for idx, line in enumerate(lines):
         if line.startswith("/"):
-            first_line = line
-            extra_lines = lines[idx + 1 :]
-            break
+            return line, lines[idx + 1 :]
+    return lines[0], lines[1:]
 
-    if not first_line:
-        first_line = lines[0]
-        extra_lines = lines[1:]
 
-    parts = first_line.split()
-    if parts and parts[0].startswith("/"):
-        parts = parts[1:]
-
+def _extract_level_and_instructions(
+    parts: list[str], extra_lines: list[str]
+) -> tuple[str, list[str], list[str]]:
     level = "high"
     instructions_parts = []
 
@@ -300,14 +288,28 @@ def parse_comment(comment_body: str) -> tuple[str, str]:
         else:
             instructions_parts = parts
     elif extra_lines:
-        first_extra_parts = extra_lines[0].split()
-        if first_extra_parts:
-            candidate = first_extra_parts[0].lower()
-            if candidate in ("max", "high", "low"):
-                level = candidate
-                extra_lines[0] = " ".join(first_extra_parts[1:])
+        first_extra = extra_lines[0].split()
+        if first_extra and first_extra[0].lower() in ("max", "high", "low"):
+            level = first_extra[0].lower()
+            extra_lines = [" ".join(first_extra[1:])] + extra_lines[1:]
 
-    instructions = " ".join(instructions_parts).strip()
+    return level, instructions_parts, extra_lines
+
+
+def parse_comment(comment_body: str) -> tuple[str, str]:
+    """Parse review intensity level (max, high, low) and custom instructions from comment."""
+    if not comment_body.strip():
+        return "high", ""
+
+    lines = [line.strip() for line in comment_body.splitlines() if line.strip()]
+    first_line, extra_lines = _find_command_line(lines)
+
+    parts = first_line.split()
+    if parts and parts[0].startswith("/"):
+        parts = parts[1:]
+
+    level, inst_parts, extra_lines = _extract_level_and_instructions(parts, extra_lines)
+    instructions = " ".join(inst_parts).strip()
     if extra_lines:
         additional = "\n".join(extra_lines).strip()
         instructions = (
@@ -737,6 +739,99 @@ def update_progress_comment(gh: str, comment_id: str, content: str) -> bool:
     return result.returncode == 0
 
 
+def _submit_batch_review(
+    gh: str, pr_number: int, head_sha: str, summary: str, inline_comments: list[dict]
+) -> bool:
+    review_payload = {
+        "commit_id": head_sha,
+        "body": summary,
+        "event": "COMMENT",
+        "comments": inline_comments,
+    }
+    cmd = [
+        gh,
+        "api",
+        f"repos/:owner/:repo/pulls/{pr_number}/reviews",
+        "--input",
+        "-",
+    ]
+    result = subprocess.run(
+        cmd,
+        input=json.dumps(review_payload),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode == 0:
+        print(
+            f"Successfully posted review with {len(inline_comments)} inline comments on pull request #{pr_number}"
+        )
+        return True
+    print(
+        f"Batch review submission failed ({result.stderr.strip()}). Attempting individual comment posting..."
+    )
+    return False
+
+
+def _submit_individual_inline_comments(
+    gh: str, pr_number: int, head_sha: str, inline_comments: list[dict]
+) -> int:
+    posted_count = 0
+    for item in inline_comments:
+        single_cmd = [
+            gh,
+            "api",
+            f"repos/:owner/:repo/pulls/{pr_number}/comments",
+            "-f",
+            f"body={item.get('body')}",
+            "-f",
+            f"commit_id={head_sha}",
+            "-f",
+            f"path={item.get('path')}",
+            "-F",
+            f"line={item.get('line')}",
+            "-f",
+            "side=RIGHT",
+        ]
+        single_res = subprocess.run(
+            single_cmd, capture_output=True, text=True, check=False
+        )
+        if single_res.returncode == 0:
+            posted_count += 1
+    return posted_count
+
+
+def _submit_inline_or_fallback(
+    gh: str,
+    pr_number: int,
+    head_sha: str,
+    summary: str,
+    inline_comments: list[dict],
+    progress_comment_id: str,
+) -> bool:
+    if _submit_batch_review(gh, pr_number, head_sha, summary, inline_comments):
+        if progress_comment_id:
+            update_progress_comment(
+                gh,
+                progress_comment_id,
+                "Review completed. Detailed findings posted in review above.",
+            )
+        return True
+
+    posted = _submit_individual_inline_comments(
+        gh, pr_number, head_sha, inline_comments
+    )
+    if posted > 0:
+        print(
+            f"Successfully posted {posted}/{len(inline_comments)} inline comments individually."
+        )
+        if progress_comment_id:
+            update_progress_comment(gh, progress_comment_id, summary)
+        return True
+
+    return False
+
+
 def post_final_review(
     gh: str,
     pr_number: int,
@@ -758,79 +853,15 @@ def post_final_review(
         ]
     )
 
-    # Attempt formal review with inline comments
     if inline_comments and head_sha and not head_sha.startswith(ERR_PREFIX):
-        review_payload = {
-            "commit_id": head_sha,
-            "body": summary,
-            "event": "COMMENT",
-            "comments": inline_comments,
-        }
-        cmd = [
-            gh,
-            "api",
-            f"repos/:owner/:repo/pulls/{pr_number}/reviews",
-            "--input",
-            "-",
-        ]
-        result = subprocess.run(
-            cmd,
-            input=json.dumps(review_payload),
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if result.returncode == 0:
-            print(
-                f"Successfully posted review with {len(inline_comments)} inline comments on pull request #{pr_number}"
-            )
-            if progress_comment_id:
-                update_progress_comment(
-                    gh,
-                    progress_comment_id,
-                    "Review completed. Detailed findings posted in review above.",
-                )
+        if _submit_inline_or_fallback(
+            gh, pr_number, head_sha, summary, inline_comments, progress_comment_id
+        ):
             return
-
-        print(
-            f"Batch review submission failed ({result.stderr.strip()}). Attempting individual comment posting..."
+        formatted_inline = "\n\n### Line Findings\n" + "\n".join(
+            f"- `{c['path']}:{c['line']}`: {c['body']}" for c in inline_comments
         )
-        posted_count = 0
-        for item in inline_comments:
-            single_cmd = [
-                gh,
-                "api",
-                f"repos/:owner/:repo/pulls/{pr_number}/comments",
-                "-f",
-                f"body={item.get('body')}",
-                "-f",
-                f"commit_id={head_sha}",
-                "-f",
-                f"path={item.get('path')}",
-                "-F",
-                f"line={item.get('line')}",
-                "-f",
-                "side=RIGHT",
-            ]
-            single_res = subprocess.run(
-                single_cmd, capture_output=True, text=True, check=False
-            )
-            if single_res.returncode == 0:
-                posted_count += 1
-
-        if posted_count > 0:
-            print(
-                f"Successfully posted {posted_count}/{len(inline_comments)} inline comments individually."
-            )
-            if progress_comment_id and update_progress_comment(
-                gh, progress_comment_id, summary
-            ):
-                return
-        else:
-            formatted_inline = "\n\n### Line Findings\n" + "\n".join(
-                f"- `{c['path']}:{c['line']}`: {c['body']}" for c in inline_comments
-            )
-            summary += formatted_inline
+        summary += formatted_inline
 
     if progress_comment_id and update_progress_comment(
         gh, progress_comment_id, summary
