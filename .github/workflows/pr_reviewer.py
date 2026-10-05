@@ -225,7 +225,12 @@ def load_config() -> tuple[str, str, str]:
         missing.append("REVIEWER_MODEL (or NOOK_MODEL)")
 
     if not base_url or not api_key or not model:
-        sys.exit(f"Missing required environment variables: {', '.join(missing)}")
+        print(
+            f"[Reviewer Notice]: Missing required environment variables: {', '.join(missing)}. "
+            "If this is a fork PR, secrets are not accessible by default.",
+            file=sys.stderr,
+        )
+        sys.exit(0)
 
     return base_url, api_key, model
 
@@ -294,6 +299,13 @@ def parse_comment(comment_body: str) -> tuple[str, str]:
             instructions_parts = parts[1:]
         else:
             instructions_parts = parts
+    elif extra_lines:
+        first_extra_parts = extra_lines[0].split()
+        if first_extra_parts:
+            candidate = first_extra_parts[0].lower()
+            if candidate in ("max", "high", "low"):
+                level = candidate
+                extra_lines[0] = " ".join(first_extra_parts[1:])
 
     instructions = " ".join(instructions_parts).strip()
     if extra_lines:
@@ -781,12 +793,44 @@ def post_final_review(
             return
 
         print(
-            f"Formal review submission failed ({result.stderr.strip()}). Appending inline comments to summary fallback."
+            f"Batch review submission failed ({result.stderr.strip()}). Attempting individual comment posting..."
         )
-        formatted_inline = "\n\n### Line Findings\n" + "\n".join(
-            f"- `{c['path']}:{c['line']}`: {c['body']}" for c in inline_comments
-        )
-        summary += formatted_inline
+        posted_count = 0
+        for item in inline_comments:
+            single_cmd = [
+                gh,
+                "api",
+                f"repos/:owner/:repo/pulls/{pr_number}/comments",
+                "-f",
+                f"body={item.get('body')}",
+                "-f",
+                f"commit_id={head_sha}",
+                "-f",
+                f"path={item.get('path')}",
+                "-F",
+                f"line={item.get('line')}",
+                "-f",
+                "side=RIGHT",
+            ]
+            single_res = subprocess.run(
+                single_cmd, capture_output=True, text=True, check=False
+            )
+            if single_res.returncode == 0:
+                posted_count += 1
+
+        if posted_count > 0:
+            print(
+                f"Successfully posted {posted_count}/{len(inline_comments)} inline comments individually."
+            )
+            if progress_comment_id and update_progress_comment(
+                gh, progress_comment_id, summary
+            ):
+                return
+        else:
+            formatted_inline = "\n\n### Line Findings\n" + "\n".join(
+                f"- `{c['path']}:{c['line']}`: {c['body']}" for c in inline_comments
+            )
+            summary += formatted_inline
 
     if progress_comment_id and update_progress_comment(
         gh, progress_comment_id, summary
@@ -895,6 +939,25 @@ def query_model_with_retry(
             time.sleep(retry_interval_seconds)
 
 
+def _prune_message_history(
+    messages: list[dict[str, Any]], max_chars: int = 50000
+) -> None:
+    """Compact older tool observation messages if total length exceeds limit."""
+    total_len = sum(len(str(m.get("content") or "")) for m in messages)
+    if total_len <= max_chars:
+        return
+
+    # Keep system and initial user prompt intact. Shorten tool observations older than the most recent 2 messages.
+    cutoff = max(2, len(messages) - 2)
+    for i in range(2, cutoff):
+        msg = messages[i]
+        if msg.get("role") == "tool" and len(str(msg.get("content") or "")) > 300:
+            msg["content"] = (
+                str(msg["content"])[:250]
+                + "\n... [Observation compacted to save tokens]"
+            )
+
+
 def run_agent_loop(
     client: OpenAI, model: str, system_prompt: str, user_prompt: str, repo_root: Path
 ) -> tuple[str, list[dict], int]:
@@ -908,6 +971,7 @@ def run_agent_loop(
     start_time = time.time()
 
     for step in range(1, MAX_AGENT_STEPS + 1):
+        _prune_message_history(messages)
         total_model_calls += 1
         print(f"\n[Agent Step {step}/{MAX_AGENT_STEPS}] Querying model '{model}'...")
 
@@ -974,7 +1038,7 @@ def main() -> None:
         required=True,
         choices=["code-review", "code-review-expert", "feedback-on-resolution"],
     )
-    parser.add_argument("--pr", type=int, default=int(os.environ.get("PR_NUMBER", "0")))
+    parser.add_argument("--pr", type=int, default=int(os.environ.get("PR_NUMBER") or 0))
     parser.add_argument("--comment", default=os.environ.get("COMMENT_BODY", ""))
     parser.add_argument("--level", choices=["max", "high", "low"], default=None)
     args = parser.parse_args()
