@@ -32,7 +32,10 @@ jobs:
 
       - name: Ensure trusted reviewer scripts
         run: |
-          git checkout origin/${{ github.base_ref || github.event.repository.default_branch }} -- .github/workflows/pr_reviewer.py .github/workflows/reviewers-requirements.txt
+          BASE_REF="origin/${{ github.base_ref || github.event.repository.default_branch }}"
+          if git rev-parse --verify "${BASE_REF}:.github/workflows/pr_reviewer.py" >/dev/null 2>&1; then
+            git checkout "${BASE_REF}" -- .github/workflows/pr_reviewer.py .github/workflows/reviewers-requirements.txt
+          fi
 
       - name: Set up uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
@@ -82,7 +85,10 @@ jobs:
 
       - name: Ensure trusted reviewer scripts
         run: |
-          git checkout origin/${{ github.base_ref || github.event.repository.default_branch }} -- .github/workflows/pr_reviewer.py .github/workflows/reviewers-requirements.txt
+          BASE_REF="origin/${{ github.base_ref || github.event.repository.default_branch }}"
+          if git rev-parse --verify "${BASE_REF}:.github/workflows/pr_reviewer.py" >/dev/null 2>&1; then
+            git checkout "${BASE_REF}" -- .github/workflows/pr_reviewer.py .github/workflows/reviewers-requirements.txt
+          fi
 
       - name: Set up uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
@@ -132,7 +138,10 @@ jobs:
 
       - name: Ensure trusted reviewer scripts
         run: |
-          git checkout origin/${{ github.base_ref || github.event.repository.default_branch }} -- .github/workflows/pr_reviewer.py .github/workflows/reviewers-requirements.txt
+          BASE_REF="origin/${{ github.base_ref || github.event.repository.default_branch }}"
+          if git rev-parse --verify "${BASE_REF}:.github/workflows/pr_reviewer.py" >/dev/null 2>&1; then
+            git checkout "${BASE_REF}" -- .github/workflows/pr_reviewer.py .github/workflows/reviewers-requirements.txt
+          fi
 
       - name: Set up uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
