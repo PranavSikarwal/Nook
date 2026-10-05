@@ -888,8 +888,36 @@ def post_final_review(
         sys.exit(1)
 
 
+def _execute_with_loop_guard(
+    repo_root: Path,
+    tool_name: str,
+    tool_args: dict[str, Any],
+    recent_calls: list[str],
+) -> tuple[str, bool, dict[str, Any] | None]:
+    sig = f"{tool_name}:{json.dumps(tool_args, sort_keys=True)}"
+    if recent_calls.count(sig) >= 2 and tool_name != "submit_review":
+        msg = (
+            f"{ERR_PREFIX} Loop detected: you have called '{tool_name}' with these exact arguments "
+            "multiple times. Do not re-call this tool with identical arguments. Proceed to the next step or call submit_review."
+        )
+        return msg, False, None
+
+    recent_calls.append(sig)
+    if len(recent_calls) > 10:
+        recent_calls.pop(0)
+
+    try:
+        return execute_tool_call(repo_root, tool_name, tool_args)
+    except Exception as exc:
+        return (
+            f"{ERR_PREFIX} Tool '{tool_name}' failed with unexpected error: {exc}",
+            False,
+            None,
+        )
+
+
 def _process_single_tool_call(
-    repo_root: Path, tool_call: Any
+    repo_root: Path, tool_call: Any, recent_calls: list[str]
 ) -> tuple[dict[str, Any], bool, dict[str, Any] | None]:
     tool_name = tool_call.function.name
     try:
@@ -898,16 +926,9 @@ def _process_single_tool_call(
         tool_args = {}
 
     print(f"  -> Tool Call: {tool_name}({tool_args})")
-    try:
-        tool_output, is_final, review_data = execute_tool_call(
-            repo_root, tool_name, tool_args
-        )
-    except Exception as exc:
-        tool_output = (
-            f"{ERR_PREFIX} Tool '{tool_name}' failed with unexpected error: {exc}"
-        )
-        is_final = False
-        review_data = None
+    tool_output, is_final, review_data = _execute_with_loop_guard(
+        repo_root, tool_name, tool_args, recent_calls
+    )
 
     if not is_final:
         snippet = tool_output[:120] + "..." if len(tool_output) > 120 else tool_output
@@ -989,8 +1010,31 @@ def _prune_message_history(
             )
 
 
+def _check_step_milestones(
+    step: int, max_steps: int, notice_steps: tuple[int, int]
+) -> str | None:
+    if step == notice_steps[0]:
+        return (
+            f"Notice: You have reached step {step} of {max_steps}. "
+            "Please wrap up your file inspection, formulate your findings, and prepare to call submit_review."
+        )
+    if step == notice_steps[1]:
+        remaining = max_steps - step
+        return (
+            f"Urgent notice: You have reached step {step} of {max_steps}. "
+            f"You have only {remaining} steps remaining before the hard limit. Call submit_review now."
+        )
+    return None
+
+
 def run_agent_loop(
-    client: OpenAI, model: str, system_prompt: str, user_prompt: str, repo_root: Path
+    client: OpenAI,
+    model: str,
+    system_prompt: str,
+    user_prompt: str,
+    repo_root: Path,
+    max_steps: int = 200,
+    notice_steps: tuple[int, int] = (150, 175),
 ) -> tuple[str, list[dict], int]:
     """Execute autonomous agent loop with tools until review submission or max steps."""
     messages: list[dict[str, Any]] = [
@@ -1000,11 +1044,12 @@ def run_agent_loop(
 
     total_model_calls = 0
     start_time = time.time()
+    recent_calls: list[str] = []
 
-    for step in range(1, MAX_AGENT_STEPS + 1):
+    for step in range(1, max_steps + 1):
         _prune_message_history(messages)
         total_model_calls += 1
-        print(f"\n[Agent Step {step}/{MAX_AGENT_STEPS}] Querying model '{model}'...")
+        print(f"\n[Agent Step {step}/{max_steps}] Querying model '{model}'...")
 
         response = query_model_with_retry(
             client=client,
@@ -1027,7 +1072,7 @@ def run_agent_loop(
 
         for tool_call in message.tool_calls:
             tool_msg, is_final, review_data = _process_single_tool_call(
-                repo_root, tool_call
+                repo_root, tool_call, recent_calls
             )
             if is_final and review_data:
                 elapsed = time.time() - start_time
@@ -1040,17 +1085,14 @@ def run_agent_loop(
 
             messages.append(tool_msg)
 
-        if step >= MAX_AGENT_STEPS - 20:
-            remaining = MAX_AGENT_STEPS - step
-            reminder = (
-                f"Notice: You have {remaining} steps remaining before the safety limit. "
-                "Wrap up your investigation and call submit_review."
-            )
-            messages.append({"role": "user", "content": reminder})
+        milestone_reminder = _check_step_milestones(step, max_steps, notice_steps)
+        if milestone_reminder:
+            print(f"  [Milestone Alert]: {milestone_reminder}")
+            messages.append({"role": "user", "content": milestone_reminder})
 
     elapsed = time.time() - start_time
     print(
-        f"\n[Agent]: Reached maximum step limit ({MAX_AGENT_STEPS}). Finalizing review ({elapsed:.1f}s)."
+        f"\n[Agent]: Reached maximum step limit ({max_steps}). Finalizing review ({elapsed:.1f}s)."
     )
     last_content = (
         messages[-1].get("content", "") if isinstance(messages[-1], dict) else ""
@@ -1098,9 +1140,22 @@ def main() -> None:
         gh, args.mode, args.pr, repo_root, final_level, custom_instructions
     )
 
+    if args.mode == "feedback-on-resolution":
+        max_steps = 80
+        notice_steps = (60, 70)
+    else:
+        max_steps = 200
+        notice_steps = (150, 175)
+
     client = OpenAI(base_url=base_url, api_key=api_key)
     summary, inline_comments, total_calls = run_agent_loop(
-        client, model, system_prompt, user_prompt, repo_root
+        client,
+        model,
+        system_prompt,
+        user_prompt,
+        repo_root,
+        max_steps=max_steps,
+        notice_steps=notice_steps,
     )
     print(f"Review session completed with {total_calls} model interactions.")
 
