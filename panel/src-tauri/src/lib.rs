@@ -460,7 +460,6 @@ pub fn run() {
                 eprintln!("Registered global shortcut: {shortcut_str}");
             }
 
-            // Initially show window centered, then user can toggle
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.show();
                 let _ = window.set_focus();
@@ -492,6 +491,21 @@ fn toggle_window_internal<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> 
         if is_visible && is_focused {
             window.hide().map_err(|e| e.to_string())?;
         } else {
+            #[cfg(target_os = "macos")]
+            {
+                if let Ok(ns_win_ptr) = window.ns_window() {
+                    use objc2_app_kit::{NSWindow, NSWindowCollectionBehavior};
+                    unsafe {
+                        let ns_win: &NSWindow = &*(ns_win_ptr as *const NSWindow);
+                        ns_win.setCollectionBehavior(
+                            NSWindowCollectionBehavior::CanJoinAllSpaces
+                                | NSWindowCollectionBehavior::MoveToActiveSpace
+                                | NSWindowCollectionBehavior::FullScreenAuxiliary,
+                        );
+                        ns_win.orderFrontRegardless();
+                    }
+                }
+            }
             window.show().map_err(|e| e.to_string())?;
             window.set_focus().map_err(|e| e.to_string())?;
         }
