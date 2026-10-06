@@ -19,7 +19,7 @@ Download native pre-built packages from [GitHub Releases](https://github.com/Pra
 
 - **macOS (Apple Silicon)**: `Nook_<version>_aarch64.dmg`
 - **Ubuntu / Debian**: `nook_<version>_amd64.deb` or `Nook_<version>_amd64.AppImage`
-- **Windows (x64)**: `Nook_<version>_x64-setup.exe` or `Nook_<version>_x64.msi`
+- **Windows (x64)**: `Nook_<version>_x64-setup.exe` or `Nook_<version>_x64.msi` (preview overlay client; local daemon IPC in development)
 
 ---
 

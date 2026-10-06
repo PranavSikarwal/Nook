@@ -253,6 +253,9 @@ pub async fn ensure_daemon_started(state: &DaemonState) {
     #[cfg(not(unix))]
     {
         let _ = state;
+        eprintln!(
+            "Notice: Windows daemon supervision is not supported yet. Nook runs as a preview client on Windows."
+        );
     }
 }
 
@@ -358,7 +361,7 @@ async fn list_chats() -> Result<Vec<ChatSummary>, String> {
     }
     #[cfg(not(unix))]
     {
-        Err("Daemon IPC is not available on Windows".to_string())
+        Err("Windows preview: local Unix domain socket daemon IPC is not supported on Windows. Run nookd on macOS or Linux.".to_string())
     }
 }
 
@@ -407,7 +410,7 @@ async fn get_chat(chat_id: Uuid) -> Result<ChatTranscript, String> {
     #[cfg(not(unix))]
     {
         let _ = chat_id;
-        Err("Daemon IPC is not available on Windows".to_string())
+        Err("Windows preview: local Unix domain socket daemon IPC is not supported on Windows. Run nookd on macOS or Linux.".to_string())
     }
 }
 
@@ -450,7 +453,7 @@ async fn delete_chat(chat_id: Uuid) -> Result<bool, String> {
     #[cfg(not(unix))]
     {
         let _ = chat_id;
-        Err("Daemon IPC is not available on Windows".to_string())
+        Err("Windows preview: local Unix domain socket daemon IPC is not supported on Windows. Run nookd on macOS or Linux.".to_string())
     }
 }
 
@@ -588,7 +591,7 @@ async fn send_message<R: Runtime>(
     #[cfg(not(unix))]
     {
         let _ = (app, chat_id, text, attachments, on_event);
-        Err("Daemon IPC is not available on Windows".to_string())
+        Err("Windows preview: local Unix domain socket daemon IPC is not supported on Windows. Run nookd on macOS or Linux.".to_string())
     }
 }
 
@@ -633,7 +636,7 @@ async fn cancel_message<R: Runtime>(
     #[cfg(not(unix))]
     {
         let _ = (app, target_id);
-        Err("Daemon IPC is not available on Windows".to_string())
+        Err("Windows preview: local Unix domain socket daemon IPC is not supported on Windows. Run nookd on macOS or Linux.".to_string())
     }
 }
 
@@ -681,7 +684,7 @@ async fn get_settings() -> Result<SettingsInfo, String> {
     }
     #[cfg(not(unix))]
     {
-        Err("Daemon IPC is not available on Windows".to_string())
+        Err("Windows preview: local Unix domain socket daemon IPC is not supported on Windows. Run nookd on macOS or Linux.".to_string())
     }
 }
 
@@ -735,7 +738,7 @@ async fn set_settings(payload: SettingsPayload) -> Result<SettingsInfo, String> 
     #[cfg(not(unix))]
     {
         let _ = payload;
-        Err("Daemon IPC is not available on Windows".to_string())
+        Err("Windows preview: local Unix domain socket daemon IPC is not supported on Windows. Run nookd on macOS or Linux.".to_string())
     }
 }
 

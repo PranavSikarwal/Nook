@@ -71,7 +71,10 @@ impl Server {
             let _ = socket_path;
             let _ = shutdown_rx;
             let _ = state;
-            Err("Unix domain sockets are not supported on Windows".into())
+            Err(
+                "Unix domain socket IPC is not supported on Windows. Run nookd on macOS or Linux."
+                    .into(),
+            )
         }
     }
 
