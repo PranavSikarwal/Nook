@@ -13,8 +13,9 @@ Create a Worker registry and a Daemon Cedar authorization interface.
 - Define registered tool metadata and asynchronous executor interfaces.
 - Load only the two active web tools.
 - Normalize validated requests before authorization.
-- Add an in-memory Chat-scoped grant store in the Daemon.
+- Add an in-memory Chat-scoped grant store in the Daemon, binding grants to tool, Chat id, and canonical argument digest.
 - Evaluate Cedar before and after an approval grant.
+- Ensure the Daemon fails closed if Cedar policy or schema is invalid.
 - Block direct executor calls that do not carry a Daemon authorization result.
 
 ## Done when

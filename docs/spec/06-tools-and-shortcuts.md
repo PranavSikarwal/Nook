@@ -128,10 +128,12 @@ first authorization request:
 3. `ask_each_time` supplies no grant and requires an exact-call grant.
 4. `deny` never supplies a grant.
 
-After the user grants approval, Nook stores a scoped approval grant in memory
-and evaluates the same normalized request again. Cedar permits only a request
-whose grant has the required scope. A grant ends when the Chat ends or the
-Daemon restarts.
+After the user grants approval, Nook stores an immutable, scoped approval grant
+in memory and evaluates the same normalized request again. The grant binds
+strictly to the Chat id, tool name, and a canonical digest of the validated
+arguments, or to the Chat id and normalized host for host-scoped grants. Cedar
+permits only a request whose grant matches the target call and required scope.
+A grant ends when the Chat ends or the Daemon restarts.
 
 Policy middleware produces facts. It never makes the final authorization
 decision. Every registered tool request reaches Cedar.
@@ -178,9 +180,12 @@ disable certificate verification or select a non-DuckDuckGo backend.
 `nook:web_fetch` accepts a public `http` or `https` URL. It uses a Nook-owned
 `httpx` client rather than `ddgs.extract()`.
 
-Before each request, the Worker validates the URL and resolved destination. It
-rejects non-HTTP schemes, loopback, link-local, multicast, unspecified, and
-private addresses. It validates every redirect target with the same checks.
+Before each request, the Worker validates the URL and resolves the destination
+addresses. It rejects non-HTTP schemes, loopback, link-local, multicast,
+unspecified, and private addresses. To prevent DNS rebinding attacks, the HTTP
+client pins the validated IP address for the TCP connection while preserving the
+original Host header and TLS Server Name Indication (SNI). It validates every
+redirect target with the same address and pinning checks.
 
 The fetcher applies a fixed timeout, redirect limit, response-size limit, and
 allowlist of readable response types. It extracts readable text from supported
@@ -242,7 +247,7 @@ to the user. An approval decision includes the call id and one configured action
 | --- | --- |
 | Unknown tool | The Worker returns a tool error and does not run code. |
 | Invalid arguments | The Worker returns a tool error and does not request approval. |
-| Cedar policy or schema invalid at start | The Worker remains unavailable and reports the configuration error. |
+| Cedar policy or schema invalid at start | The Daemon fails startup closed and reports the configuration error. |
 | Approval call id unknown or expired | The Daemon rejects the decision and does not resume a reply. |
 | User denies or presses Escape | The Worker ends the reply as `cancelled`. |
 | Search provider failure | The Worker returns a retryable tool error. |
@@ -261,8 +266,8 @@ to the user. An approval decision includes the call id and one configured action
    tools.
 5. `nook:web_search` uses the DuckDuckGo backend explicitly and returns
    structured results.
-6. `nook:web_fetch` rejects blocked addresses before connecting and after every
-   redirect.
+6. `nook:web_fetch` rejects blocked addresses before connecting, pins the
+   validated IP to prevent DNS rebinding, and validates every redirect.
 7. Every tool request is validated and evaluated by Cedar before execution.
 8. A pending approval card shows only actions listed for that tool in YAML.
 9. A Chat and host approval for `nook:web_fetch` does not authorize a different

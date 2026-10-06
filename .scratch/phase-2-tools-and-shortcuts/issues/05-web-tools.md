@@ -15,6 +15,7 @@ Implement the two authorized built-in web tools.
 - Normalize search results.
 - Add a Nook-owned `httpx` fetch adapter.
 - Reject unsafe schemes, private addresses, and unsafe redirect targets.
+- Pin validated destination IP on connect to prevent DNS rebinding.
 - Enforce response limits and readable response types.
 
 ## Done when
