@@ -59,7 +59,15 @@ export default function App() {
     }
   }, [activePanel, messages.length, attachments.length])
 
-  // Load initial settings and history
+  // Load initial settings and history, and refresh when switching panels
+  useEffect(() => {
+    if (activePanel === 'settings') {
+      void getSettings().then(setSettingsInfo).catch(() => {})
+    } else if (activePanel === 'history') {
+      void listChats().then(setChats).catch(() => {})
+    }
+  }, [activePanel])
+
   useEffect(() => {
     void getSettings().then(setSettingsInfo).catch(() => {})
     void listChats().then(setChats).catch(() => {})

@@ -223,13 +223,17 @@ async fn process_client_message(
             // Restart supervisor with updated settings
             {
                 let mut sup_guard = state.supervisor.lock().await;
-                if let Some(old_sup) = sup_guard.take() {
-                    old_sup.shutdown().await;
-                }
                 let cfg = state.config.read().await;
                 let key = keychain::get_api_key();
-                if let Ok(new_sup) = WorkerSupervisor::new(&cfg, key, None).await {
-                    *sup_guard = Some(new_sup);
+                match WorkerSupervisor::new(&cfg, key, None).await {
+                    Ok(new_sup) => {
+                        if let Some(old_sup) = sup_guard.replace(new_sup) {
+                            old_sup.shutdown().await;
+                        }
+                    }
+                    Err(e) => {
+                        error!("Failed to restart worker supervisor with updated settings: {e}");
+                    }
                 }
             }
 

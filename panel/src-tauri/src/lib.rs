@@ -334,10 +334,15 @@ async fn ping_daemon() -> Result<bool, String> {
 }
 
 #[tauri::command]
-async fn list_chats() -> Result<Vec<ChatSummary>, String> {
+async fn list_chats<R: Runtime>(app: AppHandle<R>) -> Result<Vec<ChatSummary>, String> {
     #[cfg(unix)]
     {
         let socket_path = Config::default_socket_path();
+        if !socket_path.exists() || UnixStream::connect(&socket_path).await.is_err() {
+            let state = app.state::<DaemonState>();
+            ensure_daemon_started(state.inner()).await;
+        }
+
         let stream = UnixStream::connect(&socket_path)
             .await
             .map_err(|e| format!("Failed to connect to daemon: {e}"))?;
@@ -653,10 +658,15 @@ async fn cancel_message<R: Runtime>(
 }
 
 #[tauri::command]
-async fn get_settings() -> Result<SettingsInfo, String> {
+async fn get_settings<R: Runtime>(app: AppHandle<R>) -> Result<SettingsInfo, String> {
     #[cfg(unix)]
     {
         let socket_path = Config::default_socket_path();
+        if !socket_path.exists() || UnixStream::connect(&socket_path).await.is_err() {
+            let state = app.state::<DaemonState>();
+            ensure_daemon_started(state.inner()).await;
+        }
+
         let stream = UnixStream::connect(&socket_path)
             .await
             .map_err(|e| format!("Failed to connect to daemon: {e}"))?;
