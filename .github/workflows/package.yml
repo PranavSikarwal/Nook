@@ -38,6 +38,8 @@ jobs:
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # v1
+        with:
+          toolchain: stable
 
       - name: Install Ubuntu WebKit dependencies
         if: matrix.platform.os == 'ubuntu-22.04'
