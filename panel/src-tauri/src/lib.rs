@@ -801,7 +801,7 @@ pub fn run() {
         .setup(move |app| {
             #[cfg(target_os = "macos")]
             {
-                app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+                app.set_activation_policy(tauri::ActivationPolicy::Regular);
             }
 
             let state = app.state::<DaemonState>();
@@ -837,8 +837,20 @@ pub fn run() {
             toggle_window,
             start_drag,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            if let tauri::RunEvent::Reopen { .. } = event {
+                let app_handle = app.clone();
+                let _ = app.run_on_main_thread(move || {
+                    if let Some(window) = app_handle.get_webview_window("main") {
+                        let _ = window.set_visible_on_all_workspaces(true);
+                        let _ = window.show();
+                        let _ = window.set_focus();
+                    }
+                });
+            }
+        });
 }
 
 fn toggle_window_internal<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
