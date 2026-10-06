@@ -124,7 +124,7 @@ fi
 
     if [ ! -d "$ROOT_DIR/worker/.venv" ] && command -v uv >/dev/null 2>&1; then
         echo "Setting up worker virtual environment..."
-        (cd "$ROOT_DIR/worker" && uv sync --quiet || true)
+        (cd "$ROOT_DIR/worker" && uv sync --no-build --quiet || true)
     fi
 
     cp "$ROOT_DIR/daemon/target/release/nookd" "$BIN_DIR/nookd"

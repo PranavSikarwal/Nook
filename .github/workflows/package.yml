@@ -59,7 +59,7 @@ jobs:
         if: matrix.platform.os != 'windows-latest'
         run: |
           cd daemon
-          cargo build --release -p nookd -p nookctl
+          cargo build --release --locked -p nookd -p nookctl
 
       - name: Build frontend
         run: |
