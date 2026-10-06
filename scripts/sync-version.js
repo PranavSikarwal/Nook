@@ -4,7 +4,8 @@ const fs = require('node:fs')
 const path = require('node:path')
 
 const rootDir = path.resolve(__dirname, '..')
-const rawTag = process.argv[2]
+const rawArg = process.argv[2] ? process.argv[2].trim() : ''
+const rawTag = rawArg || (process.env.TAG_NAME ? process.env.TAG_NAME.trim() : '')
 
 if (!rawTag) {
   console.error('Error: Version or tag argument required (e.g. v0.1.0 or 0.1.0)')
