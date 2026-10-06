@@ -59,7 +59,35 @@ export default function App() {
     }
   }, [activePanel, messages.length, attachments.length])
 
-  // Load initial settings and history
+  // Load initial settings and history, and refresh when switching panels
+  useEffect(() => {
+    let isCancelled = false
+    if (activePanel === 'settings') {
+      void getSettings()
+        .then((s) => {
+          if (!isCancelled) setSettingsInfo(s)
+        })
+        .catch((err) => {
+          if (!isCancelled) {
+            setErrorMessage(err instanceof Error ? err.message : String(err))
+          }
+        })
+    } else if (activePanel === 'history') {
+      void listChats()
+        .then((c) => {
+          if (!isCancelled) setChats(c)
+        })
+        .catch((err) => {
+          if (!isCancelled) {
+            setErrorMessage(err instanceof Error ? err.message : String(err))
+          }
+        })
+    }
+    return () => {
+      isCancelled = true
+    }
+  }, [activePanel])
+
   useEffect(() => {
     void getSettings().then(setSettingsInfo).catch(() => {})
     void listChats().then(setChats).catch(() => {})
