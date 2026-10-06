@@ -287,6 +287,26 @@ fn configure_socket_safety(stream: &UnixStream) {
     let _ = stream;
 }
 
+#[cfg(unix)]
+async fn connect_to_daemon<R: Runtime>(app: &AppHandle<R>) -> Result<UnixStream, String> {
+    let socket_path = Config::default_socket_path();
+    match UnixStream::connect(&socket_path).await {
+        Ok(stream) => {
+            configure_socket_safety(&stream);
+            Ok(stream)
+        }
+        Err(_) => {
+            let state = app.state::<DaemonState>();
+            ensure_daemon_started(state.inner()).await;
+            let stream = UnixStream::connect(&socket_path)
+                .await
+                .map_err(|e| format!("Failed to connect to daemon: {e}"))?;
+            configure_socket_safety(&stream);
+            Ok(stream)
+        }
+    }
+}
+
 /// Sanitize attachment filename against path traversal attacks
 pub fn sanitize_attachment_name(name: &str) -> String {
     let clean = Path::new(name)
@@ -337,16 +357,7 @@ async fn ping_daemon() -> Result<bool, String> {
 async fn list_chats<R: Runtime>(app: AppHandle<R>) -> Result<Vec<ChatSummary>, String> {
     #[cfg(unix)]
     {
-        let socket_path = Config::default_socket_path();
-        if !socket_path.exists() || UnixStream::connect(&socket_path).await.is_err() {
-            let state = app.state::<DaemonState>();
-            ensure_daemon_started(state.inner()).await;
-        }
-
-        let stream = UnixStream::connect(&socket_path)
-            .await
-            .map_err(|e| format!("Failed to connect to daemon: {e}"))?;
-        configure_socket_safety(&stream);
+        let stream = connect_to_daemon(&app).await?;
         let (reader, mut writer) = stream.into_split();
         let mut lines = BufReader::new(reader).lines();
 
@@ -378,14 +389,10 @@ async fn list_chats<R: Runtime>(app: AppHandle<R>) -> Result<Vec<ChatSummary>, S
 }
 
 #[tauri::command]
-async fn get_chat(chat_id: Uuid) -> Result<ChatTranscript, String> {
+async fn get_chat<R: Runtime>(app: AppHandle<R>, chat_id: Uuid) -> Result<ChatTranscript, String> {
     #[cfg(unix)]
     {
-        let socket_path = Config::default_socket_path();
-        let stream = UnixStream::connect(&socket_path)
-            .await
-            .map_err(|e| format!("Failed to connect to daemon: {e}"))?;
-        configure_socket_safety(&stream);
+        let stream = connect_to_daemon(&app).await?;
         let (reader, mut writer) = stream.into_split();
         let mut lines = BufReader::new(reader).lines();
 
@@ -427,14 +434,10 @@ async fn get_chat(chat_id: Uuid) -> Result<ChatTranscript, String> {
 }
 
 #[tauri::command]
-async fn delete_chat(chat_id: Uuid) -> Result<bool, String> {
+async fn delete_chat<R: Runtime>(app: AppHandle<R>, chat_id: Uuid) -> Result<bool, String> {
     #[cfg(unix)]
     {
-        let socket_path = Config::default_socket_path();
-        let stream = UnixStream::connect(&socket_path)
-            .await
-            .map_err(|e| format!("Failed to connect to daemon: {e}"))?;
-        configure_socket_safety(&stream);
+        let stream = connect_to_daemon(&app).await?;
         let (reader, mut writer) = stream.into_split();
         let mut lines = BufReader::new(reader).lines();
 
@@ -464,7 +467,7 @@ async fn delete_chat(chat_id: Uuid) -> Result<bool, String> {
     }
     #[cfg(not(unix))]
     {
-        let _ = chat_id;
+        let _ = (app, chat_id);
         Err("Windows preview: local Unix domain socket daemon IPC is not supported on Windows. Run nookd on macOS or Linux.".to_string())
     }
 }
@@ -483,16 +486,7 @@ async fn send_message<R: Runtime>(
             return Err("Maximum 5 attachments allowed per message".to_string());
         }
 
-        let socket_path = Config::default_socket_path();
-        if !socket_path.exists() || UnixStream::connect(&socket_path).await.is_err() {
-            let state = app.state::<DaemonState>();
-            ensure_daemon_started(state.inner()).await;
-        }
-
-        let stream = UnixStream::connect(&socket_path)
-            .await
-            .map_err(|e| format!("Failed to connect to daemon: {e}"))?;
-        configure_socket_safety(&stream);
+        let stream = connect_to_daemon(&app).await?;
         let (reader, mut writer) = stream.into_split();
         let mut lines = BufReader::new(reader).lines();
 
@@ -630,11 +624,7 @@ async fn cancel_message<R: Runtime>(
             }
         };
 
-        let socket_path = Config::default_socket_path();
-        let stream = UnixStream::connect(&socket_path)
-            .await
-            .map_err(|e| format!("Failed to connect to daemon: {e}"))?;
-        configure_socket_safety(&stream);
+        let stream = connect_to_daemon(&app).await?;
         let (_, mut writer) = stream.into_split();
 
         let msg = ClientMessage::Cancel {
@@ -661,16 +651,7 @@ async fn cancel_message<R: Runtime>(
 async fn get_settings<R: Runtime>(app: AppHandle<R>) -> Result<SettingsInfo, String> {
     #[cfg(unix)]
     {
-        let socket_path = Config::default_socket_path();
-        if !socket_path.exists() || UnixStream::connect(&socket_path).await.is_err() {
-            let state = app.state::<DaemonState>();
-            ensure_daemon_started(state.inner()).await;
-        }
-
-        let stream = UnixStream::connect(&socket_path)
-            .await
-            .map_err(|e| format!("Failed to connect to daemon: {e}"))?;
-        configure_socket_safety(&stream);
+        let stream = connect_to_daemon(&app).await?;
         let (reader, mut writer) = stream.into_split();
         let mut lines = BufReader::new(reader).lines();
 
@@ -711,14 +692,13 @@ async fn get_settings<R: Runtime>(app: AppHandle<R>) -> Result<SettingsInfo, Str
 }
 
 #[tauri::command]
-async fn set_settings(payload: SettingsPayload) -> Result<SettingsInfo, String> {
+async fn set_settings<R: Runtime>(
+    app: AppHandle<R>,
+    payload: SettingsPayload,
+) -> Result<SettingsInfo, String> {
     #[cfg(unix)]
     {
-        let socket_path = Config::default_socket_path();
-        let stream = UnixStream::connect(&socket_path)
-            .await
-            .map_err(|e| format!("Failed to connect to daemon: {e}"))?;
-        configure_socket_safety(&stream);
+        let stream = connect_to_daemon(&app).await?;
         let (reader, mut writer) = stream.into_split();
         let mut lines = BufReader::new(reader).lines();
 
@@ -759,7 +739,7 @@ async fn set_settings(payload: SettingsPayload) -> Result<SettingsInfo, String> 
     }
     #[cfg(not(unix))]
     {
-        let _ = payload;
+        let _ = (app, payload);
         Err("Windows preview: local Unix domain socket daemon IPC is not supported on Windows. Run nookd on macOS or Linux.".to_string())
     }
 }

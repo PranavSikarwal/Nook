@@ -220,21 +220,23 @@ async fn process_client_message(
                 let _ = cfg.save_to_file(&state.config_path);
             }
 
-            // Restart supervisor with updated settings
-            {
-                let mut sup_guard = state.supervisor.lock().await;
+            // Restart supervisor with updated settings without holding mutex across shutdown
+            let old_sup_to_shutdown = {
                 let cfg = state.config.read().await;
                 let key = keychain::get_api_key();
                 match WorkerSupervisor::new(&cfg, key, None).await {
                     Ok(new_sup) => {
-                        if let Some(old_sup) = sup_guard.replace(new_sup) {
-                            old_sup.shutdown().await;
-                        }
+                        let mut sup_guard = state.supervisor.lock().await;
+                        sup_guard.replace(new_sup)
                     }
                     Err(e) => {
                         error!("Failed to restart worker supervisor with updated settings: {e}");
+                        None
                     }
                 }
+            };
+            if let Some(old_sup) = old_sup_to_shutdown {
+                old_sup.shutdown().await;
             }
 
             let has_key = keychain::get_api_key().is_some();
