@@ -4,7 +4,7 @@ Nook is a macOS overlay chatbot. The user presses Option+Space, asks a question,
 
 ## Goal
 
-Replace opening a chat website for quick questions. Version 1 is a general chatbot. Later versions add tools and MCP servers so it can act as a personal assistant. The design keeps that path open without building any of it now.
+Replace opening a chat website for quick questions. Version 1 is a general chatbot. The next tool-platform work is specified in `06-tools-and-shortcuts.md`.
 
 ## Scope
 
@@ -86,6 +86,7 @@ Close and reopen: Option+Space always opens a fresh Chat. Earlier Chats stay in 
 - Model settings live in `~/Library/Application Support/Nook/config.toml`. The API key lives in the macOS Keychain. The Daemon owns both, and the Panel changes them through `set_settings`. The hotkey lives in the Panel's user defaults.
 - A Chat title comes from one extra model call of at most six words. If that call fails, the title is the first 40 characters of the first question.
 - The default hotkey is Option+Space and can be changed in settings.
+- Focused-Panel shortcuts and the first web tools follow `06-tools-and-shortcuts.md`.
 
 ## Open points for implementers
 

@@ -1,17 +1,52 @@
-# Nook v1 plan
+# Nook implementation plan
 
-Each task has an id, what to do, what it depends on, and a "done when" check. The specs in `docs/spec/` hold the detail. The checklist at `CHECKLIST.md` lists the same ids with checkboxes.
+Each task has an id, what to do, what it depends on, and a "done when" check. The specs in `docs/spec/` hold the detail. The checklist at `CHECKLIST.md` tracks completion.
 
-## Order of work
+## Current work: Phase 2 (Tools and shortcuts)
 
-1. Do phase S and phase C first. They unblock everything else.
-2. Then three tracks can run in parallel: Worker (W), Daemon (D), and Panel (P). They meet in phase I.
-3. P0 can start on day one. It needs only the Swift toolchain.
-4. D4 is the first task that needs both the Worker and the Daemon.
+The full design is in `docs/spec/06-tools-and-shortcuts.md`. The execution plan is in `docs/plans/phase-2-tools-and-shortcuts.md`. The local tracker is in `.scratch/phase-2-tools-and-shortcuts/`.
 
-Each task gets its own git branch named after its id, for example `w3-checkpointer`.
+**TS1. Define tool approval contracts and policy assets.**
+Add approval request and decision messages, YAML metadata, and Cedar schema and policy assets.
+Depends on: T4.
+Done when: every layer accepts contract examples, and invalid Cedar or YAML policy assets prevent tool startup.
 
-## Phase S: Setup
+**TS2. Add configurable focused-Panel shortcuts.**
+Add the central dispatcher, defaults, persistence, and the Settings recording view.
+Depends on: T4.
+Done when: focused shortcuts work only in Nook, conflicts are rejected, and the global hotkey remains separate.
+
+**TS3. Add the registry and Cedar authorization bridge.**
+Create the Worker registry, Daemon authorization interface, and Chat-scoped grant store.
+Depends on: TS1.
+Done when: every active tool request is authorized by Cedar before it executes.
+
+**TS4. Add approval pause, decision, and cancellation.**
+Pause a tool request, render the approval card, resume after a grant, and cancel safely after denial or Escape.
+Depends on: TS1, TS3.
+Done when: a cancelled approval cannot resume after the user sends another Message.
+
+**TS5. Add DuckDuckGo search and guarded page fetch.**
+Register only the web search and fetch tools. Pin the search dependency and apply URL, address, redirect, type, timeout, and size checks to fetches.
+Depends on: TS3, TS4.
+Done when: search uses DuckDuckGo only, and fetches cannot reach blocked addresses.
+
+**TS6. Verify tools and shortcuts.**
+Test contracts, policy, grants, cancellation, shortcuts, search, fetch, and cross-platform packaging.
+Depends on: TS2, TS4, TS5.
+Done when: the acceptance criteria in `docs/spec/06-tools-and-shortcuts.md` pass.
+
+---
+
+## Completed work: Phase 1 baseline and v0.1.1 release
+
+### Order of original v1 work
+
+1. Phase S and Phase C established the toolchain, repo skeleton, and contracts.
+2. Worker (W), Daemon (D), and Panel (P) ran in parallel tracks and met in Integration (I).
+3. Phase T migrated the desktop panel to cross-platform Tauri v2.
+
+### Phase S: Setup
 
 **S1. Install the toolchain.**
 Install Rust with `rustup`. Start Postgres.app and create a database named `nook`. Keep the existing Swift command line tools and `uv`.
