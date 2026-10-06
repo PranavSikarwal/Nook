@@ -1,20 +1,33 @@
-# Nook v1 checklist
+# Nook checklist
 
-Task details and "done when" checks are in `docs/plan.md`. Specs are in `docs/spec/`. An item can start once everything after "needs" is checked.
+Task details and "done when" checks are in `docs/plan.md`. Specs are in `docs/spec/`.
 
-## Phase S: Setup
+## Current work: Phase 2 (Tools and shortcuts)
+
+- [ ] TS1. Define tool approval contracts and policy assets. Needs: T4
+- [ ] TS2. Add configurable focused-Panel shortcuts. Needs: T4
+- [ ] TS3. Add the registry and Cedar authorization bridge. Needs: TS1
+- [ ] TS4. Add approval pause, decision, and cancellation. Needs: TS1, TS3
+- [ ] TS5. Add DuckDuckGo search and guarded page fetch. Needs: TS3, TS4
+- [ ] TS6. Verify tools and shortcuts. Needs: TS2, TS4, TS5
+
+---
+
+## Completed work: Phase 1 baseline and v0.1.1 release
+
+### Phase S: Setup
 
 - [x] S1. Install the toolchain (Rust, Postgres database `nook`). Needs: none
 - [x] S2. Create the repo skeleton and first commit. Needs: none
 - [x] S3. Run the model check on the real endpoint and record the result. Needs: none
 - [x] S4. Add an image step to the model check. Needs: S3
 
-## Phase C: Contracts
+### Phase C: Contracts
 
 - [x] C1. Write the JSON Schemas and examples. Needs: S2
 - [x] C2. Add contract tests in tests/contracts. Needs: C1
 
-## Phase W: Worker
+### Phase W: Worker
 
 - [x] W1. Worker skeleton with a fake agent. Needs: C1
 - [x] W2. Real agent with streaming. Needs: W1, S3
@@ -25,7 +38,7 @@ Task details and "done when" checks are in `docs/plan.md`. Specs are in `docs/sp
 - [x] W7. Cancel and error mapping. Needs: W2
 - [x] W8. Delete a Chat's Memory. Needs: W3
 
-## Phase D: Daemon
+### Phase D: Daemon
 
 - [x] D1. Workspace, config, and socket server. Needs: C1, S1
 - [x] D2. Migrations and database layer. Needs: D1
@@ -37,7 +50,7 @@ Task details and "done when" checks are in `docs/plan.md`. Specs are in `docs/sp
 - [x] D8. `nookctl`. Needs: D4, D5
 - [x] D9. LaunchAgent scripts. Needs: D4
 
-## Phase P: Panel
+### Phase P: Panel
 
 - [x] P0. Overlay spike, bundle script, and the answer to open point 3. Needs: none
 - [x] P1. Daemon client and protocol types. Needs: P0, C1
@@ -48,12 +61,12 @@ Task details and "done when" checks are in `docs/plan.md`. Specs are in `docs/sp
 - [x] P6. Settings. Needs: P2, D7
 - [x] P7. Errors, Stop, and Retry. Needs: P2, D6
 
-## Phase I: Integration
+### Phase I: Integration
 
 - [x] I1. End-to-end smoke test. Needs: D8, W4, W8
 - [x] I2. Install and runbook. Needs: D9, P7, I1
 
-## Phase T: Tauri cross-platform migration
+### Phase T: Tauri cross-platform migration
 
 - [x] T1. Tauri v2 scaffolding and window management (draggable, persistent, global hotkey). Needs: I2
 - [x] T2. UI design replication (compact input, expanded transcript, markdown, history, settings). Needs: T1

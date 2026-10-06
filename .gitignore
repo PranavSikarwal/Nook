@@ -21,9 +21,6 @@ build/
 node_modules/
 .npm/
 
-# Local issue tracker and scratch notes
-.scratch/
-
 # Runtime files
 daemon.sock
 attachments/

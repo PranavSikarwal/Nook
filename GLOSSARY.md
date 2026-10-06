@@ -43,3 +43,16 @@ _Avoid_: Context, state
 **Model endpoint**:
 The self-hosted, OpenAI-compatible service that supplies the language model.
 _Avoid_: LLM server, API
+
+**Focused shortcut**:
+A key combination that Nook handles only while the Panel has focus.
+_Avoid_: Hotkey, global shortcut
+
+**Tool registry**:
+The Worker's catalog of tools that the agent may call.
+_Avoid_: Plugin list, tool list
+
+**Approval grant**:
+A temporary record of the user's permission for a tool request in a defined
+scope.
+_Avoid_: Permission, approval state
