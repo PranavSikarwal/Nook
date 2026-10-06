@@ -1,9 +1,10 @@
+use sqlx::PgPool;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use sqlx::PgPool;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+#[cfg(unix)]
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::{broadcast, mpsc, Mutex, RwLock};
 use tracing::{error, info, warn};
@@ -13,8 +14,8 @@ use crate::config::Config;
 use crate::db;
 use crate::keychain;
 use crate::protocol::{
-    Attachment, ClientMessage, DaemonMessage, DaemonWorkerEvent, DaemonWorkerRequest,
-    ErrorCode, ErrorInfo, FinishStatus, MessageStatus,
+    Attachment, ClientMessage, DaemonMessage, DaemonWorkerEvent, DaemonWorkerRequest, ErrorCode,
+    ErrorInfo, FinishStatus, MessageStatus,
 };
 use crate::supervisor::WorkerSupervisor;
 
@@ -29,6 +30,7 @@ pub struct AppState {
 
 pub struct Server {
     socket_path: PathBuf,
+    #[cfg(unix)]
     listener: UnixListener,
     shutdown_rx: broadcast::Receiver<()>,
     state: Arc<AppState>,
@@ -40,27 +42,37 @@ impl Server {
         shutdown_rx: broadcast::Receiver<()>,
         state: Arc<AppState>,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        if socket_path.exists() {
-            fs::remove_file(socket_path)?;
-        } else if let Some(parent) = socket_path.parent() {
-            fs::create_dir_all(parent)?;
+        #[cfg(unix)]
+        {
+            if socket_path.exists() {
+                fs::remove_file(socket_path)?;
+            } else if let Some(parent) = socket_path.parent() {
+                fs::create_dir_all(parent)?;
+            }
+
+            let listener = {
+                let old_umask = unsafe { libc::umask(0o177) };
+                let bind_res = UnixListener::bind(socket_path);
+                unsafe { libc::umask(old_umask) };
+                bind_res?
+            };
+
+            info!(path = %socket_path.display(), "Bound Unix domain socket with permissions 0600");
+
+            Ok(Self {
+                socket_path: socket_path.to_path_buf(),
+                listener,
+                shutdown_rx,
+                state,
+            })
         }
-
-        let listener = {
-            let old_umask = unsafe { libc::umask(0o177) };
-            let bind_res = UnixListener::bind(socket_path);
-            unsafe { libc::umask(old_umask) };
-            bind_res?
-        };
-
-        info!(path = %socket_path.display(), "Bound Unix domain socket with permissions 0600");
-
-        Ok(Self {
-            socket_path: socket_path.to_path_buf(),
-            listener,
-            shutdown_rx,
-            state,
-        })
+        #[cfg(not(unix))]
+        {
+            let _ = socket_path;
+            let _ = shutdown_rx;
+            let _ = state;
+            Err("Unix domain sockets are not supported on Windows".into())
+        }
     }
 
     pub fn socket_path(&self) -> &Path {
@@ -68,34 +80,42 @@ impl Server {
     }
 
     pub async fn run(mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        loop {
-            tokio::select! {
-                accept_res = self.listener.accept() => {
-                    match accept_res {
-                        Ok((stream, _)) => {
-                            let state = self.state.clone();
-                            tokio::spawn(handle_connection(stream, state));
-                        }
-                        Err(e) => {
-                            warn!("Socket accept error: {e}");
+        #[cfg(unix)]
+        {
+            loop {
+                tokio::select! {
+                    accept_res = self.listener.accept() => {
+                        match accept_res {
+                            Ok((stream, _)) => {
+                                let state = self.state.clone();
+                                tokio::spawn(handle_connection(stream, state));
+                            }
+                            Err(e) => {
+                                warn!("Socket accept error: {e}");
+                            }
                         }
                     }
-                }
-                _ = self.shutdown_rx.recv() => {
-                    info!("Server received shutdown signal");
-                    break;
+                    _ = self.shutdown_rx.recv() => {
+                        info!("Server received shutdown signal");
+                        break;
+                    }
                 }
             }
-        }
 
-        if self.socket_path.exists() {
-            let _ = fs::remove_file(&self.socket_path);
-        }
+            if self.socket_path.exists() {
+                let _ = fs::remove_file(&self.socket_path);
+            }
 
-        Ok(())
+            Ok(())
+        }
+        #[cfg(not(unix))]
+        {
+            Ok(())
+        }
     }
 }
 
+#[cfg(unix)]
 async fn handle_connection(stream: UnixStream, state: Arc<AppState>) {
     let (reader, mut writer) = stream.into_split();
     let mut lines = BufReader::new(reader).lines();
@@ -135,14 +155,18 @@ async fn handle_connection(stream: UnixStream, state: Arc<AppState>) {
                 if let Ok(val) = serde_json::from_str::<serde_json::Value>(trimmed) {
                     if let Some(id_val) = val.get("id") {
                         if let Ok(id) = serde_json::from_value::<Uuid>(id_val.clone()) {
-                            let _ = tx_out.send(DaemonMessage::Error {
-                                id,
-                                error: ErrorInfo {
-                                    code: ErrorCode::InvalidRequest,
-                                    message: format!("Invalid request or unknown message type: {e}"),
-                                    retryable: false,
-                                },
-                            }).await;
+                            let _ = tx_out
+                                .send(DaemonMessage::Error {
+                                    id,
+                                    error: ErrorInfo {
+                                        code: ErrorCode::InvalidRequest,
+                                        message: format!(
+                                            "Invalid request or unknown message type: {e}"
+                                        ),
+                                        retryable: false,
+                                    },
+                                })
+                                .await;
                         }
                     }
                 }
@@ -167,15 +191,22 @@ async fn process_client_message(
         ClientMessage::GetSettings { id } => {
             let cfg = state.config.read().await;
             let has_key = keychain::get_api_key().is_some();
-            let _ = tx_out.send(DaemonMessage::Settings {
-                id,
-                base_url: cfg.base_url.clone(),
-                model: cfg.model.clone(),
-                has_api_key: has_key,
-            }).await;
+            let _ = tx_out
+                .send(DaemonMessage::Settings {
+                    id,
+                    base_url: cfg.base_url.clone(),
+                    model: cfg.model.clone(),
+                    has_api_key: has_key,
+                })
+                .await;
         }
 
-        ClientMessage::SetSettings { id, base_url, model, api_key } => {
+        ClientMessage::SetSettings {
+            id,
+            base_url,
+            model,
+            api_key,
+        } => {
             if let Some(ref key) = api_key {
                 let _ = keychain::set_api_key(key);
             }
@@ -200,12 +231,14 @@ async fn process_client_message(
             }
 
             let has_key = keychain::get_api_key().is_some();
-            let _ = tx_out.send(DaemonMessage::Settings {
-                id,
-                base_url,
-                model,
-                has_api_key: has_key,
-            }).await;
+            let _ = tx_out
+                .send(DaemonMessage::Settings {
+                    id,
+                    base_url,
+                    model,
+                    has_api_key: has_key,
+                })
+                .await;
         }
 
         ClientMessage::ListChats { id } => {
@@ -215,25 +248,29 @@ async fn process_client_message(
                         let _ = tx_out.send(DaemonMessage::Chats { id, chats }).await;
                     }
                     Err(e) => {
-                        let _ = tx_out.send(DaemonMessage::Error {
-                            id,
-                            error: ErrorInfo {
-                                code: ErrorCode::DatabaseUnavailable,
-                                message: e.to_string(),
-                                retryable: true,
-                            },
-                        }).await;
+                        let _ = tx_out
+                            .send(DaemonMessage::Error {
+                                id,
+                                error: ErrorInfo {
+                                    code: ErrorCode::DatabaseUnavailable,
+                                    message: e.to_string(),
+                                    retryable: true,
+                                },
+                            })
+                            .await;
                     }
                 }
             } else {
-                let _ = tx_out.send(DaemonMessage::Error {
-                    id,
-                    error: ErrorInfo {
-                        code: ErrorCode::DatabaseUnavailable,
-                        message: "Database connection not available".to_string(),
-                        retryable: true,
-                    },
-                }).await;
+                let _ = tx_out
+                    .send(DaemonMessage::Error {
+                        id,
+                        error: ErrorInfo {
+                            code: ErrorCode::DatabaseUnavailable,
+                            message: "Database connection not available".to_string(),
+                            retryable: true,
+                        },
+                    })
+                    .await;
             }
         }
 
@@ -241,43 +278,51 @@ async fn process_client_message(
             if let Some(ref pool) = state.pool {
                 match db::get_chat(pool, chat_id).await {
                     Ok(Some((title, messages))) => {
-                        let _ = tx_out.send(DaemonMessage::Chat {
-                            id,
-                            chat_id,
-                            title,
-                            messages,
-                        }).await;
+                        let _ = tx_out
+                            .send(DaemonMessage::Chat {
+                                id,
+                                chat_id,
+                                title,
+                                messages,
+                            })
+                            .await;
                     }
                     Ok(None) => {
-                        let _ = tx_out.send(DaemonMessage::Error {
-                            id,
-                            error: ErrorInfo {
-                                code: ErrorCode::InvalidRequest,
-                                message: "Chat not found".to_string(),
-                                retryable: false,
-                            },
-                        }).await;
+                        let _ = tx_out
+                            .send(DaemonMessage::Error {
+                                id,
+                                error: ErrorInfo {
+                                    code: ErrorCode::InvalidRequest,
+                                    message: "Chat not found".to_string(),
+                                    retryable: false,
+                                },
+                            })
+                            .await;
                     }
                     Err(e) => {
-                        let _ = tx_out.send(DaemonMessage::Error {
-                            id,
-                            error: ErrorInfo {
-                                code: ErrorCode::DatabaseUnavailable,
-                                message: e.to_string(),
-                                retryable: true,
-                            },
-                        }).await;
+                        let _ = tx_out
+                            .send(DaemonMessage::Error {
+                                id,
+                                error: ErrorInfo {
+                                    code: ErrorCode::DatabaseUnavailable,
+                                    message: e.to_string(),
+                                    retryable: true,
+                                },
+                            })
+                            .await;
                     }
                 }
             } else {
-                let _ = tx_out.send(DaemonMessage::Error {
-                    id,
-                    error: ErrorInfo {
-                        code: ErrorCode::DatabaseUnavailable,
-                        message: "Database connection not available".to_string(),
-                        retryable: true,
-                    },
-                }).await;
+                let _ = tx_out
+                    .send(DaemonMessage::Error {
+                        id,
+                        error: ErrorInfo {
+                            code: ErrorCode::DatabaseUnavailable,
+                            message: "Database connection not available".to_string(),
+                            retryable: true,
+                        },
+                    })
+                    .await;
             }
         }
 
@@ -286,11 +331,15 @@ async fn process_client_message(
             let sup_opt = { state.supervisor.lock().await.clone() };
             if let Some(sup) = sup_opt {
                 let worker_req_id = Uuid::new_v4();
-                if let Ok(mut rx) = sup.send_request(DaemonWorkerRequest::DeleteChat {
-                    request_id: worker_req_id,
-                    chat_id,
-                }).await {
-                    let _ = tokio::time::timeout(std::time::Duration::from_secs(5), rx.recv()).await;
+                if let Ok(mut rx) = sup
+                    .send_request(DaemonWorkerRequest::DeleteChat {
+                        request_id: worker_req_id,
+                        chat_id,
+                    })
+                    .await
+                {
+                    let _ =
+                        tokio::time::timeout(std::time::Duration::from_secs(5), rx.recv()).await;
                 }
             }
 
@@ -324,16 +373,23 @@ async fn process_client_message(
             if let Some(w_id) = worker_req_id {
                 let sup_opt = { state.supervisor.lock().await.clone() };
                 if let Some(sup) = sup_opt {
-                    let _ = sup.send_request(DaemonWorkerRequest::Cancel {
-                        request_id: w_id,
-                    }).await;
+                    let _ = sup
+                        .send_request(DaemonWorkerRequest::Cancel { request_id: w_id })
+                        .await;
                 }
             }
 
-            let _ = tx_out.send(DaemonMessage::Cancelled { id, target_id }).await;
+            let _ = tx_out
+                .send(DaemonMessage::Cancelled { id, target_id })
+                .await;
         }
 
-        ClientMessage::SendMessage { id, chat_id, text, attachments } => {
+        ClientMessage::SendMessage {
+            id,
+            chat_id,
+            text,
+            attachments,
+        } => {
             handle_send_message(id, chat_id, text, attachments, state, tx_out).await;
         }
     }
@@ -367,41 +423,47 @@ async fn handle_send_message(
     // 1. Validate
     if text.trim().is_empty() && attachments.is_empty() {
         cleanup(&state).await;
-        let _ = tx_out.send(DaemonMessage::Error {
-            id,
-            error: ErrorInfo {
-                code: ErrorCode::InvalidRequest,
-                message: "Message text and attachments cannot both be empty".to_string(),
-                retryable: false,
-            },
-        }).await;
+        let _ = tx_out
+            .send(DaemonMessage::Error {
+                id,
+                error: ErrorInfo {
+                    code: ErrorCode::InvalidRequest,
+                    message: "Message text and attachments cannot both be empty".to_string(),
+                    retryable: false,
+                },
+            })
+            .await;
         return;
     }
 
     if attachments.len() > 5 {
         cleanup(&state).await;
-        let _ = tx_out.send(DaemonMessage::Error {
-            id,
-            error: ErrorInfo {
-                code: ErrorCode::AttachmentInvalid,
-                message: "Attachments count exceeds maximum limit of 5".to_string(),
-                retryable: false,
-            },
-        }).await;
+        let _ = tx_out
+            .send(DaemonMessage::Error {
+                id,
+                error: ErrorInfo {
+                    code: ErrorCode::AttachmentInvalid,
+                    message: "Attachments count exceeds maximum limit of 5".to_string(),
+                    retryable: false,
+                },
+            })
+            .await;
         return;
     }
 
     for att in &attachments {
         if let Err(msg) = validate_attachment(att) {
             cleanup(&state).await;
-            let _ = tx_out.send(DaemonMessage::Error {
-                id,
-                error: ErrorInfo {
-                    code: ErrorCode::AttachmentInvalid,
-                    message: msg,
-                    retryable: false,
-                },
-            }).await;
+            let _ = tx_out
+                .send(DaemonMessage::Error {
+                    id,
+                    error: ErrorInfo {
+                        code: ErrorCode::AttachmentInvalid,
+                        message: msg,
+                        retryable: false,
+                    },
+                })
+                .await;
             return;
         }
     }
@@ -410,14 +472,16 @@ async fn handle_send_message(
         Some(ref p) => p.clone(),
         None => {
             cleanup(&state).await;
-            let _ = tx_out.send(DaemonMessage::Error {
-                id,
-                error: ErrorInfo {
-                    code: ErrorCode::DatabaseUnavailable,
-                    message: "Database connection not available".to_string(),
-                    retryable: true,
-                },
-            }).await;
+            let _ = tx_out
+                .send(DaemonMessage::Error {
+                    id,
+                    error: ErrorInfo {
+                        code: ErrorCode::DatabaseUnavailable,
+                        message: "Database connection not available".to_string(),
+                        retryable: true,
+                    },
+                })
+                .await;
             return;
         }
     };
@@ -425,27 +489,31 @@ async fn handle_send_message(
     let user_msg_id = Uuid::new_v4();
     if let Err(e) = db::ensure_chat(&pool, chat_id, "New Chat").await {
         cleanup(&state).await;
-        let _ = tx_out.send(DaemonMessage::Error {
-            id,
-            error: ErrorInfo {
-                code: ErrorCode::DatabaseUnavailable,
-                message: e.to_string(),
-                retryable: true,
-            },
-        }).await;
+        let _ = tx_out
+            .send(DaemonMessage::Error {
+                id,
+                error: ErrorInfo {
+                    code: ErrorCode::DatabaseUnavailable,
+                    message: e.to_string(),
+                    retryable: true,
+                },
+            })
+            .await;
         return;
     }
 
     if let Err(e) = db::save_user_message(&pool, user_msg_id, chat_id, &text, &attachments).await {
         cleanup(&state).await;
-        let _ = tx_out.send(DaemonMessage::Error {
-            id,
-            error: ErrorInfo {
-                code: ErrorCode::DatabaseUnavailable,
-                message: e.to_string(),
-                retryable: true,
-            },
-        }).await;
+        let _ = tx_out
+            .send(DaemonMessage::Error {
+                id,
+                error: ErrorInfo {
+                    code: ErrorCode::DatabaseUnavailable,
+                    message: e.to_string(),
+                    retryable: true,
+                },
+            })
+            .await;
         return;
     }
 
@@ -453,14 +521,16 @@ async fn handle_send_message(
         Some(s) => s,
         None => {
             cleanup(&state).await;
-            let _ = tx_out.send(DaemonMessage::Error {
-                id,
-                error: ErrorInfo {
-                    code: ErrorCode::WorkerCrashed,
-                    message: "Worker supervisor not running".to_string(),
-                    retryable: true,
-                },
-            }).await;
+            let _ = tx_out
+                .send(DaemonMessage::Error {
+                    id,
+                    error: ErrorInfo {
+                        code: ErrorCode::WorkerCrashed,
+                        message: "Worker supervisor not running".to_string(),
+                        retryable: true,
+                    },
+                })
+                .await;
             return;
         }
     };
@@ -481,33 +551,41 @@ async fn handle_send_message(
             "",
             MessageStatus::Cancelled,
             None,
-        ).await;
-        let _ = tx_out.send(DaemonMessage::MessageFinished {
-            id,
-            chat_id,
-            message_id: asst_message_id,
-            status: FinishStatus::Cancelled,
-        }).await;
+        )
+        .await;
+        let _ = tx_out
+            .send(DaemonMessage::MessageFinished {
+                id,
+                chat_id,
+                message_id: asst_message_id,
+                status: FinishStatus::Cancelled,
+            })
+            .await;
         return;
     }
 
-    let mut event_rx = match supervisor.send_request(DaemonWorkerRequest::Run {
-        request_id: worker_req_id,
-        chat_id,
-        text: text.clone(),
-        attachments,
-    }).await {
+    let mut event_rx = match supervisor
+        .send_request(DaemonWorkerRequest::Run {
+            request_id: worker_req_id,
+            chat_id,
+            text: text.clone(),
+            attachments,
+        })
+        .await
+    {
         Ok(rx) => rx,
         Err(e) => {
             cleanup(&state).await;
-            let _ = tx_out.send(DaemonMessage::Error {
-                id,
-                error: ErrorInfo {
-                    code: ErrorCode::WorkerCrashed,
-                    message: e.to_string(),
-                    retryable: true,
-                },
-            }).await;
+            let _ = tx_out
+                .send(DaemonMessage::Error {
+                    id,
+                    error: ErrorInfo {
+                        code: ErrorCode::WorkerCrashed,
+                        message: e.to_string(),
+                        retryable: true,
+                    },
+                })
+                .await;
             return;
         }
     };
@@ -519,42 +597,57 @@ async fn handle_send_message(
         match ev {
             DaemonWorkerEvent::MessageStarted { message_id, .. } => {
                 asst_message_id = message_id;
-                let _ = tx_out.send(DaemonMessage::MessageStarted {
-                    id,
-                    chat_id,
-                    message_id,
-                }).await;
+                let _ = tx_out
+                    .send(DaemonMessage::MessageStarted {
+                        id,
+                        chat_id,
+                        message_id,
+                    })
+                    .await;
             }
 
             DaemonWorkerEvent::TextDelta { text: delta, .. } => {
                 full_text.push_str(&delta);
-                let _ = tx_out.send(DaemonMessage::TextDelta {
-                    id,
-                    chat_id,
-                    message_id: asst_message_id,
-                    text: delta,
-                }).await;
+                let _ = tx_out
+                    .send(DaemonMessage::TextDelta {
+                        id,
+                        chat_id,
+                        message_id: asst_message_id,
+                        text: delta,
+                    })
+                    .await;
             }
 
-            DaemonWorkerEvent::ToolCallStarted { call_id, name, arguments, .. } => {
-                let _ = tx_out.send(DaemonMessage::ToolCallStarted {
-                    id,
-                    chat_id,
-                    message_id: asst_message_id,
-                    call_id,
-                    name,
-                    arguments,
-                }).await;
+            DaemonWorkerEvent::ToolCallStarted {
+                call_id,
+                name,
+                arguments,
+                ..
+            } => {
+                let _ = tx_out
+                    .send(DaemonMessage::ToolCallStarted {
+                        id,
+                        chat_id,
+                        message_id: asst_message_id,
+                        call_id,
+                        name,
+                        arguments,
+                    })
+                    .await;
             }
 
-            DaemonWorkerEvent::ToolCallFinished { call_id, result, .. } => {
-                let _ = tx_out.send(DaemonMessage::ToolCallFinished {
-                    id,
-                    chat_id,
-                    message_id: asst_message_id,
-                    call_id,
-                    result,
-                }).await;
+            DaemonWorkerEvent::ToolCallFinished {
+                call_id, result, ..
+            } => {
+                let _ = tx_out
+                    .send(DaemonMessage::ToolCallFinished {
+                        id,
+                        chat_id,
+                        message_id: asst_message_id,
+                        call_id,
+                        result,
+                    })
+                    .await;
             }
 
             DaemonWorkerEvent::MessageFinished { status, .. } => {
@@ -569,14 +662,17 @@ async fn handle_send_message(
                     &full_text,
                     msg_status,
                     None,
-                ).await;
+                )
+                .await;
 
-                let _ = tx_out.send(DaemonMessage::MessageFinished {
-                    id,
-                    chat_id,
-                    message_id: asst_message_id,
-                    status,
-                }).await;
+                let _ = tx_out
+                    .send(DaemonMessage::MessageFinished {
+                        id,
+                        chat_id,
+                        message_id: asst_message_id,
+                        status,
+                    })
+                    .await;
 
                 // Dispatch title request only after successful completion if chat is untitled
                 if status == FinishStatus::Complete {
@@ -588,7 +684,14 @@ async fn handle_send_message(
                             let tx_out_clone = tx_out.clone();
                             let first_msg = text.clone();
                             tokio::spawn(async move {
-                                request_title(chat_id, first_msg, sup_clone, pool_clone, tx_out_clone).await;
+                                request_title(
+                                    chat_id,
+                                    first_msg,
+                                    sup_clone,
+                                    pool_clone,
+                                    tx_out_clone,
+                                )
+                                .await;
                             });
                         }
                     }
@@ -604,12 +707,10 @@ async fn handle_send_message(
                     &full_text,
                     MessageStatus::Error,
                     Some(&error),
-                ).await;
+                )
+                .await;
 
-                let _ = tx_out.send(DaemonMessage::Error {
-                    id,
-                    error,
-                }).await;
+                let _ = tx_out.send(DaemonMessage::Error { id, error }).await;
                 break;
             }
 
@@ -633,14 +734,19 @@ async fn request_title(
     tx_out: mpsc::Sender<DaemonMessage>,
 ) {
     let title_req_id = Uuid::new_v4();
-    if let Ok(mut rx) = supervisor.send_request(DaemonWorkerRequest::Title {
-        request_id: title_req_id,
-        chat_id,
-        first_message: first_message.clone(),
-    }).await {
+    if let Ok(mut rx) = supervisor
+        .send_request(DaemonWorkerRequest::Title {
+            request_id: title_req_id,
+            chat_id,
+            first_message: first_message.clone(),
+        })
+        .await
+    {
         if let Some(DaemonWorkerEvent::TitleReady { title, .. }) = rx.recv().await {
             let _ = db::update_chat_title(&pool, chat_id, &title).await;
-            let _ = tx_out.send(DaemonMessage::ChatTitled { chat_id, title }).await;
+            let _ = tx_out
+                .send(DaemonMessage::ChatTitled { chat_id, title })
+                .await;
             return;
         }
     }
@@ -653,7 +759,12 @@ async fn request_title(
         first_message
     };
     let _ = db::update_chat_title(&pool, chat_id, &fallback).await;
-    let _ = tx_out.send(DaemonMessage::ChatTitled { chat_id, title: fallback }).await;
+    let _ = tx_out
+        .send(DaemonMessage::ChatTitled {
+            chat_id,
+            title: fallback,
+        })
+        .await;
 }
 
 pub fn validate_attachment(att: &Attachment) -> Result<(), String> {
@@ -667,24 +778,20 @@ pub fn validate_attachment(att: &Attachment) -> Result<(), String> {
     }
 
     match att.kind {
-        crate::protocol::AttachmentKind::Image => {
-            match att.mime.to_ascii_lowercase().as_str() {
-                "image/png" | "image/jpeg" | "image/jpg" | "image/webp" | "image/gif" => Ok(()),
-                _ => Err(format!(
-                    "Invalid MIME type '{}' for image attachment '{}' (allowed: PNG, JPEG, WebP, GIF)",
-                    att.mime, att.name
-                )),
-            }
-        }
-        crate::protocol::AttachmentKind::Pdf => {
-            match att.mime.to_ascii_lowercase().as_str() {
-                "application/pdf" => Ok(()),
-                _ => Err(format!(
-                    "Invalid MIME type '{}' for PDF attachment '{}' (allowed: application/pdf)",
-                    att.mime, att.name
-                )),
-            }
-        }
+        crate::protocol::AttachmentKind::Image => match att.mime.to_ascii_lowercase().as_str() {
+            "image/png" | "image/jpeg" | "image/jpg" | "image/webp" | "image/gif" => Ok(()),
+            _ => Err(format!(
+                "Invalid MIME type '{}' for image attachment '{}' (allowed: PNG, JPEG, WebP, GIF)",
+                att.mime, att.name
+            )),
+        },
+        crate::protocol::AttachmentKind::Pdf => match att.mime.to_ascii_lowercase().as_str() {
+            "application/pdf" => Ok(()),
+            _ => Err(format!(
+                "Invalid MIME type '{}' for PDF attachment '{}' (allowed: application/pdf)",
+                att.mime, att.name
+            )),
+        },
         crate::protocol::AttachmentKind::Text => {
             let m = att.mime.to_ascii_lowercase();
             if m.starts_with("text/")
