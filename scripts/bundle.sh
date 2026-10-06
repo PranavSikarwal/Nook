@@ -44,7 +44,7 @@ cat <<EOF > "$BUNDLE_DIR/Contents/Info.plist"
 <plist version="1.0">
 <dict>
     <key>CFBundleIdentifier</key>
-    <string>tech.nook.app</string>
+    <string>tech.nook.desktop</string>
     <key>CFBundleName</key>
     <string>Nook</string>
     <key>CFBundleDisplayName</key>
