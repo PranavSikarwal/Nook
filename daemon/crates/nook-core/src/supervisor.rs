@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
@@ -33,34 +34,128 @@ pub struct WorkerSupervisor {
     inner: Arc<Mutex<Inner>>,
 }
 
+fn find_worker_directory() -> Option<PathBuf> {
+    if let Ok(dir_str) = std::env::var("NOOK_WORKER_DIR") {
+        let p = PathBuf::from(dir_str);
+        if p.is_dir() {
+            return Some(p);
+        }
+    }
+
+    for candidate in &["worker", "../worker", "../../worker"] {
+        let p = PathBuf::from(candidate);
+        if p.is_dir() && (p.join("pyproject.toml").is_file() || p.join("src/nook_worker").is_dir())
+        {
+            return Some(p);
+        }
+    }
+
+    if let Ok(current_exe) = std::env::current_exe() {
+        if let Some(exe_dir) = current_exe.parent() {
+            let bundle_worker = exe_dir.parent().unwrap_or(exe_dir).join("Resources/worker");
+            if bundle_worker.is_dir() {
+                return Some(bundle_worker);
+            }
+            for relative in &["../../worker", "../../../worker", "../worker"] {
+                let candidate = exe_dir.join(relative);
+                if candidate.is_dir() && candidate.join("pyproject.toml").is_file() {
+                    return Some(candidate);
+                }
+            }
+        }
+    }
+
+    if let Ok(home) = std::env::var("HOME") {
+        let home_path = PathBuf::from(&home);
+        let candidates = [
+            home_path.join(".local/share/nook/worker"),
+            home_path.join("personal/Nook/worker"),
+        ];
+        for candidate in &candidates {
+            if candidate.is_dir() && candidate.join("pyproject.toml").is_file() {
+                return Some(candidate.clone());
+            }
+        }
+    }
+
+    None
+}
+
+fn find_uv_binary() -> String {
+    for env_key in &["NOOK_UV_PATH", "UV_BIN"] {
+        if let Ok(val) = std::env::var(env_key) {
+            let p = PathBuf::from(val);
+            if p.is_file() {
+                return p.to_string_lossy().to_string();
+            }
+        }
+    }
+
+    if let Ok(home) = std::env::var("HOME") {
+        let candidates = [
+            PathBuf::from(&home).join(".local/bin/uv"),
+            PathBuf::from(&home).join(".cargo/bin/uv"),
+            PathBuf::from(&home).join(".rtk/shims/uv"),
+            PathBuf::from("/usr/local/bin/uv"),
+        ];
+        for candidate in &candidates {
+            if candidate.is_file() {
+                return candidate.to_string_lossy().to_string();
+            }
+        }
+    }
+
+    "uv".to_string()
+}
+
+fn resolve_worker_command(config: &Config, custom_command: Option<Vec<String>>) -> Vec<String> {
+    if let Some(cmd) = custom_command {
+        return cmd;
+    }
+    if let Ok(cmd_str) = std::env::var("NOOK_WORKER_COMMAND") {
+        return cmd_str.split_whitespace().map(|s| s.to_string()).collect();
+    }
+    if let Some(ref override_cmd) = config.worker_command {
+        return override_cmd
+            .split_whitespace()
+            .map(|s| s.to_string())
+            .collect();
+    }
+
+    let worker_dir = find_worker_directory().unwrap_or_else(|| PathBuf::from("worker"));
+
+    #[cfg(windows)]
+    let venv_python = worker_dir.join(".venv/Scripts/python.exe");
+    #[cfg(not(windows))]
+    let venv_python = worker_dir.join(".venv/bin/python");
+
+    if venv_python.is_file() {
+        return vec![
+            venv_python.to_string_lossy().to_string(),
+            "-m".to_string(),
+            "nook_worker".to_string(),
+        ];
+    }
+
+    let uv_bin = find_uv_binary();
+    vec![
+        uv_bin,
+        "run".to_string(),
+        "--project".to_string(),
+        worker_dir.to_string_lossy().to_string(),
+        "python".to_string(),
+        "-m".to_string(),
+        "nook_worker".to_string(),
+    ]
+}
+
 impl WorkerSupervisor {
     pub async fn new(
         config: &Config,
         api_key: Option<String>,
         custom_command: Option<Vec<String>>,
     ) -> Result<Self, SupervisorError> {
-        let command_args = if let Some(cmd) = custom_command {
-            cmd
-        } else if let Some(ref override_cmd) = config.worker_command {
-            override_cmd.split_whitespace().map(|s| s.to_string()).collect()
-        } else {
-            let worker_dir = if std::path::Path::new("worker").exists() {
-                "worker".to_string()
-            } else if std::path::Path::new("../worker").exists() {
-                "../worker".to_string()
-            } else {
-                "worker".to_string()
-            };
-            vec![
-                "uv".to_string(),
-                "run".to_string(),
-                "--project".to_string(),
-                worker_dir,
-                "python".to_string(),
-                "-m".to_string(),
-                "nook_worker".to_string(),
-            ]
-        };
+        let command_args = resolve_worker_command(config, custom_command);
 
         let mut env_vars = HashMap::new();
         env_vars.insert("NOOK_BASE_URL".to_string(), config.base_url.clone());
@@ -93,13 +188,17 @@ impl WorkerSupervisor {
         let sup_clone = supervisor.clone();
 
         tokio::spawn(async move {
-            sup_clone.supervisor_loop(command_args, env_vars, Some(first_ready_tx), shutdown_rx).await;
+            sup_clone
+                .supervisor_loop(command_args, env_vars, Some(first_ready_tx), shutdown_rx)
+                .await;
         });
 
         match tokio::time::timeout(Duration::from_secs(60), first_ready_rx).await {
             Ok(Ok(Ok(()))) => Ok(supervisor),
             Ok(Ok(Err(e))) => Err(e),
-            Ok(Err(_)) => Err(SupervisorError::Communication("Supervisor loop terminated prematurely".to_string())),
+            Ok(Err(_)) => Err(SupervisorError::Communication(
+                "Supervisor loop terminated prematurely".to_string(),
+            )),
             Err(_) => Err(SupervisorError::ReadyTimeout),
         }
     }
@@ -198,19 +297,25 @@ impl WorkerSupervisor {
 
         let mut lines = BufReader::new(child_stdout).lines();
 
-        let ready_line = match tokio::time::timeout(Duration::from_secs(60), lines.next_line()).await {
+        let ready_line = match tokio::time::timeout(Duration::from_secs(60), lines.next_line())
+            .await
+        {
             Ok(Ok(Some(line))) => line,
             Ok(Ok(None)) => {
                 let err = SupervisorError::Communication("Worker exited before ready".to_string());
                 if let Some(tx) = ready_notifier {
-                    let _ = tx.send(Err(SupervisorError::Communication("Worker exited before ready".to_string())));
+                    let _ = tx.send(Err(SupervisorError::Communication(
+                        "Worker exited before ready".to_string(),
+                    )));
                 }
                 return Err(err);
             }
             Ok(Err(e)) => {
                 let err = SupervisorError::ProcessStart(e);
                 if let Some(tx) = ready_notifier {
-                    let _ = tx.send(Err(SupervisorError::Communication("Process start error".to_string())));
+                    let _ = tx.send(Err(SupervisorError::Communication(
+                        "Process start error".to_string(),
+                    )));
                 }
                 return Err(err);
             }
@@ -235,9 +340,13 @@ impl WorkerSupervisor {
                 }
             }
             other => {
-                let err = SupervisorError::Communication(format!("Expected ready event, received: {other:?}"));
+                let err = SupervisorError::Communication(format!(
+                    "Expected ready event, received: {other:?}"
+                ));
                 if let Some(tx) = ready_notifier {
-                    let _ = tx.send(Err(SupervisorError::Communication("Unexpected event".to_string())));
+                    let _ = tx.send(Err(SupervisorError::Communication(
+                        "Unexpected event".to_string(),
+                    )));
                 }
                 return Err(err);
             }
