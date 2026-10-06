@@ -55,6 +55,12 @@ jobs:
         run: |
           node scripts/sync-version.js "$TAG_NAME"
 
+      - name: Build daemon binaries
+        if: matrix.platform.os != 'windows-latest'
+        run: |
+          cd daemon
+          cargo build --release --locked -p nookd -p nookctl
+
       - name: Build frontend
         run: |
           cd panel
@@ -73,3 +79,19 @@ jobs:
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.platform.args }}
+
+      - name: Upload standalone daemon assets
+        if: matrix.platform.os != 'windows-latest' && startsWith(github.ref, 'refs/tags/v')
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          OS_NAME="${{ matrix.platform.name }}"
+          ARCH_NAME="$(uname -m)"
+          case "$ARCH_NAME" in
+            aarch64|arm64) ARCH_NORM="arm64" ;;
+            *) ARCH_NORM="x86_64" ;;
+          esac
+          cp daemon/target/release/nookd "nookd_${OS_NAME}_${ARCH_NORM}"
+          cp daemon/target/release/nookctl "nookctl_${OS_NAME}_${ARCH_NORM}"
+          gh release upload "$TAG_NAME" "nookd_${OS_NAME}_${ARCH_NORM}" "nookctl_${OS_NAME}_${ARCH_NORM}" --clobber

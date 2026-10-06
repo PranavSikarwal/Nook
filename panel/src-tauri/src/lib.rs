@@ -226,6 +226,13 @@ pub async fn ensure_daemon_started(state: &DaemonState) {
             let mut cmd = tokio::process::Command::new(bin_path);
             cmd.kill_on_drop(true);
 
+            if let Ok(path_var) = std::env::var("PATH") {
+                if let Ok(home) = std::env::var("HOME") {
+                    let extra = format!("{home}/.local/bin:{home}/.cargo/bin:{path_var}");
+                    cmd.env("PATH", extra);
+                }
+            }
+
             match cmd.spawn() {
                 Ok(child) => {
                     {
@@ -472,6 +479,11 @@ async fn send_message<R: Runtime>(
         }
 
         let socket_path = Config::default_socket_path();
+        if !socket_path.exists() || UnixStream::connect(&socket_path).await.is_err() {
+            let state = app.state::<DaemonState>();
+            ensure_daemon_started(state.inner()).await;
+        }
+
         let stream = UnixStream::connect(&socket_path)
             .await
             .map_err(|e| format!("Failed to connect to daemon: {e}"))?;

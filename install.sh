@@ -116,11 +116,16 @@ if [ -f "$SCRIPT_PATH" ]; then
     fi
 fi
 
-if [ "$IS_LOCAL" -eq 1 ]; then
+    if [ "$IS_LOCAL" -eq 1 ]; then
     echo "Running local repository build and installation..."
     (cd "$ROOT_DIR/daemon" && cargo build --release -p nookd -p nookctl)
     (cd "$ROOT_DIR/panel" && npm install --silent --ignore-scripts && npm run build)
     (cd "$ROOT_DIR/panel/src-tauri" && cargo build --release)
+
+    if [ ! -d "$ROOT_DIR/worker/.venv" ] && command -v uv >/dev/null 2>&1; then
+        echo "Setting up worker virtual environment..."
+        (cd "$ROOT_DIR/worker" && uv sync --no-build --quiet || true)
+    fi
 
     cp "$ROOT_DIR/daemon/target/release/nookd" "$BIN_DIR/nookd"
     cp "$ROOT_DIR/daemon/target/release/nookctl" "$BIN_DIR/nookctl"
@@ -186,6 +191,22 @@ else
         hdiutil detach "$MOUNT_DIR" -quiet
         rm -rf "$MOUNT_DIR"
         MOUNT_DIR=""
+
+        # If nookd was not inside the DMG, fetch standalone daemon asset if available
+        if [ ! -f "$BIN_DIR/nookd" ]; then
+            NOOKD_URL="${DOWNLOAD_BASE}/nookd_macOS_${ARCH_NORM}"
+            if secure_curl -fSL "$NOOKD_URL" -o "$BIN_DIR/nookd" 2>/dev/null; then
+                chmod +x "$BIN_DIR/nookd"
+                echo "Downloaded nookd daemon to $BIN_DIR/nookd"
+            fi
+        fi
+        if [ ! -f "$BIN_DIR/nookctl" ]; then
+            NOOKCTL_URL="${DOWNLOAD_BASE}/nookctl_macOS_${ARCH_NORM}"
+            if secure_curl -fSL "$NOOKCTL_URL" -o "$BIN_DIR/nookctl" 2>/dev/null; then
+                chmod +x "$BIN_DIR/nookctl"
+                echo "Downloaded nookctl control tool to $BIN_DIR/nookctl"
+            fi
+        fi
     elif [ "$PLATFORM" = "linux" ]; then
         if [ "$ARCH_NORM" = "x86_64" ]; then
             DEB_NAME="nook_${VERSION}_amd64.deb"
@@ -244,6 +265,24 @@ fi
 EOF
 
 chmod +x "$BIN_DIR/nook"
+
+# 4. Initialize default configuration if missing
+CONFIG_DIR="$HOME/Library/Application Support/Nook"
+if [ "$PLATFORM" = "linux" ]; then
+    CONFIG_DIR="$HOME/.config/nook"
+fi
+mkdir -p "$CONFIG_DIR"
+CONFIG_FILE="$CONFIG_DIR/config.toml"
+if [ ! -f "$CONFIG_FILE" ]; then
+    echo "Initializing default configuration at $CONFIG_FILE..."
+    cat << 'EOF' > "$CONFIG_FILE"
+base_url = "https://proxy-foundry.centralindia.cloudapp.azure.com/v1"
+model = "gpt-oss-120b-medium"
+database_url = "postgres://localhost/nook"
+max_input_tokens = 1000000
+summarize_at_tokens = 750000
+EOF
+fi
 
 INSTALLED_SUCCESS=1
 
