@@ -8,6 +8,7 @@ use std::sync::Arc;
 use tauri::{AppHandle, Manager, Runtime};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+#[cfg(unix)]
 use tokio::net::UnixStream;
 use tokio::sync::Mutex;
 use uuid::Uuid;
@@ -155,83 +156,111 @@ pub fn find_nookd_binary() -> Option<PathBuf> {
 
 /// Poll Unix socket with a timeout until it accepts connections
 pub async fn wait_for_daemon_ready(socket_path: &Path, timeout: std::time::Duration) -> bool {
-    let start = std::time::Instant::now();
-    while start.elapsed() < timeout {
-        if socket_path.exists() && UnixStream::connect(socket_path).await.is_ok() {
-            return true;
+    #[cfg(unix)]
+    {
+        let start = std::time::Instant::now();
+        while start.elapsed() < timeout {
+            if socket_path.exists() && UnixStream::connect(socket_path).await.is_ok() {
+                return true;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         }
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        false
     }
-    false
+    #[cfg(not(unix))]
+    {
+        let _ = (socket_path, timeout);
+        false
+    }
 }
 
 /// Ensure nookd is running; spawn it if not currently responding
 pub async fn ensure_daemon_started(state: &DaemonState) {
-    let _lock = state.startup_lock.lock().await;
-
-    let socket_path = Config::default_socket_path();
-    if socket_path.exists() && UnixStream::connect(&socket_path).await.is_ok() {
-        return;
-    }
-
-    // Check if an existing spawned process is still running
+    #[cfg(unix)]
     {
-        let mut proc_guard = state.spawned_process.lock().await;
-        if let Some(child) = proc_guard.as_mut() {
-            match child.try_wait() {
-                Ok(None) => {
-                    drop(proc_guard);
-                    if wait_for_daemon_ready(&socket_path, std::time::Duration::from_millis(1500)).await {
+        let _lock = state.startup_lock.lock().await;
+
+        let socket_path = Config::default_socket_path();
+        if socket_path.exists() && UnixStream::connect(&socket_path).await.is_ok() {
+            return;
+        }
+
+        // Check if an existing spawned process is still running
+        {
+            let mut proc_guard = state.spawned_process.lock().await;
+            if let Some(child) = proc_guard.as_mut() {
+                match child.try_wait() {
+                    Ok(None) => {
+                        drop(proc_guard);
+                        if wait_for_daemon_ready(
+                            &socket_path,
+                            std::time::Duration::from_millis(1500),
+                        )
+                        .await
+                        {
+                            return;
+                        }
+                        eprintln!(
+                            "Existing nookd child is running but not responding on socket yet."
+                        );
                         return;
                     }
-                    eprintln!("Existing nookd child is running but not responding on socket yet.");
-                    return;
-                }
-                Ok(Some(status)) => {
-                    eprintln!("Previous nookd child process exited ({status}). Reaping.");
-                    *proc_guard = None;
-                }
-                Err(err) => {
-                    eprintln!("Error checking child process status ({err}). Clearing.");
-                    *proc_guard = None;
+                    Ok(Some(status)) => {
+                        eprintln!("Previous nookd child process exited ({status}). Reaping.");
+                        *proc_guard = None;
+                    }
+                    Err(err) => {
+                        eprintln!("Error checking child process status ({err}). Clearing.");
+                        *proc_guard = None;
+                    }
                 }
             }
         }
-    }
 
-    if wait_for_daemon_ready(&socket_path, std::time::Duration::from_millis(200)).await {
-        return;
-    }
-
-    if let Some(bin_path) = find_nookd_binary() {
-        eprintln!("Auto-starting nookd daemon from {}", bin_path.display());
-        let mut cmd = tokio::process::Command::new(bin_path);
-        cmd.kill_on_drop(true);
-
-        match cmd.spawn() {
-            Ok(child) => {
-                {
-                    let mut proc_guard = state.spawned_process.lock().await;
-                    *proc_guard = Some(child);
-                }
-                if wait_for_daemon_ready(&socket_path, std::time::Duration::from_millis(2500)).await {
-                    eprintln!("nookd started successfully in background.");
-                } else {
-                    eprintln!("Warning: nookd spawned but not yet responding on socket.");
-                }
-            }
-            Err(e) => {
-                eprintln!("Failed to auto-spawn nookd: {e}");
-            }
+        if wait_for_daemon_ready(&socket_path, std::time::Duration::from_millis(200)).await {
+            return;
         }
-    } else {
+
+        if let Some(bin_path) = find_nookd_binary() {
+            eprintln!("Auto-starting nookd daemon from {}", bin_path.display());
+            let mut cmd = tokio::process::Command::new(bin_path);
+            cmd.kill_on_drop(true);
+
+            match cmd.spawn() {
+                Ok(child) => {
+                    {
+                        let mut proc_guard = state.spawned_process.lock().await;
+                        *proc_guard = Some(child);
+                    }
+                    if wait_for_daemon_ready(&socket_path, std::time::Duration::from_millis(2500))
+                        .await
+                    {
+                        eprintln!("nookd started successfully in background.");
+                    } else {
+                        eprintln!("Warning: nookd spawned but not yet responding on socket.");
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Failed to auto-spawn nookd: {e}");
+                }
+            }
+        } else {
+            eprintln!(
+                "Notice: nookd binary not found automatically. Set NOOKD_PATH or run nookd separately."
+            );
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = state;
         eprintln!(
-            "Notice: nookd binary not found automatically. Set NOOKD_PATH or run nookd separately."
+            "Notice: Windows daemon supervision is not supported yet. Nook runs as a preview client on Windows."
         );
     }
 }
 
 /// Helper to configure SO_NOSIGPIPE on UnixStream on macOS
+#[cfg(unix)]
 fn configure_socket_safety(stream: &UnixStream) {
     #[cfg(target_os = "macos")]
     {
@@ -262,139 +291,169 @@ pub fn sanitize_attachment_name(name: &str) -> String {
 
 #[tauri::command]
 async fn ping_daemon() -> Result<bool, String> {
-    let socket_path = Config::default_socket_path();
-    if !socket_path.exists() {
-        return Ok(false);
-    }
-    match UnixStream::connect(&socket_path).await {
-        Ok(stream) => {
-            configure_socket_safety(&stream);
-            let (reader, mut writer) = stream.into_split();
-            let mut lines = BufReader::new(reader).lines();
-            let msg = ClientMessage::Ping { id: Uuid::new_v4() };
-            let mut payload = serde_json::to_string(&msg).map_err(|e| e.to_string())?;
-            payload.push('\n');
-            writer
-                .write_all(payload.as_bytes())
-                .await
-                .map_err(|e| e.to_string())?;
-            writer.flush().await.map_err(|e| e.to_string())?;
-            if let Ok(Some(line)) = lines.next_line().await {
-                if let Ok(DaemonMessage::Pong { .. }) = serde_json::from_str(&line) {
-                    return Ok(true);
-                }
-            }
-            Ok(false)
+    #[cfg(unix)]
+    {
+        let socket_path = Config::default_socket_path();
+        if !socket_path.exists() {
+            return Ok(false);
         }
-        Err(_) => Ok(false),
+        match UnixStream::connect(&socket_path).await {
+            Ok(stream) => {
+                configure_socket_safety(&stream);
+                let (reader, mut writer) = stream.into_split();
+                let mut lines = BufReader::new(reader).lines();
+                let msg = ClientMessage::Ping { id: Uuid::new_v4() };
+                let mut payload = serde_json::to_string(&msg).map_err(|e| e.to_string())?;
+                payload.push('\n');
+                writer
+                    .write_all(payload.as_bytes())
+                    .await
+                    .map_err(|e| e.to_string())?;
+                writer.flush().await.map_err(|e| e.to_string())?;
+                if let Ok(Some(line)) = lines.next_line().await {
+                    if let Ok(DaemonMessage::Pong { .. }) = serde_json::from_str(&line) {
+                        return Ok(true);
+                    }
+                }
+                Ok(false)
+            }
+            Err(_) => Ok(false),
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        Ok(false)
     }
 }
 
 #[tauri::command]
 async fn list_chats() -> Result<Vec<ChatSummary>, String> {
-    let socket_path = Config::default_socket_path();
-    let stream = UnixStream::connect(&socket_path)
-        .await
-        .map_err(|e| format!("Failed to connect to daemon: {e}"))?;
-    configure_socket_safety(&stream);
-    let (reader, mut writer) = stream.into_split();
-    let mut lines = BufReader::new(reader).lines();
+    #[cfg(unix)]
+    {
+        let socket_path = Config::default_socket_path();
+        let stream = UnixStream::connect(&socket_path)
+            .await
+            .map_err(|e| format!("Failed to connect to daemon: {e}"))?;
+        configure_socket_safety(&stream);
+        let (reader, mut writer) = stream.into_split();
+        let mut lines = BufReader::new(reader).lines();
 
-    let msg = ClientMessage::ListChats { id: Uuid::new_v4() };
-    let mut payload = serde_json::to_string(&msg).map_err(|e| e.to_string())?;
-    payload.push('\n');
-    writer
-        .write_all(payload.as_bytes())
-        .await
-        .map_err(|e| e.to_string())?;
-    writer.flush().await.map_err(|e| e.to_string())?;
+        let msg = ClientMessage::ListChats { id: Uuid::new_v4() };
+        let mut payload = serde_json::to_string(&msg).map_err(|e| e.to_string())?;
+        payload.push('\n');
+        writer
+            .write_all(payload.as_bytes())
+            .await
+            .map_err(|e| e.to_string())?;
+        writer.flush().await.map_err(|e| e.to_string())?;
 
-    if let Some(line) = lines.next_line().await.map_err(|e| e.to_string())? {
-        match serde_json::from_str::<DaemonMessage>(&line).map_err(|e| e.to_string())? {
-            DaemonMessage::Chats { chats, .. } => Ok(chats),
-            DaemonMessage::Error { error, .. } => {
-                Err(format!("{:?}: {}", error.code, error.message))
+        if let Some(line) = lines.next_line().await.map_err(|e| e.to_string())? {
+            match serde_json::from_str::<DaemonMessage>(&line).map_err(|e| e.to_string())? {
+                DaemonMessage::Chats { chats, .. } => Ok(chats),
+                DaemonMessage::Error { error, .. } => {
+                    Err(format!("{:?}: {}", error.code, error.message))
+                }
+                _ => Err("Unexpected response from daemon".to_string()),
             }
-            _ => Err("Unexpected response from daemon".to_string()),
+        } else {
+            Err("Daemon closed connection unexpectedly".to_string())
         }
-    } else {
-        Err("Daemon closed connection unexpectedly".to_string())
+    }
+    #[cfg(not(unix))]
+    {
+        Err("Windows preview: local Unix domain socket daemon IPC is not supported on Windows. Run nookd on macOS or Linux.".to_string())
     }
 }
 
 #[tauri::command]
 async fn get_chat(chat_id: Uuid) -> Result<ChatTranscript, String> {
-    let socket_path = Config::default_socket_path();
-    let stream = UnixStream::connect(&socket_path)
-        .await
-        .map_err(|e| format!("Failed to connect to daemon: {e}"))?;
-    configure_socket_safety(&stream);
-    let (reader, mut writer) = stream.into_split();
-    let mut lines = BufReader::new(reader).lines();
+    #[cfg(unix)]
+    {
+        let socket_path = Config::default_socket_path();
+        let stream = UnixStream::connect(&socket_path)
+            .await
+            .map_err(|e| format!("Failed to connect to daemon: {e}"))?;
+        configure_socket_safety(&stream);
+        let (reader, mut writer) = stream.into_split();
+        let mut lines = BufReader::new(reader).lines();
 
-    let msg = ClientMessage::GetChat {
-        id: Uuid::new_v4(),
-        chat_id,
-    };
-    let mut payload = serde_json::to_string(&msg).map_err(|e| e.to_string())?;
-    payload.push('\n');
-    writer
-        .write_all(payload.as_bytes())
-        .await
-        .map_err(|e| e.to_string())?;
-    writer.flush().await.map_err(|e| e.to_string())?;
+        let msg = ClientMessage::GetChat {
+            id: Uuid::new_v4(),
+            chat_id,
+        };
+        let mut payload = serde_json::to_string(&msg).map_err(|e| e.to_string())?;
+        payload.push('\n');
+        writer
+            .write_all(payload.as_bytes())
+            .await
+            .map_err(|e| e.to_string())?;
+        writer.flush().await.map_err(|e| e.to_string())?;
 
-    if let Some(line) = lines.next_line().await.map_err(|e| e.to_string())? {
-        match serde_json::from_str::<DaemonMessage>(&line).map_err(|e| e.to_string())? {
-            DaemonMessage::Chat {
-                title, messages, ..
-            } => Ok(ChatTranscript {
-                chat_id,
-                title,
-                messages,
-            }),
-            DaemonMessage::Error { error, .. } => {
-                Err(format!("{:?}: {}", error.code, error.message))
+        if let Some(line) = lines.next_line().await.map_err(|e| e.to_string())? {
+            match serde_json::from_str::<DaemonMessage>(&line).map_err(|e| e.to_string())? {
+                DaemonMessage::Chat {
+                    title, messages, ..
+                } => Ok(ChatTranscript {
+                    chat_id,
+                    title,
+                    messages,
+                }),
+                DaemonMessage::Error { error, .. } => {
+                    Err(format!("{:?}: {}", error.code, error.message))
+                }
+                _ => Err("Unexpected response from daemon".to_string()),
             }
-            _ => Err("Unexpected response from daemon".to_string()),
+        } else {
+            Err("Daemon closed connection unexpectedly".to_string())
         }
-    } else {
-        Err("Daemon closed connection unexpectedly".to_string())
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = chat_id;
+        Err("Windows preview: local Unix domain socket daemon IPC is not supported on Windows. Run nookd on macOS or Linux.".to_string())
     }
 }
 
 #[tauri::command]
 async fn delete_chat(chat_id: Uuid) -> Result<bool, String> {
-    let socket_path = Config::default_socket_path();
-    let stream = UnixStream::connect(&socket_path)
-        .await
-        .map_err(|e| format!("Failed to connect to daemon: {e}"))?;
-    configure_socket_safety(&stream);
-    let (reader, mut writer) = stream.into_split();
-    let mut lines = BufReader::new(reader).lines();
+    #[cfg(unix)]
+    {
+        let socket_path = Config::default_socket_path();
+        let stream = UnixStream::connect(&socket_path)
+            .await
+            .map_err(|e| format!("Failed to connect to daemon: {e}"))?;
+        configure_socket_safety(&stream);
+        let (reader, mut writer) = stream.into_split();
+        let mut lines = BufReader::new(reader).lines();
 
-    let msg = ClientMessage::DeleteChat {
-        id: Uuid::new_v4(),
-        chat_id,
-    };
-    let mut payload = serde_json::to_string(&msg).map_err(|e| e.to_string())?;
-    payload.push('\n');
-    writer
-        .write_all(payload.as_bytes())
-        .await
-        .map_err(|e| e.to_string())?;
-    writer.flush().await.map_err(|e| e.to_string())?;
+        let msg = ClientMessage::DeleteChat {
+            id: Uuid::new_v4(),
+            chat_id,
+        };
+        let mut payload = serde_json::to_string(&msg).map_err(|e| e.to_string())?;
+        payload.push('\n');
+        writer
+            .write_all(payload.as_bytes())
+            .await
+            .map_err(|e| e.to_string())?;
+        writer.flush().await.map_err(|e| e.to_string())?;
 
-    if let Some(line) = lines.next_line().await.map_err(|e| e.to_string())? {
-        match serde_json::from_str::<DaemonMessage>(&line).map_err(|e| e.to_string())? {
-            DaemonMessage::Deleted { .. } => Ok(true),
-            DaemonMessage::Error { error, .. } => {
-                Err(format!("{:?}: {}", error.code, error.message))
+        if let Some(line) = lines.next_line().await.map_err(|e| e.to_string())? {
+            match serde_json::from_str::<DaemonMessage>(&line).map_err(|e| e.to_string())? {
+                DaemonMessage::Deleted { .. } => Ok(true),
+                DaemonMessage::Error { error, .. } => {
+                    Err(format!("{:?}: {}", error.code, error.message))
+                }
+                _ => Err("Unexpected response from daemon".to_string()),
             }
-            _ => Err("Unexpected response from daemon".to_string()),
+        } else {
+            Err("Daemon closed connection unexpectedly".to_string())
         }
-    } else {
-        Err("Daemon closed connection unexpectedly".to_string())
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = chat_id;
+        Err("Windows preview: local Unix domain socket daemon IPC is not supported on Windows. Run nookd on macOS or Linux.".to_string())
     }
 }
 
@@ -406,124 +465,134 @@ async fn send_message<R: Runtime>(
     attachments: Vec<AttachmentInput>,
     on_event: tauri::ipc::Channel<DaemonMessage>,
 ) -> Result<(), String> {
-    if attachments.len() > 5 {
-        return Err("Maximum 5 attachments allowed per message".to_string());
-    }
-
-    let socket_path = Config::default_socket_path();
-    let stream = UnixStream::connect(&socket_path)
-        .await
-        .map_err(|e| format!("Failed to connect to daemon: {e}"))?;
-    configure_socket_safety(&stream);
-    let (reader, mut writer) = stream.into_split();
-    let mut lines = BufReader::new(reader).lines();
-
-    let att_dir = Config::default_attachments_dir().join(chat_id.to_string());
-    if !attachments.is_empty() {
-        let _ = std::fs::create_dir_all(&att_dir);
-    }
-
-    let mut processed_attachments = Vec::new();
-    for att in attachments {
-        let safe_name = sanitize_attachment_name(&att.name);
-        let att_id = Uuid::new_v4();
-        let dest_path = att_dir.join(format!("{att_id}-{safe_name}"));
-
-        let size_bytes: i64;
-        if let Some(ref path_str) = att.file_path {
-            let src = Path::new(path_str);
-            if !src.exists() {
-                return Err(format!("File does not exist: {path_str}"));
-            }
-            let meta = std::fs::metadata(src).map_err(|e| e.to_string())?;
-            size_bytes = meta.len() as i64;
-            if size_bytes > 10 * 1024 * 1024 {
-                return Err(format!("Attachment exceeds 10MB limit: {safe_name}"));
-            }
-            std::fs::copy(src, &dest_path).map_err(|e| e.to_string())?;
-        } else if let Some(ref b64) = att.data_base64 {
-            use base64::Engine;
-            let bytes = base64::engine::general_purpose::STANDARD
-                .decode(b64)
-                .map_err(|e| format!("Invalid base64 attachment data: {e}"))?;
-            size_bytes = bytes.len() as i64;
-            if size_bytes > 10 * 1024 * 1024 {
-                return Err(format!("Attachment exceeds 10MB limit: {safe_name}"));
-            }
-            std::fs::write(&dest_path, bytes).map_err(|e| e.to_string())?;
-        } else {
-            return Err("Attachment must provide either file_path or data_base64".to_string());
+    #[cfg(unix)]
+    {
+        if attachments.len() > 5 {
+            return Err("Maximum 5 attachments allowed per message".to_string());
         }
 
-        let kind = if att.mime.starts_with("image/") {
-            match att.mime.as_str() {
-                "image/png" | "image/jpeg" | "image/webp" | "image/gif" => AttachmentKind::Image,
-                _ => return Err(format!("Unsupported image format: {}", att.mime)),
+        let socket_path = Config::default_socket_path();
+        let stream = UnixStream::connect(&socket_path)
+            .await
+            .map_err(|e| format!("Failed to connect to daemon: {e}"))?;
+        configure_socket_safety(&stream);
+        let (reader, mut writer) = stream.into_split();
+        let mut lines = BufReader::new(reader).lines();
+
+        let att_dir = Config::default_attachments_dir().join(chat_id.to_string());
+        if !attachments.is_empty() {
+            let _ = std::fs::create_dir_all(&att_dir);
+        }
+
+        let mut processed_attachments = Vec::new();
+        for att in attachments {
+            let safe_name = sanitize_attachment_name(&att.name);
+            let att_id = Uuid::new_v4();
+            let dest_path = att_dir.join(format!("{att_id}-{safe_name}"));
+
+            let size_bytes: i64;
+            if let Some(ref path_str) = att.file_path {
+                let src = Path::new(path_str);
+                if !src.exists() {
+                    return Err(format!("File does not exist: {path_str}"));
+                }
+                let meta = std::fs::metadata(src).map_err(|e| e.to_string())?;
+                size_bytes = meta.len() as i64;
+                if size_bytes > 10 * 1024 * 1024 {
+                    return Err(format!("Attachment exceeds 10MB limit: {safe_name}"));
+                }
+                std::fs::copy(src, &dest_path).map_err(|e| e.to_string())?;
+            } else if let Some(ref b64) = att.data_base64 {
+                use base64::Engine;
+                let bytes = base64::engine::general_purpose::STANDARD
+                    .decode(b64)
+                    .map_err(|e| format!("Invalid base64 attachment data: {e}"))?;
+                size_bytes = bytes.len() as i64;
+                if size_bytes > 10 * 1024 * 1024 {
+                    return Err(format!("Attachment exceeds 10MB limit: {safe_name}"));
+                }
+                std::fs::write(&dest_path, bytes).map_err(|e| e.to_string())?;
+            } else {
+                return Err("Attachment must provide either file_path or data_base64".to_string());
             }
-        } else if att.mime == "application/pdf" {
-            AttachmentKind::Pdf
-        } else if att.mime.starts_with("text/")
-            || att.mime == "application/json"
-            || att.mime == "application/javascript"
+
+            let kind = if att.mime.starts_with("image/") {
+                match att.mime.as_str() {
+                    "image/png" | "image/jpeg" | "image/webp" | "image/gif" => {
+                        AttachmentKind::Image
+                    }
+                    _ => return Err(format!("Unsupported image format: {}", att.mime)),
+                }
+            } else if att.mime == "application/pdf" {
+                AttachmentKind::Pdf
+            } else if att.mime.starts_with("text/")
+                || att.mime == "application/json"
+                || att.mime == "application/javascript"
+            {
+                AttachmentKind::Text
+            } else {
+                return Err(format!("Unsupported attachment MIME type: {}", att.mime));
+            };
+
+            processed_attachments.push(Attachment {
+                id: att_id,
+                kind,
+                name: safe_name,
+                mime: att.mime,
+                size_bytes,
+                path: dest_path.to_string_lossy().to_string(),
+            });
+        }
+
+        let req_id = Uuid::new_v4();
+        let state = app.state::<DaemonState>();
         {
-            AttachmentKind::Text
-        } else {
-            return Err(format!("Unsupported attachment MIME type: {}", att.mime));
+            let mut active = state.active_request_id.lock().await;
+            *active = Some(req_id);
+        }
+
+        let msg = ClientMessage::SendMessage {
+            id: req_id,
+            chat_id,
+            text,
+            attachments: processed_attachments,
         };
+        let mut payload = serde_json::to_string(&msg).map_err(|e| e.to_string())?;
+        payload.push('\n');
+        writer
+            .write_all(payload.as_bytes())
+            .await
+            .map_err(|e| e.to_string())?;
+        writer.flush().await.map_err(|e| e.to_string())?;
 
-        processed_attachments.push(Attachment {
-            id: att_id,
-            kind,
-            name: safe_name,
-            mime: att.mime,
-            size_bytes,
-            path: dest_path.to_string_lossy().to_string(),
-        });
-    }
-
-    let req_id = Uuid::new_v4();
-    let state = app.state::<DaemonState>();
-    {
-        let mut active = state.active_request_id.lock().await;
-        *active = Some(req_id);
-    }
-
-    let msg = ClientMessage::SendMessage {
-        id: req_id,
-        chat_id,
-        text,
-        attachments: processed_attachments,
-    };
-    let mut payload = serde_json::to_string(&msg).map_err(|e| e.to_string())?;
-    payload.push('\n');
-    writer
-        .write_all(payload.as_bytes())
-        .await
-        .map_err(|e| e.to_string())?;
-    writer.flush().await.map_err(|e| e.to_string())?;
-
-    let state_for_cleanup = state.inner().active_request_id.clone();
-    tauri::async_runtime::spawn(async move {
-        let _keep_writer_alive = writer;
-        while let Ok(Some(line)) = lines.next_line().await {
-            if let Ok(event) = serde_json::from_str::<DaemonMessage>(&line) {
-                let is_terminal = matches!(
-                    event,
-                    DaemonMessage::MessageFinished { .. } | DaemonMessage::Error { .. }
-                );
-                let _ = on_event.send(event);
-                if is_terminal {
-                    let mut active = state_for_cleanup.lock().await;
-                    *active = None;
-                    break;
+        let state_for_cleanup = state.inner().active_request_id.clone();
+        tauri::async_runtime::spawn(async move {
+            let _keep_writer_alive = writer;
+            while let Ok(Some(line)) = lines.next_line().await {
+                if let Ok(event) = serde_json::from_str::<DaemonMessage>(&line) {
+                    let is_terminal = matches!(
+                        event,
+                        DaemonMessage::MessageFinished { .. } | DaemonMessage::Error { .. }
+                    );
+                    let _ = on_event.send(event);
+                    if is_terminal {
+                        let mut active = state_for_cleanup.lock().await;
+                        *active = None;
+                        break;
+                    }
                 }
             }
-        }
-        let mut active = state_for_cleanup.lock().await;
-        *active = None;
-    });
+            let mut active = state_for_cleanup.lock().await;
+            *active = None;
+        });
 
-    Ok(())
+        Ok(())
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (app, chat_id, text, attachments, on_event);
+        Err("Windows preview: local Unix domain socket daemon IPC is not supported on Windows. Run nookd on macOS or Linux.".to_string())
+    }
 }
 
 #[tauri::command]
@@ -531,122 +600,145 @@ async fn cancel_message<R: Runtime>(
     app: AppHandle<R>,
     target_id: Option<Uuid>,
 ) -> Result<(), String> {
-    let req_to_cancel = if let Some(id) = target_id {
-        id
-    } else {
-        let state = app.state::<DaemonState>();
-        let active = state.active_request_id.lock().await;
-        match *active {
-            Some(id) => id,
-            None => return Ok(()),
-        }
-    };
+    #[cfg(unix)]
+    {
+        let req_to_cancel = if let Some(id) = target_id {
+            id
+        } else {
+            let state = app.state::<DaemonState>();
+            let active = state.active_request_id.lock().await;
+            match *active {
+                Some(id) => id,
+                None => return Ok(()),
+            }
+        };
 
-    let socket_path = Config::default_socket_path();
-    let stream = UnixStream::connect(&socket_path)
-        .await
-        .map_err(|e| format!("Failed to connect to daemon: {e}"))?;
-    configure_socket_safety(&stream);
-    let (_, mut writer) = stream.into_split();
+        let socket_path = Config::default_socket_path();
+        let stream = UnixStream::connect(&socket_path)
+            .await
+            .map_err(|e| format!("Failed to connect to daemon: {e}"))?;
+        configure_socket_safety(&stream);
+        let (_, mut writer) = stream.into_split();
 
-    let msg = ClientMessage::Cancel {
-        id: Uuid::new_v4(),
-        target_id: req_to_cancel,
-    };
-    let mut payload = serde_json::to_string(&msg).map_err(|e| e.to_string())?;
-    payload.push('\n');
-    writer
-        .write_all(payload.as_bytes())
-        .await
-        .map_err(|e| e.to_string())?;
-    writer.flush().await.map_err(|e| e.to_string())?;
-    Ok(())
+        let msg = ClientMessage::Cancel {
+            id: Uuid::new_v4(),
+            target_id: req_to_cancel,
+        };
+        let mut payload = serde_json::to_string(&msg).map_err(|e| e.to_string())?;
+        payload.push('\n');
+        writer
+            .write_all(payload.as_bytes())
+            .await
+            .map_err(|e| e.to_string())?;
+        writer.flush().await.map_err(|e| e.to_string())?;
+        Ok(())
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (app, target_id);
+        Err("Windows preview: local Unix domain socket daemon IPC is not supported on Windows. Run nookd on macOS or Linux.".to_string())
+    }
 }
 
 #[tauri::command]
 async fn get_settings() -> Result<SettingsInfo, String> {
-    let socket_path = Config::default_socket_path();
-    let stream = UnixStream::connect(&socket_path)
-        .await
-        .map_err(|e| format!("Failed to connect to daemon: {e}"))?;
-    configure_socket_safety(&stream);
-    let (reader, mut writer) = stream.into_split();
-    let mut lines = BufReader::new(reader).lines();
+    #[cfg(unix)]
+    {
+        let socket_path = Config::default_socket_path();
+        let stream = UnixStream::connect(&socket_path)
+            .await
+            .map_err(|e| format!("Failed to connect to daemon: {e}"))?;
+        configure_socket_safety(&stream);
+        let (reader, mut writer) = stream.into_split();
+        let mut lines = BufReader::new(reader).lines();
 
-    let msg = ClientMessage::GetSettings { id: Uuid::new_v4() };
-    let mut payload = serde_json::to_string(&msg).map_err(|e| e.to_string())?;
-    payload.push('\n');
-    writer
-        .write_all(payload.as_bytes())
-        .await
-        .map_err(|e| e.to_string())?;
-    writer.flush().await.map_err(|e| e.to_string())?;
+        let msg = ClientMessage::GetSettings { id: Uuid::new_v4() };
+        let mut payload = serde_json::to_string(&msg).map_err(|e| e.to_string())?;
+        payload.push('\n');
+        writer
+            .write_all(payload.as_bytes())
+            .await
+            .map_err(|e| e.to_string())?;
+        writer.flush().await.map_err(|e| e.to_string())?;
 
-    if let Some(line) = lines.next_line().await.map_err(|e| e.to_string())? {
-        match serde_json::from_str::<DaemonMessage>(&line).map_err(|e| e.to_string())? {
-            DaemonMessage::Settings {
-                base_url,
-                model,
-                has_api_key,
-                ..
-            } => Ok(SettingsInfo {
-                base_url,
-                model,
-                has_api_key,
-            }),
-            DaemonMessage::Error { error, .. } => {
-                Err(format!("{:?}: {}", error.code, error.message))
+        if let Some(line) = lines.next_line().await.map_err(|e| e.to_string())? {
+            match serde_json::from_str::<DaemonMessage>(&line).map_err(|e| e.to_string())? {
+                DaemonMessage::Settings {
+                    base_url,
+                    model,
+                    has_api_key,
+                    ..
+                } => Ok(SettingsInfo {
+                    base_url,
+                    model,
+                    has_api_key,
+                }),
+                DaemonMessage::Error { error, .. } => {
+                    Err(format!("{:?}: {}", error.code, error.message))
+                }
+                _ => Err("Unexpected response from daemon".to_string()),
             }
-            _ => Err("Unexpected response from daemon".to_string()),
+        } else {
+            Err("Daemon closed connection unexpectedly".to_string())
         }
-    } else {
-        Err("Daemon closed connection unexpectedly".to_string())
+    }
+    #[cfg(not(unix))]
+    {
+        Err("Windows preview: local Unix domain socket daemon IPC is not supported on Windows. Run nookd on macOS or Linux.".to_string())
     }
 }
 
 #[tauri::command]
 async fn set_settings(payload: SettingsPayload) -> Result<SettingsInfo, String> {
-    let socket_path = Config::default_socket_path();
-    let stream = UnixStream::connect(&socket_path)
-        .await
-        .map_err(|e| format!("Failed to connect to daemon: {e}"))?;
-    configure_socket_safety(&stream);
-    let (reader, mut writer) = stream.into_split();
-    let mut lines = BufReader::new(reader).lines();
+    #[cfg(unix)]
+    {
+        let socket_path = Config::default_socket_path();
+        let stream = UnixStream::connect(&socket_path)
+            .await
+            .map_err(|e| format!("Failed to connect to daemon: {e}"))?;
+        configure_socket_safety(&stream);
+        let (reader, mut writer) = stream.into_split();
+        let mut lines = BufReader::new(reader).lines();
 
-    let msg = ClientMessage::SetSettings {
-        id: Uuid::new_v4(),
-        base_url: payload.base_url,
-        model: payload.model,
-        api_key: payload.api_key,
-    };
-    let mut p = serde_json::to_string(&msg).map_err(|e| e.to_string())?;
-    p.push('\n');
-    writer
-        .write_all(p.as_bytes())
-        .await
-        .map_err(|e| e.to_string())?;
-    writer.flush().await.map_err(|e| e.to_string())?;
+        let msg = ClientMessage::SetSettings {
+            id: Uuid::new_v4(),
+            base_url: payload.base_url,
+            model: payload.model,
+            api_key: payload.api_key,
+        };
+        let mut p = serde_json::to_string(&msg).map_err(|e| e.to_string())?;
+        p.push('\n');
+        writer
+            .write_all(p.as_bytes())
+            .await
+            .map_err(|e| e.to_string())?;
+        writer.flush().await.map_err(|e| e.to_string())?;
 
-    if let Some(line) = lines.next_line().await.map_err(|e| e.to_string())? {
-        match serde_json::from_str::<DaemonMessage>(&line).map_err(|e| e.to_string())? {
-            DaemonMessage::Settings {
-                base_url,
-                model,
-                has_api_key,
-                ..
-            } => Ok(SettingsInfo {
-                base_url,
-                model,
-                has_api_key,
-            }),
-            DaemonMessage::Error { error, .. } => {
-                Err(format!("{:?}: {}", error.code, error.message))
+        if let Some(line) = lines.next_line().await.map_err(|e| e.to_string())? {
+            match serde_json::from_str::<DaemonMessage>(&line).map_err(|e| e.to_string())? {
+                DaemonMessage::Settings {
+                    base_url,
+                    model,
+                    has_api_key,
+                    ..
+                } => Ok(SettingsInfo {
+                    base_url,
+                    model,
+                    has_api_key,
+                }),
+                DaemonMessage::Error { error, .. } => {
+                    Err(format!("{:?}: {}", error.code, error.message))
+                }
+                _ => Err("Unexpected response from daemon".to_string()),
             }
-            _ => Err("Unexpected response from daemon".to_string()),
+        } else {
+            Err("Daemon closed connection unexpectedly".to_string())
         }
-    } else {
-        Err("Daemon closed connection unexpectedly".to_string())
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = payload;
+        Err("Windows preview: local Unix domain socket daemon IPC is not supported on Windows. Run nookd on macOS or Linux.".to_string())
     }
 }
 
@@ -767,6 +859,7 @@ fn toggle_window_internal<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> 
 }
 
 #[cfg(test)]
+#[cfg(unix)]
 mod tests {
     use super::*;
     use tempfile::tempdir;
