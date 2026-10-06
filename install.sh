@@ -34,11 +34,11 @@ install_macos_app() {
     fi
 
     target_dir=""
-    if [ -w "/Applications" ]; then
-        target_dir="/Applications"
-    else
+    if [ "${NOOK_USER_ONLY:-0}" = "1" ] || [ ! -w "/Applications" ]; then
         target_dir="${HOME}/Applications"
         mkdir -p "$target_dir"
+    else
+        target_dir="/Applications"
     fi
 
     echo "Installing Nook.app to ${target_dir}/Nook.app..."
@@ -48,6 +48,22 @@ install_macos_app() {
     else
         echo "Error: Failed to copy Nook.app to ${target_dir}" >&2
         exit 1
+    fi
+
+    # Also install panel and daemon binaries directly into ~/.local/bin
+    if [ -f "${target_dir}/Nook.app/Contents/MacOS/nook-panel" ]; then
+        cp "${target_dir}/Nook.app/Contents/MacOS/nook-panel" "$BIN_DIR/nook-panel"
+        chmod +x "$BIN_DIR/nook-panel"
+        echo "Installed nook-panel to ${BIN_DIR}/nook-panel"
+    elif [ -f "${target_dir}/Nook.app/Contents/MacOS/Nook" ]; then
+        cp "${target_dir}/Nook.app/Contents/MacOS/Nook" "$BIN_DIR/nook-panel"
+        chmod +x "$BIN_DIR/nook-panel"
+        echo "Installed nook-panel to ${BIN_DIR}/nook-panel"
+    fi
+    if [ -f "${target_dir}/Nook.app/Contents/MacOS/nookd" ]; then
+        cp "${target_dir}/Nook.app/Contents/MacOS/nookd" "$BIN_DIR/nookd"
+        chmod +x "$BIN_DIR/nookd"
+        echo "Installed nookd to ${BIN_DIR}/nookd"
     fi
 }
 
@@ -117,39 +133,42 @@ if [ "$IS_LOCAL" -eq 1 ]; then
     fi
 else
     echo "Fetching latest release from GitHub ($GITHUB_REPO)..."
-    API_URL="https://api.github.com/repos/${GITHUB_REPO}/releases/latest"
-    RELEASE_DATA=$(secure_curl -fsSL "$API_URL" 2>/dev/null || true)
+    TAG_NAME=""
 
-    if [ -z "$RELEASE_DATA" ]; then
-        echo "Notice: No pre-built release found on GitHub yet."
-        echo "To build from source, clone the repository and run ./install.sh:"
-        echo "  git clone https://github.com/${GITHUB_REPO}.git && cd Nook && ./install.sh"
+    # 1. Try authenticated API if token exists
+    if [ -n "$GITHUB_TOKEN" ] || [ -n "$GH_TOKEN" ]; then
+        AUTH_HEADER="Authorization: token ${GITHUB_TOKEN:-$GH_TOKEN}"
+        API_URL="https://api.github.com/repos/${GITHUB_REPO}/releases/latest"
+        RELEASE_DATA=$(secure_curl -H "$AUTH_HEADER" -fsSL "$API_URL" 2>/dev/null || true)
+        if [ -n "$RELEASE_DATA" ]; then
+            TAG_NAME=$(echo "$RELEASE_DATA" | grep '"tag_name":' | head -n 1 | cut -d '"' -f 4)
+        fi
+    fi
+
+    # 2. Fall back to GitHub web redirect (not rate-limited)
+    if [ -z "$TAG_NAME" ]; then
+        REDIRECT_HEADER=$(curl -sI "https://github.com/${GITHUB_REPO}/releases/latest" 2>/dev/null | grep -i "^location:" | head -n 1 | tr -d '\r\n')
+        if [ -n "$REDIRECT_HEADER" ]; then
+            TAG_NAME=$(echo "$REDIRECT_HEADER" | sed -e 's/.*tag\///')
+        fi
+    fi
+
+    if [ -z "$TAG_NAME" ]; then
+        echo "Error: Could not resolve latest release tag from GitHub." >&2
         exit 1
     fi
 
-    TAG_NAME=$(echo "$RELEASE_DATA" | grep '"tag_name":' | head -n 1 | cut -d '"' -f 4)
     VERSION="${TAG_NAME#v}"
     echo "Latest release: $TAG_NAME"
-
-    find_asset_url() {
-        pattern="$1"
-        echo "$RELEASE_DATA" | grep '"browser_download_url":' | cut -d '"' -f 4 | grep -E "$pattern" | head -n 1
-    }
+    DOWNLOAD_BASE="https://github.com/${GITHUB_REPO}/releases/download/${TAG_NAME}"
 
     if [ "$PLATFORM" = "macos" ]; then
         if [ "$ARCH_NORM" = "arm64" ]; then
-            DMG_URL=$(find_asset_url "Nook_.*(aarch64|arm64).*\.dmg$")
+            DMG_NAME="Nook_${VERSION}_aarch64.dmg"
         else
-            DMG_URL=$(find_asset_url "Nook_.*(x86_64|x64|amd64).*\.dmg$")
+            DMG_NAME="Nook_${VERSION}_x64.dmg"
         fi
-        if [ -z "$DMG_URL" ]; then
-            DMG_URL=$(find_asset_url "Nook_.*\.dmg$")
-        fi
-
-        if [ -z "$DMG_URL" ]; then
-            echo "Error: No compatible macOS .dmg release asset found for $ARCH_NORM." >&2
-            exit 1
-        fi
+        DMG_URL="${DOWNLOAD_BASE}/${DMG_NAME}"
 
         TMP_DMG=$(mktemp /tmp/nook-installer.XXXXXX.dmg)
         TMP_FILES="$TMP_FILES $TMP_DMG"
@@ -169,40 +188,30 @@ else
         MOUNT_DIR=""
     elif [ "$PLATFORM" = "linux" ]; then
         if [ "$ARCH_NORM" = "x86_64" ]; then
-            DEB_URL=$(find_asset_url "nook_.*(amd64|x86_64|x64).*\.deb$")
+            DEB_NAME="nook_${VERSION}_amd64.deb"
+            APPIMAGE_NAME="Nook_${VERSION}_amd64.AppImage"
         else
-            DEB_URL=$(find_asset_url "nook_.*(arm64|aarch64).*\.deb$")
+            DEB_NAME="nook_${VERSION}_arm64.deb"
+            APPIMAGE_NAME="Nook_${VERSION}_arm64.AppImage"
         fi
+        DEB_URL="${DOWNLOAD_BASE}/${DEB_NAME}"
+        APPIMAGE_URL="${DOWNLOAD_BASE}/${APPIMAGE_NAME}"
 
-        if [ -n "$DEB_URL" ]; then
-            TMP_DEB=$(mktemp /tmp/nook-installer.XXXXXX.deb)
-            TMP_FILES="$TMP_FILES $TMP_DEB"
+        TMP_DEB=$(mktemp /tmp/nook-installer.XXXXXX.deb)
+        TMP_FILES="$TMP_FILES $TMP_DEB"
 
-            echo "Downloading $DEB_URL..."
-            if ! secure_curl -fSL "$DEB_URL" -o "$TMP_DEB"; then
-                echo "Error: Failed to download Debian package." >&2
-                exit 1
-            fi
+        echo "Downloading $DEB_URL..."
+        if secure_curl -fSL "$DEB_URL" -o "$TMP_DEB" 2>/dev/null; then
             echo "Installing Debian package..."
             sudo dpkg -i "$TMP_DEB" || sudo apt-get install -f -y
         else
-            if [ "$ARCH_NORM" = "x86_64" ]; then
-                APPIMAGE_URL=$(find_asset_url "nook_.*(amd64|x86_64|x64).*\.AppImage$")
-            else
-                APPIMAGE_URL=$(find_asset_url "nook_.*(arm64|aarch64).*\.AppImage$")
-            fi
-            if [ -n "$APPIMAGE_URL" ]; then
-                TMP_APPIMAGE="${BIN_DIR}/nook-panel"
-                echo "Downloading AppImage to $TMP_APPIMAGE..."
-                if ! secure_curl -fSL "$APPIMAGE_URL" -o "$TMP_APPIMAGE"; then
-                    echo "Error: Failed to download AppImage." >&2
-                    exit 1
-                fi
-                chmod +x "$TMP_APPIMAGE"
-            else
-                echo "Error: No compatible Linux release asset (.deb or .AppImage) found." >&2
+            TMP_APPIMAGE="${BIN_DIR}/nook-panel"
+            echo "Downloading AppImage to $TMP_APPIMAGE..."
+            if ! secure_curl -fSL "$APPIMAGE_URL" -o "$TMP_APPIMAGE"; then
+                echo "Error: Failed to download Linux release asset (.deb or .AppImage)." >&2
                 exit 1
             fi
+            chmod +x "$TMP_APPIMAGE"
         fi
     fi
 fi
