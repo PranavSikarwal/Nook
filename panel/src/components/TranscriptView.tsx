@@ -89,19 +89,20 @@ export function TranscriptView({
 
   return (
     <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4">
-      {messages.map((msg) => {
+      {messages.map((msg, idx) => {
         const isUser = msg.role === 'user'
+        const msgKey = msg.id || (msg as unknown as { message_id?: string }).message_id || String(idx)
 
         if (isUser) {
           return (
-            <div key={msg.id} className="flex justify-end">
+            <div key={msgKey} className="flex justify-end">
               <div className="max-w-[85%] bg-[#8a38f5] text-white px-4 py-2 rounded-2xl rounded-tr-sm text-sm shadow-sm leading-relaxed whitespace-pre-wrap break-words select-text">
                 {msg.text}
-                {msg.attachments.length > 0 && (
+                {(msg.attachments?.length ?? 0) > 0 && (
                   <div className="mt-2 pt-2 border-t border-white/20 flex flex-wrap gap-1">
-                    {msg.attachments.map((att) => (
+                    {msg.attachments.map((att, attIdx) => (
                       <span
-                        key={att.id}
+                        key={att.id || att.name || String(attIdx)}
                         className="text-[11px] bg-black/20 px-2 py-0.5 rounded text-white/90"
                       >
                         {att.name}
@@ -115,28 +116,28 @@ export function TranscriptView({
         }
 
         return (
-          <div key={msg.id} className="flex justify-start">
+          <div key={msgKey} className="flex justify-start">
             <div className="max-w-[95%] w-full bg-white/[0.04] border border-white/[0.08] px-4 py-3 rounded-2xl rounded-tl-sm text-sm select-text">
               {renderAssistantContent(msg)}
 
-              {msg.status === 'streaming' && (
+              {msg.status === 'streaming' && !activeApproval && (
                 <div className="flex items-center gap-1.5 mt-2 text-xs text-purple-400 font-medium select-none">
                   <span className="size-1.5 rounded-full bg-purple-400 animate-pulse" />
                   <span>Thinking...</span>
                 </div>
               )}
 
-              {activeApproval?.message_id === msg.id && onApprovalDecide && (
+              {Boolean(activeApproval) && (activeApproval?.message_id === (msg.id || msg.message_id) || msg.status === 'streaming' || idx === messages.length - 1) && onApprovalDecide && (
                 <ApprovalCard
-                  request={activeApproval}
+                  request={activeApproval!}
                   onDecide={onApprovalDecide}
                 />
               )}
 
               {/* Action bar for completed assistant response */}
-              {msg.text.trim().length > 0 && msg.status !== 'streaming' && (
+              {(msg.text?.trim()?.length ?? 0) > 0 && msg.status !== 'streaming' && (
                 <div className="flex items-center justify-end mt-2 pt-2 border-t border-white/5">
-                  <CopyMessageButton text={msg.text} />
+                  <CopyMessageButton text={msg.text ?? ''} />
                 </div>
               )}
 

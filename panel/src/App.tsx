@@ -179,19 +179,36 @@ export default function App() {
 
   // Process incoming daemon events
   const handleDaemonEvent = (event: DaemonEvent) => {
-    if (event.type === 'text_delta') {
+    if (event.type === 'message_started') {
       setMessages((prev) => {
         const last = prev[prev.length - 1]
         if (last?.role === 'assistant') {
           return [
             ...prev.slice(0, -1),
-            { ...last, text: last.text + event.text },
+            { ...last, id: event.message_id, message_id: event.message_id },
+          ]
+        }
+        return prev
+      })
+    } else if (event.type === 'text_delta') {
+      setMessages((prev) => {
+        const last = prev[prev.length - 1]
+        if (last?.role === 'assistant') {
+          return [
+            ...prev.slice(0, -1),
+            {
+              ...last,
+              id: event.message_id || last.id,
+              message_id: event.message_id,
+              text: last.text + event.text,
+            },
           ]
         }
         return [
           ...prev,
           {
             id: event.message_id,
+            message_id: event.message_id,
             role: 'assistant',
             text: event.text,
             status: 'streaming',
@@ -202,6 +219,16 @@ export default function App() {
       })
     } else if (event.type === 'approval_requested') {
       setActiveApproval(event)
+      setMessages((prev) => {
+        const last = prev[prev.length - 1]
+        if (last?.role === 'assistant') {
+          return [
+            ...prev.slice(0, -1),
+            { ...last, id: event.message_id, message_id: event.message_id },
+          ]
+        }
+        return prev
+      })
     } else if (event.type === 'message_finished') {
       setIsStreaming(false)
       setActiveApproval(null)
@@ -493,7 +520,16 @@ export default function App() {
     try {
       const transcript = await getChat(selectedId)
       setChatId(transcript.chat_id)
-      setMessages(transcript.messages)
+      const loadedMessages: ChatMessage[] = (transcript.messages || []).map((m: any) => ({
+        id: m.id || m.message_id || crypto.randomUUID(),
+        role: m.role || 'assistant',
+        text: m.text ?? '',
+        status: m.status ?? 'complete',
+        error: m.error,
+        attachments: Array.isArray(m.attachments) ? m.attachments : [],
+        created_at: m.created_at ?? new Date().toISOString(),
+      }))
+      setMessages(loadedMessages)
       setActivePanel('none')
     } catch (err) {
       setErrorMessage(`Failed to load chat: ${err instanceof Error ? err.message : String(err)}`)

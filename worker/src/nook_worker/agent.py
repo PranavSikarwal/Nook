@@ -1,5 +1,7 @@
+import json
 from collections.abc import AsyncIterator
 from typing import Any, Protocol
+from urllib.parse import urlparse
 from uuid import UUID, uuid4
 
 import httpx
@@ -18,6 +20,7 @@ from langchain_core.tools import StructuredTool
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.base import BaseCheckpointSaver
 
+from nook_worker.approval import default_approval_manager
 from nook_worker.attachments import AttachmentError, process_attachments_and_text
 from nook_worker.config import WorkerConfig
 from nook_worker.protocol import (
@@ -35,6 +38,7 @@ from nook_worker.tools.search import WebSearchInput, execute_web_search
 SYSTEM_PROMPT = (
     "You are Nook, a concise desktop assistant. "
     "You have access to web_search and web_fetch tools to look up current information. "
+    "When asked to read, fetch, or summarize a URL or web page, you must use the web_fetch tool. "
     "Always answer in Markdown."
 )
 
@@ -152,6 +156,33 @@ def build_deep_agent(
                 return f"Error: Tool '{registered_name}' is not registered."
             if defn.approval_tier == "deny":
                 return f"Error: Tool '{registered_name}' is denied by policy."
+
+            if defn.approval_tier == "ask_once_per_host":
+                target_url = str(kwargs.get("url", ""))
+                parsed_host = urlparse(target_url).hostname or target_url
+                chat_id_str = str(default_approval_manager.current_chat_id or "")
+
+                if not default_approval_manager.is_host_approved(
+                    chat_id_str, parsed_host
+                ):
+                    call_id = f"call_{uuid4().hex[:8]}"
+                    action = await default_approval_manager.request_approval(
+                        call_id=call_id,
+                        tool_name=registered_name,
+                        arguments=json.dumps(kwargs),
+                        explanation=f"Web fetch requires approval to access {parsed_host}",
+                        resource_summary=target_url,
+                        actions=["allow_once", "allow_for_chat_host", "deny"],
+                    )
+                    if action == "deny":
+                        return f"Error: User denied permission to access {parsed_host}."
+                    if action in (
+                        "allow_for_chat_host",
+                        "allow_for_chat",
+                        "always_allow",
+                    ):
+                        default_approval_manager.approve_host(chat_id_str, parsed_host)
+
             return await defn.executor(**kwargs)
 
         return registry_runner

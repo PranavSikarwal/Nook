@@ -26,6 +26,7 @@ export interface ErrorInfo {
 
 export interface ChatMessage {
   id: string
+  message_id?: string
   role: MessageRole
   text: string
   status: MessageStatus
