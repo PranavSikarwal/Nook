@@ -403,7 +403,7 @@ export default function App() {
     try {
       const reqId = await sendMessage(sendChatId, question, currentAtts, onDaemonEvent)
       activeRequestIdRef.current = reqId
-      if (activeSendRef.current && activeSendRef.current.localMsgId === localMsgId) {
+      if (activeSendRef.current?.localMsgId === localMsgId) {
         activeSendRef.current.requestId = reqId
       }
     } catch (err) {
