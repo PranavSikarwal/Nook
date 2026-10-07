@@ -6,7 +6,8 @@ reviewer_path = (
     Path(__file__).resolve().parent.parent / ".github" / "workflows" / "pr_reviewer.py"
 )
 spec = importlib.util.spec_from_file_location("pr_reviewer", reviewer_path)
-assert spec and spec.loader
+if spec is None or spec.loader is None:
+    raise RuntimeError("Failed to load pr_reviewer module")
 pr_reviewer = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(pr_reviewer)
 
