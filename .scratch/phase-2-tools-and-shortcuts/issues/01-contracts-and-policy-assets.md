@@ -1,7 +1,7 @@
 # Define tool approval contracts and policy assets
 
 Type: task
-Status: open
+Status: resolved
 Blocked by: none
 
 ## Goal

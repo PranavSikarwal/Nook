@@ -1,0 +1,31 @@
+namespace Nook {
+  entity User;
+
+  entity Tool {
+    name: String,
+    read_only: Bool,
+  };
+
+  action "web_search" appliesTo {
+    principal: [User],
+    resource: [Tool],
+    context: {
+      chat_id: String,
+      approval_tier: String,
+      grant_scope: String,
+    }
+  };
+
+  action "web_fetch" appliesTo {
+    principal: [User],
+    resource: [Tool],
+    context: {
+      chat_id: String,
+      host: String,
+      url: String,
+      approval_tier: String,
+      grant_scope: String,
+      argument_digest: String,
+    }
+  };
+}

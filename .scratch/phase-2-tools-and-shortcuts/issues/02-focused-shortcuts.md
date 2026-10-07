@@ -1,7 +1,7 @@
 # Add configurable focused-Panel shortcuts
 
 Type: task
-Status: open
+Status: resolved
 Blocked by: none
 
 ## Goal

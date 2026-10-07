@@ -14,6 +14,7 @@ from deepagents import (
 from deepagents.backends import StateBackend
 from deepagents.middleware.summarization import SummarizationMiddleware
 from langchain_core.messages import AIMessageChunk, HumanMessage
+from langchain_core.tools import StructuredTool
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.base import BaseCheckpointSaver
 
@@ -27,10 +28,13 @@ from nook_worker.protocol import (
     RunRequest,
     TextDeltaEvent,
 )
+from nook_worker.registry import ToolDefinition, default_registry
+from nook_worker.tools.fetch import WebFetchInput, execute_web_fetch
+from nook_worker.tools.search import WebSearchInput, execute_web_search
 
 SYSTEM_PROMPT = (
     "You are Nook, a concise desktop assistant. "
-    "You have no tools in this version. "
+    "You have access to web_search and web_fetch tools to look up current information. "
     "Always answer in Markdown."
 )
 
@@ -120,9 +124,62 @@ def build_deep_agent(
         trigger=("tokens", config.summarize_at_tokens),
     )
 
+    tool_specs = [
+        (
+            "nook:web_search",
+            "web_search",
+            "Search the web using DuckDuckGo. Returns titles, links, and snippets.",
+            WebSearchInput,
+            {"network": True, "read_only": True},
+            "allow",
+            execute_web_search,
+        ),
+        (
+            "nook:web_fetch",
+            "web_fetch",
+            "Fetch a public web page over HTTP or HTTPS and extract readable text.",
+            WebFetchInput,
+            {"network": True, "read_only": True},
+            "ask_once_per_host",
+            execute_web_fetch,
+        ),
+    ]
+
+    def make_registry_runner(registered_name: str):
+        async def registry_runner(**kwargs: Any) -> str:
+            defn = default_registry.get(registered_name)
+            if not defn:
+                return f"Error: Tool '{registered_name}' is not registered."
+            if defn.approval_tier == "deny":
+                return f"Error: Tool '{registered_name}' is denied by policy."
+            return await defn.executor(**kwargs)
+
+        return registry_runner
+
+    tools = []
+    for reg_name, tool_name, desc, schema, caps, tier, fn in tool_specs:
+        default_registry.register(
+            ToolDefinition(
+                name=reg_name,
+                description=desc,
+                argument_schema=schema,
+                capabilities=caps,
+                approval_tier=tier,
+                executor=fn,
+            )
+        )
+        tools.append(
+            StructuredTool.from_function(
+                coroutine=make_registry_runner(reg_name),
+                name=tool_name,
+                description=desc,
+                args_schema=schema,
+            )
+        )
+
     return create_deep_agent(
         model=model,
-        tools=[],
+        tools=tools,
         backend=backend,
         checkpointer=checkpointer,
         middleware=[custom_summarization],

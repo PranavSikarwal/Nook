@@ -1,11 +1,14 @@
 import { AlertCircle, Check, Copy, RotateCcw } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import type { ChatMessage } from '../lib/types'
+import type { ApprovalRequest, ChatMessage } from '../lib/types'
+import { ApprovalCard } from './ApprovalCard'
 import { MarkdownRenderer } from './MarkdownRenderer'
 
 interface TranscriptViewProps {
   readonly messages: readonly ChatMessage[]
   readonly isStreaming: boolean
+  readonly activeApproval?: ApprovalRequest | null
+  readonly onApprovalDecide?: (action: string) => void
   readonly onRetry?: () => void
 }
 
@@ -63,12 +66,18 @@ function renderAssistantContent(msg: ChatMessage) {
   )
 }
 
-export function TranscriptView({ messages, isStreaming, onRetry }: TranscriptViewProps) {
+export function TranscriptView({
+  messages,
+  isStreaming,
+  activeApproval,
+  onApprovalDecide,
+  onRetry,
+}: TranscriptViewProps) {
   const bottomRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, isStreaming])
+  }, [messages, isStreaming, activeApproval])
 
   if (messages.length === 0) {
     return (
@@ -115,6 +124,13 @@ export function TranscriptView({ messages, isStreaming, onRetry }: TranscriptVie
                   <span className="size-1.5 rounded-full bg-purple-400 animate-pulse" />
                   <span>Thinking...</span>
                 </div>
+              )}
+
+              {activeApproval?.message_id === msg.id && onApprovalDecide && (
+                <ApprovalCard
+                  request={activeApproval}
+                  onDecide={onApprovalDecide}
+                />
               )}
 
               {/* Action bar for completed assistant response */}

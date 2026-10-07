@@ -1,22 +1,29 @@
 import { AlertCircle, X } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { AttachmentChips } from './components/AttachmentChips'
 import { HistoryDrawer } from './components/HistoryDrawer'
 import { InputBar } from './components/InputBar'
 import { SettingsModal } from './components/SettingsModal'
 import { TranscriptView } from './components/TranscriptView'
 import {
+  loadShortcuts,
+  normalizeKeyboardEvent,
+  type ShortcutMap,
+} from './lib/shortcuts'
+import {
   cancelMessage,
   deleteChat,
   getChat,
   getSettings,
   listChats,
+  sendApprovalDecision,
   sendMessage,
   setSettings,
   setWindowSize,
   startDrag,
 } from './lib/daemon'
 import type {
+  ApprovalRequest,
   AttachmentInput,
   ChatMessage,
   ChatSummary,
@@ -33,6 +40,59 @@ const ATTACHMENTS_HEIGHT = 110
 const DRAWER_HEIGHT = 440
 const EXPANDED_HEIGHT = 520
 
+interface ShortcutContext {
+  inputRef: React.RefObject<HTMLInputElement | null>
+  fileInputRef: React.RefObject<HTMLInputElement | null>
+  isStreaming: boolean
+  activeApproval: ApprovalRequest | null
+  activePanel: ActivePanel
+  onNewChat: () => void
+  onToggleHistory: () => void
+  onToggleSettings: () => void
+  onStop: () => void
+  onApprovalDecide: (action: string) => void
+  onCloseAuxiliary: () => void
+}
+
+function executeShortcutAction(action: string, ctx: ShortcutContext): boolean {
+  switch (action) {
+    case 'focus_input':
+      ctx.inputRef.current?.focus()
+      return true
+    case 'new_chat':
+      if (!ctx.isStreaming) ctx.onNewChat()
+      return true
+    case 'toggle_history':
+      ctx.onToggleHistory()
+      return true
+    case 'open_settings':
+      ctx.onToggleSettings()
+      return true
+    case 'attach_file':
+      ctx.fileInputRef.current?.click()
+      return true
+    case 'cancel_active_work':
+      if (ctx.activeApproval) {
+        ctx.onApprovalDecide('deny')
+        ctx.onStop()
+        return true
+      }
+      if (ctx.isStreaming) {
+        ctx.onStop()
+        return true
+      }
+      return false
+    case 'close_auxiliary_view':
+      if (ctx.activePanel !== 'none') {
+        ctx.onCloseAuxiliary()
+        return true
+      }
+      return false
+    default:
+      return false
+  }
+}
+
 export default function App() {
   const [activePanel, setActivePanel] = useState<ActivePanel>('none')
   const [chatId, setChatId] = useState<string>(() => crypto.randomUUID())
@@ -43,8 +103,32 @@ export default function App() {
   const [chats, setChats] = useState<ChatSummary[]>([])
   const [settingsInfo, setSettingsInfo] = useState<SettingsInfo | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [shortcuts, setShortcuts] = useState<ShortcutMap>(loadShortcuts)
+  const [activeApproval, setActiveApproval] = useState<ApprovalRequest | null>(null)
+
+  const inputRef = useRef<HTMLInputElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const isCompact = activePanel === 'none' && messages.length === 0 && attachments.length === 0
+
+  const handleStop = async () => {
+    setIsStreaming(false)
+    try {
+      await cancelMessage()
+    } catch {
+      // Ignore cancel error
+    }
+  }
+
+  const handleNewChat = () => {
+    setChatId(crypto.randomUUID())
+    setMessages([])
+    setAttachments([])
+    setInput('')
+    setActivePanel('none')
+    setIsStreaming(false)
+    setActiveApproval(null)
+  }
 
   // Sync window size with view state
   useEffect(() => {
@@ -116,8 +200,11 @@ export default function App() {
           },
         ]
       })
+    } else if (event.type === 'approval_requested') {
+      setActiveApproval(event)
     } else if (event.type === 'message_finished') {
       setIsStreaming(false)
+      setActiveApproval(null)
       setMessages((prev) => {
         const last = prev[prev.length - 1]
         if (last?.role === 'assistant') {
@@ -133,6 +220,7 @@ export default function App() {
       void listChats().then(setChats).catch(() => {})
     } else if (event.type === 'error') {
       setIsStreaming(false)
+      setActiveApproval(null)
       setMessages((prev) => {
         const last = prev[prev.length - 1]
         if (last?.role === 'assistant') {
@@ -157,18 +245,73 @@ export default function App() {
     }
   }
 
-  // Escape key handler
+  const handleApprovalDecide = useCallback(
+    async (action: string) => {
+      if (!activeApproval) return
+      const callId = activeApproval.call_id
+      setActiveApproval(null)
+      try {
+        await sendApprovalDecision(chatId, callId, action)
+      } catch (err) {
+        setErrorMessage(
+          `Failed to submit approval: ${err instanceof Error ? err.message : String(err)}`
+        )
+      }
+    },
+    [activeApproval, chatId]
+  )
+
+  // Focused in-window keyboard shortcuts dispatcher
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      const activeEl = document.activeElement
+      if (activeEl?.tagName === 'BUTTON' && activeEl.textContent?.includes('Press key combo')) {
+        return
+      }
+
+      // Universal fallback for Escape
       if (e.key === 'Escape') {
+        if (activeApproval) {
+          e.preventDefault()
+          void handleApprovalDecide('deny')
+          void handleStop()
+          return
+        }
         if (activePanel !== 'none') {
+          e.preventDefault()
           setActivePanel('none')
+          return
+        }
+      }
+
+      const combo = normalizeKeyboardEvent(e)
+      if (!combo) return
+
+      const ctx: ShortcutContext = {
+        inputRef,
+        fileInputRef,
+        isStreaming,
+        activeApproval,
+        activePanel,
+        onNewChat: handleNewChat,
+        onToggleHistory: () => setActivePanel((prev) => (prev === 'history' ? 'none' : 'history')),
+        onToggleSettings: () => setActivePanel((prev) => (prev === 'settings' ? 'none' : 'settings')),
+        onStop: () => void handleStop(),
+        onApprovalDecide: (action) => void handleApprovalDecide(action),
+        onCloseAuxiliary: () => setActivePanel('none'),
+      }
+
+      for (const [action, key] of Object.entries(shortcuts)) {
+        if (key.toLowerCase() === combo.toLowerCase() && executeShortcutAction(action, ctx)) {
+          e.preventDefault()
+          return
         }
       }
     }
+
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [activePanel])
+  }, [shortcuts, isStreaming, activePanel, activeApproval, handleApprovalDecide])
 
   // Native window dragging on non-interactive background areas
   useEffect(() => {
@@ -292,15 +435,6 @@ export default function App() {
     })
   }
 
-  const handleStop = async () => {
-    setIsStreaming(false)
-    try {
-      await cancelMessage()
-    } catch {
-      // Ignore cancel error
-    }
-  }
-
   const handleAttachFiles = async (files: FileList) => {
     const fileList = Array.from(files).slice(0, 5 - attachments.length)
     const validFiles = fileList.filter((file) => {
@@ -384,15 +518,6 @@ export default function App() {
     setSettingsInfo(updated)
   }
 
-  const handleNewChat = () => {
-    setChatId(crypto.randomUUID())
-    setMessages([])
-    setAttachments([])
-    setInput('')
-    setActivePanel('none')
-    setIsStreaming(false)
-  }
-
   // In compact mode: only render the single pill without any outer wrapper
   if (isCompact) {
     return (
@@ -408,7 +533,9 @@ export default function App() {
           onAttachFiles={(files) => void handleAttachFiles(files)}
           onAttachPath={handleAttachPath}
           isStreaming={isStreaming}
-          standalone={true}
+          inputRef={inputRef}
+          fileInputRef={fileInputRef}
+          standalone
         />
       </div>
     )
@@ -456,6 +583,7 @@ export default function App() {
               currentSettings={settingsInfo}
               onSave={handleSaveSettings}
               onClose={() => setActivePanel('none')}
+              onShortcutsChanged={setShortcuts}
             />
           </div>
         )}
@@ -464,6 +592,8 @@ export default function App() {
           <TranscriptView
             messages={messages}
             isStreaming={isStreaming}
+            activeApproval={activeApproval}
+            onApprovalDecide={(act) => void handleApprovalDecide(act)}
             onRetry={handleRetry}
           />
         )}
@@ -490,6 +620,8 @@ export default function App() {
           onAttachFiles={(files) => void handleAttachFiles(files)}
           onAttachPath={handleAttachPath}
           isStreaming={isStreaming}
+          inputRef={inputRef}
+          fileInputRef={fileInputRef}
           standalone={false}
         />
       </div>

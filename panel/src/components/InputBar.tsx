@@ -14,6 +14,8 @@ interface InputBarProps {
   readonly isStreaming: boolean
   readonly disabled?: boolean
   readonly standalone?: boolean
+  readonly inputRef?: React.RefObject<HTMLInputElement | null>
+  readonly fileInputRef?: React.RefObject<HTMLInputElement | null>
 }
 
 function getMimeFromExtension(filename: string): string | null {
@@ -54,8 +56,11 @@ export function InputBar({
   isStreaming,
   disabled = false,
   standalone = false,
+  inputRef,
+  fileInputRef,
 }: InputBarProps) {
-  const fileInputRef = useRef<HTMLInputElement>(null)
+  const localFileInputRef = useRef<HTMLInputElement>(null)
+  const actualFileInputRef = fileInputRef ?? localFileInputRef
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -123,7 +128,7 @@ export function InputBar({
       className={containerClasses}
     >
       <input
-        ref={fileInputRef}
+        ref={actualFileInputRef}
         type="file"
         multiple
         accept="image/*,.pdf,.txt,.md,.json,.csv,.py,.rs,.swift,.ts,.tsx,.js"
@@ -133,7 +138,7 @@ export function InputBar({
 
       {/* Attachment paperclip button */}
       <button
-        onClick={() => fileInputRef.current?.click()}
+        onClick={() => actualFileInputRef.current?.click()}
         type="button"
         title="Attach file or image"
         aria-label="Attach file or image"
@@ -144,6 +149,7 @@ export function InputBar({
 
       {/* Text input with purple caret */}
       <input
+        ref={inputRef}
         type="text"
         value={input}
         onChange={(e) => setInput(e.target.value)}

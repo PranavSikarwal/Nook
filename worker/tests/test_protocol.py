@@ -4,6 +4,8 @@ from uuid import UUID
 import pytest
 
 from nook_worker.protocol import (
+    ApprovalDecisionRequest,
+    ApprovalRequestedEvent,
     CancelRequest,
     DeleteChatRequest,
     DeletedEvent,
@@ -32,7 +34,7 @@ def test_parse_examples_file():
     with open(examples_path, encoding="utf-8") as f:
         lines = [line.strip() for line in f if line.strip()]
 
-    assert len(lines) == 14
+    assert len(lines) == 16
 
     # Requests in daemon-worker.ndjson
     req_run = parse_request(lines[0])
@@ -45,47 +47,57 @@ def test_parse_examples_file():
     assert isinstance(req_title, TitleRequest)
     assert req_title.first_message == "What is the capital of France?"
 
-    req_cancel = parse_request(lines[2])
+    req_decision = parse_request(lines[2])
+    assert isinstance(req_decision, ApprovalDecisionRequest)
+    assert req_decision.call_id == "call_search_9"
+    assert req_decision.action == "allow_once"
+
+    req_cancel = parse_request(lines[3])
     assert isinstance(req_cancel, CancelRequest)
 
-    req_delete = parse_request(lines[3])
+    req_delete = parse_request(lines[4])
     assert isinstance(req_delete, DeleteChatRequest)
 
-    req_shutdown = parse_request(lines[4])
+    req_shutdown = parse_request(lines[5])
     assert isinstance(req_shutdown, ShutdownRequest)
 
     # Events in daemon-worker.ndjson
-    ev_ready = parse_event(lines[5])
+    ev_ready = parse_event(lines[6])
     assert isinstance(ev_ready, ReadyEvent)
     assert ev_ready.version == "0.1.0"
 
-    ev_started = parse_event(lines[6])
+    ev_started = parse_event(lines[7])
     assert isinstance(ev_started, MessageStartedEvent)
 
-    ev_delta = parse_event(lines[7])
+    ev_delta = parse_event(lines[8])
     assert isinstance(ev_delta, TextDeltaEvent)
     assert ev_delta.text == "The capital is Paris."
 
-    ev_tool_start = parse_event(lines[8])
+    ev_tool_start = parse_event(lines[9])
     assert isinstance(ev_tool_start, ToolCallStartedEvent)
     assert ev_tool_start.name == "get_weather"
 
-    ev_tool_finish = parse_event(lines[9])
+    ev_tool_finish = parse_event(lines[10])
     assert isinstance(ev_tool_finish, ToolCallFinishedEvent)
     assert ev_tool_finish.result == '{"temp":20}'
 
-    ev_finished = parse_event(lines[10])
+    ev_approval_req = parse_event(lines[11])
+    assert isinstance(ev_approval_req, ApprovalRequestedEvent)
+    assert ev_approval_req.call_id == "call_search_9"
+    assert ev_approval_req.tool_name == "nook:web_search"
+
+    ev_finished = parse_event(lines[12])
     assert isinstance(ev_finished, MessageFinishedEvent)
     assert ev_finished.status == "complete"
 
-    ev_title_ready = parse_event(lines[11])
+    ev_title_ready = parse_event(lines[13])
     assert isinstance(ev_title_ready, TitleReadyEvent)
     assert ev_title_ready.title == "Capital of France"
 
-    ev_deleted = parse_event(lines[12])
+    ev_deleted = parse_event(lines[14])
     assert isinstance(ev_deleted, DeletedEvent)
 
-    ev_error = parse_event(lines[13])
+    ev_error = parse_event(lines[15])
     assert isinstance(ev_error, ErrorEvent)
     assert ev_error.error.code == "endpoint_unreachable"
     assert ev_error.error.retryable is True

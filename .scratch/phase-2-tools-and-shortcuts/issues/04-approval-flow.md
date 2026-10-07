@@ -1,7 +1,7 @@
 # Add approval pause, decision, and cancellation flow
 
 Type: task
-Status: open
+Status: resolved
 Blocked by: 01, 03
 
 ## Goal

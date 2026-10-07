@@ -408,6 +408,7 @@ impl WorkerSupervisor {
             | DaemonWorkerEvent::TextDelta { request_id, .. }
             | DaemonWorkerEvent::ToolCallStarted { request_id, .. }
             | DaemonWorkerEvent::ToolCallFinished { request_id, .. }
+            | DaemonWorkerEvent::ApprovalRequested { request_id, .. }
             | DaemonWorkerEvent::MessageFinished { request_id, .. }
             | DaemonWorkerEvent::TitleReady { request_id, .. }
             | DaemonWorkerEvent::Deleted { request_id, .. }
@@ -464,6 +465,7 @@ impl WorkerSupervisor {
         let req_id = match &request {
             DaemonWorkerRequest::Run { request_id, .. }
             | DaemonWorkerRequest::Title { request_id, .. }
+            | DaemonWorkerRequest::ApprovalDecision { request_id, .. }
             | DaemonWorkerRequest::DeleteChat { request_id, .. } => Some(*request_id),
             DaemonWorkerRequest::Cancel { .. } | DaemonWorkerRequest::Shutdown => None,
         };

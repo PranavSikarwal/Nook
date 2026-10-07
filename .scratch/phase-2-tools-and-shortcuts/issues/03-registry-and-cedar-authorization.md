@@ -1,7 +1,7 @@
 # Add the registry and Cedar authorization bridge
 
 Type: task
-Status: open
+Status: resolved
 Blocked by: 01
 
 ## Goal

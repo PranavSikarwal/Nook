@@ -115,6 +115,34 @@ AGENT_TOOLS: list[dict[str, Any]] = [
     {
         "type": "function",
         "function": {
+            "name": "get_changed_files",
+            "description": "Get the list of all files changed in this pull request with line change stats.",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_file_diff",
+            "description": "Get the exact git diff for a specific file changed in this pull request.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Relative file path to inspect.",
+                    },
+                },
+                "required": ["path"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "git_blame",
             "description": "Run git blame on specific lines to see previous commit history and author.",
             "parameters": {
@@ -145,6 +173,10 @@ AGENT_TOOLS: list[dict[str, Any]] = [
                     "command": {
                         "type": "string",
                         "description": "Shell command to execute.",
+                    },
+                    "timeout_seconds": {
+                        "type": "integer",
+                        "description": "Command timeout in seconds (default: 300, max: 600).",
                     },
                 },
                 "required": ["command"],
@@ -353,8 +385,8 @@ def tool_read_file(
 
 
 def tool_search_code(repo_root: Path, query: str, path: str = ".") -> str:
-    """Search for a pattern across the repository using git grep."""
-    cmd = ["git", "grep", "-n", "-I", "-e", query, "--", path]
+    """Search for a pattern across the repository using git grep with extended regex."""
+    cmd = ["git", "grep", "-E", "-n", "-I", "-e", query, "--", path]
     try:
         res = subprocess.run(
             cmd,
@@ -395,26 +427,57 @@ def tool_git_blame(repo_root: Path, path: str, start_line: int, end_line: int) -
         return f"{ERR_PREFIX} Git blame timed out."
 
 
-def tool_run_command(repo_root: Path, command: str) -> str:
-    parts = shlex.split(command)
+def _run_single_command(
+    repo_root: Path,
+    parts: list[str],
+    clean_env: dict[str, str],
+    timeout: int = 300,
+) -> tuple[int, str, str]:
     if not parts:
-        return f"{ERR_PREFIX} Empty command."
+        return 1, "", f"{ERR_PREFIX} Empty command."
     base_cmd = Path(parts[0]).name
     if base_cmd not in ALLOWED_COMMANDS:
-        return f"{ERR_PREFIX} Command '{base_cmd}' is not allowed. Permitted commands: {', '.join(sorted(ALLOWED_COMMANDS))}"
+        return (
+            1,
+            "",
+            f"{ERR_PREFIX} Command '{base_cmd}' is not allowed. Permitted commands: {', '.join(sorted(ALLOWED_COMMANDS))}",
+        )
 
     if base_cmd == "git":
         subcommands = [arg for arg in parts[1:] if not arg.startswith("-")]
         if not subcommands or subcommands[0] not in ALLOWED_GIT_SUBCOMMANDS:
             allowed_sub = ", ".join(sorted(ALLOWED_GIT_SUBCOMMANDS))
-            return f"{ERR_PREFIX} Disallowed git subcommand. Permitted: {allowed_sub}"
+            return (
+                1,
+                "",
+                f"{ERR_PREFIX} Disallowed git subcommand. Permitted: {allowed_sub}",
+            )
         for arg in parts[1:]:
             if any(
                 arg == flag or arg.startswith(f"{flag}=")
                 for flag in DISALLOWED_GIT_FLAGS
             ):
-                return f"{ERR_PREFIX} Disallowed git flag '{arg}'."
+                return 1, "", f"{ERR_PREFIX} Disallowed git flag '{arg}'."
 
+    res = subprocess.run(
+        parts,
+        cwd=repo_root,
+        env=clean_env,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        check=False,
+    )
+    return res.returncode, res.stdout.strip(), res.stderr.strip()
+
+
+DEFAULT_BASE_COMPARE = "origin/main...HEAD"
+
+
+DISALLOWED_SHELL_TOKENS = {"&&", ";", "||", "|", ">", ">>", "<", "$", "`", "&"}
+
+
+def tool_run_command(repo_root: Path, command: str, timeout_seconds: int = 300) -> str:
     clean_env = {
         k: v
         for k, v in os.environ.items()
@@ -424,28 +487,73 @@ def tool_run_command(repo_root: Path, command: str) -> str:
         )
     }
 
+    effective_timeout = min(max(timeout_seconds, 10), 600)
+
     try:
-        res = subprocess.run(
-            parts,
-            cwd=repo_root,
-            env=clean_env,
-            capture_output=True,
-            text=True,
-            timeout=60,
-            check=False,
+        tokens = shlex.split(command)
+    except ValueError as exc:
+        return f"{ERR_PREFIX} Failed to parse command: {exc}"
+
+    if not tokens:
+        return f"{ERR_PREFIX} Empty command."
+
+    for token in tokens:
+        if token in DISALLOWED_SHELL_TOKENS or any(
+            op in token for op in ("`", "$(", ";", "&&", "||", "|", "&")
+        ):
+            return (
+                f"{ERR_PREFIX} Chained commands and shell operators are not permitted. "
+                "Execute one command per tool call."
+            )
+
+    try:
+        code, out, err = _run_single_command(
+            repo_root, tokens, clean_env, timeout=effective_timeout
         )
-        combined = f"Exit code: {res.returncode}\n--- stdout ---\n{res.stdout.strip()}\n--- stderr ---\n{res.stderr.strip()}"
+        combined = f"Exit code: {code}\n--- stdout ---\n{out}\n--- stderr ---\n{err}"
         if len(combined) > 6000:
             combined = combined[:6000] + "\n... [Command output truncated]"
         return combined
     except subprocess.TimeoutExpired:
-        return f"{ERR_PREFIX} Command timed out after 60 seconds."
+        return f"{ERR_PREFIX} Command timed out after {effective_timeout} seconds."
     except OSError as exc:
-        return f"{ERR_PREFIX} Failed to execute '{parts[0]}': {exc}"
+        return f"{ERR_PREFIX} Failed to execute command: {exc}"
+
+
+def tool_get_changed_files(repo_root: Path, base_ref: str = "main") -> str:
+    """Return stat summary and name status of all files changed against base."""
+    cmd = ["git", "diff", "--stat", f"origin/{base_ref}...HEAD"]
+    try:
+        res = subprocess.run(
+            cmd, cwd=repo_root, capture_output=True, text=True, timeout=30, check=False
+        )
+        return res.stdout.strip() or "No changed files."
+    except Exception as exc:
+        return f"{ERR_PREFIX} Failed to get changed files: {exc}"
+
+
+def tool_get_file_diff(repo_root: Path, path: str, base_ref: str = "main") -> str:
+    """Return git diff for a specific file against base."""
+    cmd = ["git", "diff", f"origin/{base_ref}...HEAD", "--", path]
+    try:
+        res = subprocess.run(
+            cmd, cwd=repo_root, capture_output=True, text=True, timeout=30, check=False
+        )
+        output = res.stdout.strip()
+        if not output:
+            return f"No diff for file '{path}' against origin/{base_ref}."
+        if len(output) > 8000:
+            output = output[:8000] + "\n... [Diff truncated to first 8000 characters]"
+        return output
+    except Exception as exc:
+        return f"{ERR_PREFIX} Failed to get diff for '{path}': {exc}"
 
 
 def execute_tool_call(
-    repo_root: Path, tool_name: str, tool_args: dict[str, Any]
+    repo_root: Path,
+    tool_name: str,
+    tool_args: dict[str, Any],
+    base_ref: str = "main",
 ) -> tuple[str, bool, dict[str, Any] | None]:
     """Execute tool and return (result_string, is_final_submission, review_data)."""
     if tool_name == "read_file":
@@ -469,8 +577,20 @@ def execute_tool_call(
             tool_args.get("end_line", 50),
         )
         return result, False, None
+    if tool_name == "get_changed_files":
+        result = tool_get_changed_files(repo_root, base_ref=base_ref)
+        return result, False, None
+    if tool_name == "get_file_diff":
+        result = tool_get_file_diff(
+            repo_root, tool_args.get("path", ""), base_ref=base_ref
+        )
+        return result, False, None
     if tool_name == "run_command":
-        result = tool_run_command(repo_root, tool_args.get("command", ""))
+        result = tool_run_command(
+            repo_root,
+            tool_args.get("command", ""),
+            tool_args.get("timeout_seconds", 300),
+        )
         return result, False, None
     if tool_name == "submit_review":
         return "Review accepted for submission.", True, tool_args
@@ -518,6 +638,7 @@ def _build_code_review_prompt(
 
 ### Working Tree and Diff Notes
 - The working directory contains the PR checkout at its head commit. `git status` shows a clean tree because the commit is already checked out. To inspect changes against the base branch, compare against `origin/{base_ref}` (e.g. `git diff origin/{base_ref}...HEAD`).
+- Do NOT use `HEAD^` or `HEAD~1` to inspect the PR, because a pull request contains multiple commits. Always use `origin/{base_ref}...HEAD` to see the full PR diff.
 - Deleted files in this PR no longer exist on disk. `read_file` cannot read them directly. To inspect the contents of a deleted file before its removal, run `git show origin/{base_ref}:<path>` via `run_command`.
 
 Use your available tools (`read_file`, `search_code`, `git_blame`, `run_command`) to inspect context.
@@ -566,6 +687,7 @@ def _build_expert_review_prompt(
 
 ### Working Tree and Diff Notes
 - The working directory contains the PR checkout at its head commit. `git status` shows a clean tree because the commit is already checked out. To inspect changes against the base branch, compare against `origin/{base_ref}` (e.g. `git diff origin/{base_ref}...HEAD`).
+- Do NOT use `HEAD^` or `HEAD~1` to inspect the PR, because a pull request contains multiple commits. Always use `origin/{base_ref}...HEAD` to see the full PR diff.
 - Deleted files in this PR no longer exist on disk. `read_file` cannot read them directly. To inspect the contents of a deleted file before its removal, run `git show origin/{base_ref}:<path>` via `run_command`.
 
 Use your available tools to check code and run tests.
@@ -650,10 +772,14 @@ def build_agent_prompts(
     pr_meta = get_pr_metadata(gh, pr_number)
     raw_diff = get_pr_diff(gh, pr_number)
 
-    if len(raw_diff) > MAX_DIFF_CHARS:
+    if len(raw_diff) > 40000:
+        stat_summary = run_cli_command(["git", "diff", "--stat", DEFAULT_BASE_COMPARE])
         diff_text = (
-            raw_diff[:MAX_DIFF_CHARS]
-            + "\n\n... [Diff truncated due to size. Use read_file to inspect full files.]"
+            f"The full pull request diff is {len(raw_diff):,} characters.\n\n"
+            f"### Changed Files Summary\n```text\n{stat_summary}\n```\n\n"
+            f"### Initial Diff Preview\n"
+            + raw_diff[:30000]
+            + "\n\n... [Preview truncated due to size. Use 'get_file_diff(path=...)' to inspect any file's exact diff in steps, 'read_file' to inspect complete files, and 'run_command' to execute tests.]"
         )
     else:
         diff_text = raw_diff
@@ -912,6 +1038,7 @@ def _execute_with_loop_guard(
     tool_name: str,
     tool_args: dict[str, Any],
     recent_calls: list[str],
+    base_ref: str = "main",
 ) -> tuple[str, bool, dict[str, Any] | None]:
     sig = f"{tool_name}:{json.dumps(tool_args, sort_keys=True)}"
     if recent_calls.count(sig) >= 2 and tool_name != "submit_review":
@@ -926,7 +1053,7 @@ def _execute_with_loop_guard(
         recent_calls.pop(0)
 
     try:
-        return execute_tool_call(repo_root, tool_name, tool_args)
+        return execute_tool_call(repo_root, tool_name, tool_args, base_ref=base_ref)
     except Exception as exc:
         return (
             f"{ERR_PREFIX} Tool '{tool_name}' failed with unexpected error: {exc}",
@@ -936,19 +1063,27 @@ def _execute_with_loop_guard(
 
 
 def _process_single_tool_call(
-    repo_root: Path, tool_call: Any, recent_calls: list[str]
+    repo_root: Path,
+    tool_call: Any,
+    recent_calls: list[str],
+    base_ref: str = "main",
 ) -> tuple[dict[str, Any], bool, dict[str, Any] | None, str]:
     tool_name = tool_call.function.name
     try:
-        tool_args = json.loads(tool_call.function.arguments or "{}")
-    except json.JSONDecodeError:
-        tool_args = {}
+        tool_args = json.loads(tool_call.function.arguments)
+    except (json.JSONDecodeError, TypeError) as exc:
+        err_msg = f"{ERR_PREFIX} Invalid JSON arguments for tool '{tool_name}': {exc}"
+        return (
+            {"role": "tool", "tool_call_id": tool_call.id, "content": err_msg},
+            False,
+            None,
+            f"Tool {tool_name} call failed: invalid JSON arguments",
+        )
 
-    action_desc = _format_tool_action(tool_name, tool_args)
-    print(f"##[group]  -> {action_desc}")
     tool_output, is_final, review_data = _execute_with_loop_guard(
-        repo_root, tool_name, tool_args, recent_calls
+        repo_root, tool_name, tool_args, recent_calls, base_ref=base_ref
     )
+    action_desc = _format_tool_action(tool_name, tool_args)
 
     if not is_final:
         print(tool_output)
@@ -1042,6 +1177,10 @@ def _format_tool_action(tool_name: str, args: dict[str, Any]) -> str:
         return f"Search code for `{args.get('query', '')}` in `{args.get('path', '.')}`"
     if tool_name == "git_blame":
         return f"Git blame on `{args.get('path', '')}` (lines {args.get('start_line')}-{args.get('end_line')})"
+    if tool_name == "get_changed_files":
+        return "List all changed files in PR"
+    if tool_name == "get_file_diff":
+        return f"Get diff for `{args.get('path', '')}`"
     if tool_name == "submit_review":
         return "Submit completed review"
     return f"Invoke tool `{tool_name}`"

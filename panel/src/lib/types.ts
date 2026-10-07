@@ -58,11 +58,24 @@ export interface SettingsPayload {
   api_key?: string
 }
 
+export interface ApprovalRequest {
+  id: string
+  chat_id: string
+  message_id: string
+  call_id: string
+  tool_name: string
+  arguments: string
+  explanation: string
+  resource_summary: string
+  actions: string[]
+}
+
 export type DaemonEvent =
   | { type: 'message_started'; id: string; chat_id: string; message_id: string }
   | { type: 'text_delta'; id: string; chat_id: string; message_id: string; text: string }
   | { type: 'tool_call_started'; id: string; chat_id: string; message_id: string; call_id: string; name: string; arguments: string }
   | { type: 'tool_call_finished'; id: string; chat_id: string; message_id: string; call_id: string; result: string }
+  | ({ type: 'approval_requested' } & ApprovalRequest)
   | { type: 'message_finished'; id: string; chat_id: string; message_id: string; status: 'complete' | 'cancelled' | 'error' }
   | { type: 'chat_titled'; chat_id: string; title: string }
   | { type: 'error'; id: string; error: ErrorInfo }
