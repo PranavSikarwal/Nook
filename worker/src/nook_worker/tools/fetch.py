@@ -167,44 +167,46 @@ async def _fetch_single_url(
     }
 
     try:
-        async with httpx.AsyncClient(
-            transport=transport,
-            timeout=TIMEOUT_SECONDS,
-            follow_redirects=False,
-        ) as client:
-            async with client.stream("GET", target_url, headers=headers) as response:
-                if response.is_redirect:
-                    location = response.headers.get("location")
-                    if not location:
-                        return None, "Redirect received with no Location header", None
-                    return urljoin(target_url, location), None, None
+        async with (
+            httpx.AsyncClient(
+                transport=transport,
+                timeout=TIMEOUT_SECONDS,
+                follow_redirects=False,
+            ) as client,
+            client.stream("GET", target_url, headers=headers) as response,
+        ):
+            if response.is_redirect:
+                location = response.headers.get("location")
+                if not location:
+                    return None, "Redirect received with no Location header", None
+                return urljoin(target_url, location), None, None
 
-                if response.status_code >= 400:
-                    return (
-                        None,
-                        f"HTTP {response.status_code}: {response.reason_phrase}",
-                        None,
-                    )
-
-                content_type = response.headers.get("content-type", "").lower()
-                if not any(t in content_type for t in ALLOWED_CONTENT_TYPES):
-                    return (
-                        None,
-                        f"Unsupported Content-Type '{content_type}'. Must be text, markdown, HTML, or JSON.",
-                        None,
-                    )
-
-                body_bytes = await _read_streamed_body(response)
-                extracted = extract_readable_text(content_type, body_bytes)
+            if response.status_code >= 400:
                 return (
                     None,
+                    f"HTTP {response.status_code}: {response.reason_phrase}",
                     None,
-                    {
-                        "url": target_url,
-                        "status_code": response.status_code,
-                        "content": extracted[:100000],
-                    },
                 )
+
+            content_type = response.headers.get("content-type", "").lower()
+            if not any(t in content_type for t in ALLOWED_CONTENT_TYPES):
+                return (
+                    None,
+                    f"Unsupported Content-Type '{content_type}'. Must be text, markdown, HTML, or JSON.",
+                    None,
+                )
+
+            body_bytes = await _read_streamed_body(response)
+            extracted = extract_readable_text(content_type, body_bytes)
+            return (
+                None,
+                None,
+                {
+                    "url": target_url,
+                    "status_code": response.status_code,
+                    "content": extracted[:100000],
+                },
+            )
     except asyncio.CancelledError:
         raise
     except ValueError as exc:
@@ -232,6 +234,5 @@ async def execute_web_fetch(url: str) -> str:
             return tool_result(result)
         if redirect_url:
             current_url = redirect_url
-            continue
 
     return tool_error(f"Too many redirects (exceeded limit of {MAX_REDIRECTS})")
