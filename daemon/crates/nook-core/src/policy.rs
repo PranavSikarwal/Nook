@@ -100,6 +100,11 @@ impl GrantStore {
     }
 }
 
+fn make_str_expr(val: &str) -> Result<cedar_policy::RestrictedExpression, PolicyError> {
+    cedar_policy::RestrictedExpression::from_str(&format!("\"{val}\""))
+        .map_err(|e| PolicyError::Evaluation(e.to_string()))
+}
+
 pub struct CedarAuthorizer {
     authorizer: Authorizer,
     policies: PolicySet,
@@ -189,43 +194,16 @@ impl CedarAuthorizer {
             .map_err(|e| PolicyError::Evaluation(e.to_string()))?;
 
         let mut context_map = HashMap::new();
-        context_map.insert(
-            "chat_id".to_string(),
-            cedar_policy::RestrictedExpression::from_str(&format!("\"{}\"", chat_id))
-                .map_err(|e| PolicyError::Evaluation(e.to_string()))?,
-        );
-        context_map.insert(
-            "approval_tier".to_string(),
-            cedar_policy::RestrictedExpression::from_str(&format!("\"{}\"", approval_tier))
-                .map_err(|e| PolicyError::Evaluation(e.to_string()))?,
-        );
-        context_map.insert(
-            "grant_scope".to_string(),
-            cedar_policy::RestrictedExpression::from_str(&format!("\"{}\"", grant_scope))
-                .map_err(|e| PolicyError::Evaluation(e.to_string()))?,
-        );
+        context_map.insert("chat_id".to_string(), make_str_expr(&chat_id.to_string())?);
+        context_map.insert("approval_tier".to_string(), make_str_expr(approval_tier)?);
+        context_map.insert("grant_scope".to_string(), make_str_expr(&grant_scope)?);
 
         if action_name == "web_fetch" {
-            context_map.insert(
-                "host".to_string(),
-                cedar_policy::RestrictedExpression::from_str(&format!(
-                    "\"{}\"",
-                    host.unwrap_or("")
-                ))
-                .map_err(|e| PolicyError::Evaluation(e.to_string()))?,
-            );
-            context_map.insert(
-                "url".to_string(),
-                cedar_policy::RestrictedExpression::from_str(&format!("\"{}\"", url.unwrap_or("")))
-                    .map_err(|e| PolicyError::Evaluation(e.to_string()))?,
-            );
+            context_map.insert("host".to_string(), make_str_expr(host.unwrap_or(""))?);
+            context_map.insert("url".to_string(), make_str_expr(url.unwrap_or(""))?);
             context_map.insert(
                 "argument_digest".to_string(),
-                cedar_policy::RestrictedExpression::from_str(&format!(
-                    "\"{}\"",
-                    argument_digest.unwrap_or("")
-                ))
-                .map_err(|e| PolicyError::Evaluation(e.to_string()))?,
+                make_str_expr(argument_digest.unwrap_or(""))?,
             );
         }
 

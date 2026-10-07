@@ -20,36 +20,38 @@ const IS_MAC =
   typeof navigator !== 'undefined' &&
   /Mac|iPod|iPhone|iPad/.test(navigator.platform || '')
 
+const mod = (k: string) => (IS_MAC ? `Cmd+${k}` : `Ctrl+${k}`)
+
 export const DEFAULT_SHORTCUTS: ShortcutDefinition[] = [
   {
     action: 'focus_input',
     label: 'Focus input',
     description: 'Jump directly to the question input field',
-    defaultKey: IS_MAC ? 'Cmd+L' : 'Ctrl+L',
+    defaultKey: mod('L'),
   },
   {
     action: 'new_chat',
     label: 'New chat',
     description: 'Start a fresh chat conversation',
-    defaultKey: IS_MAC ? 'Cmd+N' : 'Ctrl+N',
+    defaultKey: mod('N'),
   },
   {
     action: 'toggle_history',
     label: 'Toggle history',
     description: 'Open or close the history drawer',
-    defaultKey: IS_MAC ? 'Cmd+H' : 'Ctrl+H',
+    defaultKey: mod('H'),
   },
   {
     action: 'open_settings',
     label: 'Open settings',
     description: 'Open or close the settings modal',
-    defaultKey: IS_MAC ? 'Cmd+,' : 'Ctrl+,',
+    defaultKey: mod(','),
   },
   {
     action: 'attach_file',
     label: 'Attach file',
     description: 'Open file picker to attach documents or images',
-    defaultKey: IS_MAC ? 'Cmd+U' : 'Ctrl+U',
+    defaultKey: mod('U'),
   },
   {
     action: 'cancel_active_work',

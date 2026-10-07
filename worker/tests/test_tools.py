@@ -2,6 +2,7 @@ import ipaddress
 import json
 
 import pytest
+
 from nook_worker.tools.fetch import execute_web_fetch, is_ip_blocked
 from nook_worker.tools.search import execute_web_search
 
@@ -29,7 +30,10 @@ def test_ip_blocking():
 async def test_fetch_blocks_private_addresses(url: str):
     res = json.loads(await execute_web_fetch(url))
     assert "error" in res
-    assert "Blocked target address" in res["error"] or "Failed to resolve host" in res["error"]
+    assert (
+        "Blocked target address" in res["error"]
+        or "Failed to resolve host" in res["error"]
+    )
 
 
 @pytest.mark.asyncio
