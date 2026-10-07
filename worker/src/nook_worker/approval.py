@@ -104,10 +104,17 @@ class ApprovalManager:
         return False
 
     def cancel_for_request(self, request_id: UUID) -> None:
-        for call_id, (req_id, future) in list(self._pending_decisions.items()):
-            if req_id == request_id and not future.done():
-                future.cancel()
-                self._pending_decisions.pop(call_id, None)
+        calls_to_cancel = [
+            call_id
+            for call_id, (req_id, _) in self._pending_decisions.items()
+            if req_id == request_id
+        ]
+        for call_id in calls_to_cancel:
+            entry = self._pending_decisions.pop(call_id, None)
+            if entry:
+                _, future = entry
+                if not future.done():
+                    future.cancel()
 
     def cancel_all(self) -> None:
         for _, future in self._pending_decisions.values():
