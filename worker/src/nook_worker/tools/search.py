@@ -1,8 +1,9 @@
 import asyncio
-import json
 from typing import Any
 
 from pydantic import BaseModel, Field
+
+from nook_worker.tools.common import tool_error, tool_result
 
 
 class WebSearchInput(BaseModel):
@@ -38,10 +39,10 @@ async def execute_web_search(query: str, max_results: int = 5) -> str:
     """
     cleaned_query = query.strip()
     if not cleaned_query:
-        return json.dumps({"error": "Empty search query"})
+        return tool_error("Empty search query")
 
     try:
         formatted = await asyncio.to_thread(_run_ddgs_sync, cleaned_query, max_results)
-        return json.dumps(formatted, ensure_ascii=False)
+        return tool_result(formatted)
     except Exception as exc:
-        return json.dumps({"error": f"Search provider error: {exc}"})
+        return tool_error(f"Search provider error: {exc}")

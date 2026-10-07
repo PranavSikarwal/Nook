@@ -35,6 +35,33 @@ pub struct ScopedGrant {
     pub argument_digest: Option<String>,
 }
 
+impl ScopedGrant {
+    pub fn matches(
+        &self,
+        chat_id: Uuid,
+        tool_name: &str,
+        host: Option<&str>,
+        argument_digest: Option<&str>,
+    ) -> bool {
+        if self.tool_name != tool_name {
+            return false;
+        }
+        match self.scope.as_str() {
+            "persistent" => true,
+            "chat" => self.chat_id == chat_id,
+            "chat_host" => {
+                self.chat_id == chat_id && host.is_some() && self.host.as_deref() == host
+            }
+            "once" => {
+                self.chat_id == chat_id
+                    && argument_digest.is_some()
+                    && self.argument_digest.as_deref() == argument_digest
+            }
+            _ => false,
+        }
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct GrantStore {
     grants: HashSet<ScopedGrant>,
@@ -58,45 +85,10 @@ impl GrantStore {
         host: Option<&str>,
         argument_digest: Option<&str>,
     ) -> Option<String> {
-        // 1. Check for persistent or chat-wide tool grant
-        for g in &self.grants {
-            if g.tool_name == tool_name {
-                if g.scope == "persistent" {
-                    return Some("persistent".to_string());
-                }
-                if g.chat_id == chat_id && g.scope == "chat" {
-                    return Some("chat".to_string());
-                }
-            }
-        }
-
-        // 2. Check for chat+host grant
-        if let Some(h) = host {
-            for g in &self.grants {
-                if g.chat_id == chat_id
-                    && g.tool_name == tool_name
-                    && g.scope == "chat_host"
-                    && g.host.as_deref() == Some(h)
-                {
-                    return Some("chat_host".to_string());
-                }
-            }
-        }
-
-        // 3. Check for exact once grant
-        if let Some(digest) = argument_digest {
-            for g in &self.grants {
-                if g.chat_id == chat_id
-                    && g.tool_name == tool_name
-                    && g.scope == "once"
-                    && g.argument_digest.as_deref() == Some(digest)
-                {
-                    return Some("once".to_string());
-                }
-            }
-        }
-
-        None
+        self.grants
+            .iter()
+            .find(|g| g.matches(chat_id, tool_name, host, argument_digest))
+            .map(|g| g.scope.clone())
     }
 }
 

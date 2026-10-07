@@ -1,12 +1,13 @@
 import asyncio
 import ipaddress
-import json
 import socket
 from urllib.parse import urljoin, urlparse
 
 import httpx
 from bs4 import BeautifulSoup
 from pydantic import BaseModel, Field
+
+from nook_worker.tools.common import tool_error, tool_result
 
 MAX_REDIRECTS = 5
 TIMEOUT_SECONDS = 15.0
@@ -128,24 +129,20 @@ async def execute_web_fetch(url: str) -> str:
     while redirect_count <= MAX_REDIRECTS:
         parsed = urlparse(current_url)
         if parsed.scheme not in ("http", "https"):
-            return json.dumps(
-                {
-                    "error": f"Unsupported URL scheme '{parsed.scheme}'. Only http and https are allowed."
-                }
+            return tool_error(
+                f"Unsupported URL scheme '{parsed.scheme}'. Only http and https are allowed."
             )
 
         hostname = parsed.hostname
         if not hostname:
-            return json.dumps(
-                {"error": f"Invalid URL '{current_url}': missing hostname"}
-            )
+            return tool_error(f"Invalid URL '{current_url}': missing hostname")
 
         port = parsed.port or (443 if parsed.scheme == "https" else 80)
 
         try:
             validated_ips = await resolve_and_validate_host(hostname, port)
         except ValueError as exc:
-            return json.dumps({"error": str(exc)})
+            return tool_error(str(exc))
 
         pinned_ip = validated_ips[0]
         connect_host = f"[{pinned_ip}]" if ":" in pinned_ip else pinned_ip
@@ -163,60 +160,48 @@ async def execute_web_fetch(url: str) -> str:
         try:
             response, _ = await _perform_single_get(connect_url, hostname, headers)
             if response is None:
-                return json.dumps({"error": "Failed to connect"})
+                return tool_error("Failed to connect")
 
             try:
                 if response.is_redirect:
                     location = response.headers.get("location")
                     if not location:
-                        return json.dumps(
-                            {"error": "Redirect received with no Location header"}
-                        )
+                        return tool_error("Redirect received with no Location header")
                     current_url = urljoin(current_url, location)
                     redirect_count += 1
                     continue
 
                 if response.status_code >= 400:
-                    return json.dumps(
-                        {
-                            "error": f"HTTP {response.status_code}: {response.reason_phrase}",
-                            "status_code": response.status_code,
-                        }
+                    return tool_error(
+                        f"HTTP {response.status_code}: {response.reason_phrase}"
                     )
 
                 content_type = response.headers.get("content-type", "").lower()
                 if not any(t in content_type for t in ALLOWED_CONTENT_TYPES):
-                    return json.dumps(
-                        {
-                            "error": f"Unsupported Content-Type '{content_type}'. Must be text, markdown, HTML, or JSON."
-                        }
+                    return tool_error(
+                        f"Unsupported Content-Type '{content_type}'. Must be text, markdown, HTML, or JSON."
                     )
 
                 body_bytes = await _read_streamed_body(response)
                 extracted = extract_readable_text(content_type, body_bytes)
-                return json.dumps(
+                return tool_result(
                     {
                         "url": current_url,
                         "status_code": response.status_code,
                         "content": extracted[:100000],
-                    },
-                    ensure_ascii=False,
+                    }
                 )
             finally:
                 await response.aclose()
         except asyncio.CancelledError:
             raise
         except ValueError as exc:
-            return json.dumps({"error": str(exc)})
+            return tool_error(str(exc))
         except httpx.TimeoutException:
-            return json.dumps({"error": "Request timed out"})
+            return tool_error("Request timed out")
         except httpx.HTTPError as exc:
-            return json.dumps({"error": f"HTTP request failed: {type(exc).__name__}"})
+            return tool_error(f"HTTP request failed: {type(exc).__name__}")
         except Exception:
-            return json.dumps(
-                {"error": "An error occurred while fetching the requested URL"}
-            )
+            return tool_error("An error occurred while fetching the requested URL")
 
-    return json.dumps(
-        {"error": f"Too many redirects (exceeded limit of {MAX_REDIRECTS})"}
-    )
+    return tool_error(f"Too many redirects (exceeded limit of {MAX_REDIRECTS})")

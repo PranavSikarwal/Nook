@@ -25,6 +25,41 @@ interface ModelSettingsTabProps {
   readonly onClose: () => void
 }
 
+interface SettingInputFieldProps {
+  id: string
+  label: string
+  value: string
+  onChange: (value: string) => void
+  placeholder?: string
+  required?: boolean
+}
+
+function SettingInputField({
+  id,
+  label,
+  value,
+  onChange,
+  placeholder,
+  required,
+}: SettingInputFieldProps) {
+  return (
+    <div>
+      <label htmlFor={id} className="block text-zinc-400 font-medium mb-1 text-[11px]">
+        {label}
+      </label>
+      <input
+        id={id}
+        type="text"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="w-full bg-white/5 border border-white/10 rounded-lg px-2.5 py-1.5 text-zinc-200 focus:outline-none focus:border-purple-500/50 transition-colors font-mono text-[11px]"
+        required={required}
+      />
+    </div>
+  )
+}
+
 function ModelSettingsTab({ currentSettings, onSave, onClose }: ModelSettingsTabProps) {
   const [baseUrl, setBaseUrl] = useState(currentSettings?.base_url ?? '')
   const [model, setModel] = useState(currentSettings?.model ?? '')
@@ -59,35 +94,23 @@ function ModelSettingsTab({ currentSettings, onSave, onClose }: ModelSettingsTab
         </div>
       )}
 
-      <div>
-        <label htmlFor="settings-base-url" className="block text-zinc-400 font-medium mb-1 text-[11px]">
-          Base URL
-        </label>
-        <input
-          id="settings-base-url"
-          type="text"
-          value={baseUrl}
-          onChange={(e) => setBaseUrl(e.target.value)}
-          placeholder="https://models.example.internal/v1"
-          className="w-full bg-white/5 border border-white/10 rounded-lg px-2.5 py-1.5 text-zinc-200 focus:outline-none focus:border-purple-500/50 transition-colors font-mono text-[11px]"
-          required
-        />
-      </div>
+      <SettingInputField
+        id="settings-base-url"
+        label="Base URL"
+        value={baseUrl}
+        onChange={setBaseUrl}
+        placeholder="https://models.example.internal/v1"
+        required
+      />
 
-      <div>
-        <label htmlFor="settings-model" className="block text-zinc-400 font-medium mb-1 text-[11px]">
-          Model Name
-        </label>
-        <input
-          id="settings-model"
-          type="text"
-          value={model}
-          onChange={(e) => setModel(e.target.value)}
-          placeholder="e.g. meta-llama/Llama-3-70b-chat"
-          className="w-full bg-white/5 border border-white/10 rounded-lg px-2.5 py-1.5 text-zinc-200 focus:outline-none focus:border-purple-500/50 transition-colors font-mono text-[11px]"
-          required
-        />
-      </div>
+      <SettingInputField
+        id="settings-model"
+        label="Model Name"
+        value={model}
+        onChange={setModel}
+        placeholder="e.g. meta-llama/Llama-3-70b-chat"
+        required
+      />
 
       <div>
         <div className="flex items-center justify-between mb-1">
