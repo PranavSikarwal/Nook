@@ -112,7 +112,10 @@ def extract_readable_text(content_type: str, content: bytes) -> str:
 
 
 async def _read_streamed_body(response: httpx.Response) -> bytes:
-    """Read response body up to MAX_RESPONSE_BYTES chunks."""
+    """Read response body up to MAX_RESPONSE_BYTES chunks.
+
+    Fails immediately if response exceeds MAX_RESPONSE_BYTES.
+    """
     content_length = response.headers.get("content-length")
     if content_length:
         try:
@@ -124,16 +127,15 @@ async def _read_streamed_body(response: httpx.Response) -> bytes:
         except ValueError as exc:
             if "exceeds size limit" in str(exc):
                 raise
-            # Ignore invalid non-integer content-length headers and rely on streaming cap
 
     body_chunks: list[bytes] = []
     total_bytes = 0
     async for chunk in response.aiter_bytes(chunk_size=CHUNK_SIZE):
         total_bytes += len(chunk)
         if total_bytes > MAX_RESPONSE_BYTES:
-            allowed_slice = chunk[: len(chunk) - (total_bytes - MAX_RESPONSE_BYTES)]
-            body_chunks.append(allowed_slice)
-            break
+            raise ValueError(
+                f"Response body exceeded size limit of {MAX_RESPONSE_BYTES} bytes"
+            )
         body_chunks.append(chunk)
 
     return b"".join(body_chunks)

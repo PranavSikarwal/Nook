@@ -6,7 +6,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import re
 import shlex
 import subprocess
 import sys
@@ -116,6 +115,34 @@ AGENT_TOOLS: list[dict[str, Any]] = [
     {
         "type": "function",
         "function": {
+            "name": "get_changed_files",
+            "description": "Get the list of all files changed in this pull request with line change stats.",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_file_diff",
+            "description": "Get the exact git diff for a specific file changed in this pull request.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Relative file path to inspect.",
+                    },
+                },
+                "required": ["path"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "git_blame",
             "description": "Run git blame on specific lines to see previous commit history and author.",
             "parameters": {
@@ -146,6 +173,10 @@ AGENT_TOOLS: list[dict[str, Any]] = [
                     "command": {
                         "type": "string",
                         "description": "Shell command to execute.",
+                    },
+                    "timeout_seconds": {
+                        "type": "integer",
+                        "description": "Command timeout in seconds (default: 300, max: 600).",
                     },
                 },
                 "required": ["command"],
@@ -397,9 +428,11 @@ def tool_git_blame(repo_root: Path, path: str, start_line: int, end_line: int) -
 
 
 def _run_single_command(
-    repo_root: Path, command: str, clean_env: dict[str, str]
+    repo_root: Path,
+    parts: list[str],
+    clean_env: dict[str, str],
+    timeout: int = 300,
 ) -> tuple[int, str, str]:
-    parts = shlex.split(command)
     if not parts:
         return 1, "", f"{ERR_PREFIX} Empty command."
     base_cmd = Path(parts[0]).name
@@ -432,13 +465,13 @@ def _run_single_command(
         env=clean_env,
         capture_output=True,
         text=True,
-        timeout=60,
+        timeout=timeout,
         check=False,
     )
     return res.returncode, res.stdout.strip(), res.stderr.strip()
 
 
-def tool_run_command(repo_root: Path, command: str) -> str:
+def tool_run_command(repo_root: Path, command: str, timeout_seconds: int = 300) -> str:
     clean_env = {
         k: v
         for k, v in os.environ.items()
@@ -448,18 +481,38 @@ def tool_run_command(repo_root: Path, command: str) -> str:
         )
     }
 
-    # Split chained commands on && or ;
-    sub_cmds = [c.strip() for c in re.split(r"&&|;", command) if c.strip()]
-    if not sub_cmds:
+    effective_timeout = min(max(timeout_seconds, 10), 600)
+
+    try:
+        tokens = shlex.split(command)
+    except ValueError as exc:
+        return f"{ERR_PREFIX} Failed to parse command: {exc}"
+
+    if not tokens:
         return f"{ERR_PREFIX} Empty command."
+
+    # Group tokens into sub-command pipelines split on && or ;
+    sub_cmds: list[list[str]] = []
+    current: list[str] = []
+    for token in tokens:
+        if token in ("&&", ";"):
+            if current:
+                sub_cmds.append(current)
+                current = []
+        else:
+            current.append(token)
+    if current:
+        sub_cmds.append(current)
 
     stdout_parts: list[str] = []
     stderr_parts: list[str] = []
     last_exit_code = 0
 
     try:
-        for sub_cmd in sub_cmds:
-            code, out, err = _run_single_command(repo_root, sub_cmd, clean_env)
+        for cmd_parts in sub_cmds:
+            code, out, err = _run_single_command(
+                repo_root, cmd_parts, clean_env, timeout=effective_timeout
+            )
             last_exit_code = code
             if out:
                 stdout_parts.append(out)
@@ -473,9 +526,38 @@ def tool_run_command(repo_root: Path, command: str) -> str:
             combined = combined[:6000] + "\n... [Command output truncated]"
         return combined
     except subprocess.TimeoutExpired:
-        return f"{ERR_PREFIX} Command timed out after 60 seconds."
+        return f"{ERR_PREFIX} Command timed out after {effective_timeout} seconds."
     except OSError as exc:
         return f"{ERR_PREFIX} Failed to execute command: {exc}"
+
+
+def tool_get_changed_files(repo_root: Path) -> str:
+    """Return stat summary and name status of all files changed against base."""
+    cmd = ["git", "diff", "--stat", "origin/main...HEAD"]
+    try:
+        res = subprocess.run(
+            cmd, cwd=repo_root, capture_output=True, text=True, timeout=30, check=False
+        )
+        return res.stdout.strip() or "No changed files."
+    except Exception as exc:
+        return f"{ERR_PREFIX} Failed to get changed files: {exc}"
+
+
+def tool_get_file_diff(repo_root: Path, path: str) -> str:
+    """Return git diff for a specific file against base."""
+    cmd = ["git", "diff", "origin/main...HEAD", "--", path]
+    try:
+        res = subprocess.run(
+            cmd, cwd=repo_root, capture_output=True, text=True, timeout=30, check=False
+        )
+        output = res.stdout.strip()
+        if not output:
+            return f"No diff for file '{path}' against origin/main."
+        if len(output) > 8000:
+            output = output[:8000] + "\n... [Diff truncated to first 8000 characters]"
+        return output
+    except Exception as exc:
+        return f"{ERR_PREFIX} Failed to get diff for '{path}': {exc}"
 
 
 def execute_tool_call(
@@ -503,8 +585,18 @@ def execute_tool_call(
             tool_args.get("end_line", 50),
         )
         return result, False, None
+    if tool_name == "get_changed_files":
+        result = tool_get_changed_files(repo_root)
+        return result, False, None
+    if tool_name == "get_file_diff":
+        result = tool_get_file_diff(repo_root, tool_args.get("path", ""))
+        return result, False, None
     if tool_name == "run_command":
-        result = tool_run_command(repo_root, tool_args.get("command", ""))
+        result = tool_run_command(
+            repo_root,
+            tool_args.get("command", ""),
+            tool_args.get("timeout_seconds", 300),
+        )
         return result, False, None
     if tool_name == "submit_review":
         return "Review accepted for submission.", True, tool_args
@@ -686,10 +778,14 @@ def build_agent_prompts(
     pr_meta = get_pr_metadata(gh, pr_number)
     raw_diff = get_pr_diff(gh, pr_number)
 
-    if len(raw_diff) > MAX_DIFF_CHARS:
+    if len(raw_diff) > 40000:
+        stat_summary = run_cli_command(["git", "diff", "--stat", "origin/main...HEAD"])
         diff_text = (
-            raw_diff[:MAX_DIFF_CHARS]
-            + "\n\n... [Diff truncated due to size. Use read_file to inspect full files.]"
+            f"The full pull request diff is {len(raw_diff):,} characters.\n\n"
+            f"### Changed Files Summary\n```text\n{stat_summary}\n```\n\n"
+            f"### Initial Diff Preview\n"
+            + raw_diff[:30000]
+            + "\n\n... [Preview truncated due to size. Use 'get_file_diff(path=...)' to inspect any file's exact diff in steps, 'read_file' to inspect complete files, and 'run_command' to execute tests.]"
         )
     else:
         diff_text = raw_diff

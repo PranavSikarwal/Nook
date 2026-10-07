@@ -83,7 +83,13 @@ class ApprovalDecisionRequest(BaseModel):
     type: Literal["approval_decision"] = "approval_decision"
     request_id: UUID
     call_id: str
-    action: str
+    action: Literal[
+        "allow_once",
+        "allow_for_chat",
+        "allow_for_chat_host",
+        "always_allow",
+        "deny",
+    ]
 
 
 RequestMessage = Annotated[

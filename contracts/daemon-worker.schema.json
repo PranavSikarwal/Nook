@@ -94,7 +94,16 @@
         "type": { "type": "string", "const": "approval_decision" },
         "request_id": { "$ref": "#/definitions/UUID" },
         "call_id": { "type": "string" },
-        "action": { "type": "string" }
+        "action": {
+          "type": "string",
+          "enum": [
+            "allow_once",
+            "allow_for_chat",
+            "allow_for_chat_host",
+            "always_allow",
+            "deny"
+          ]
+        }
       },
       "required": ["type", "request_id", "call_id", "action"]
     },
