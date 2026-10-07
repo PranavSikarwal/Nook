@@ -1,7 +1,7 @@
 # Verify the tools and shortcuts flow
 
 Type: task
-Status: open
+Status: resolved
 Blocked by: 02, 04, 05
 
 ## Goal

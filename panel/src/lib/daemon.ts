@@ -59,6 +59,14 @@ export async function cancelMessage(targetId?: string): Promise<void> {
   await invoke('cancel_message', { targetId })
 }
 
+export async function sendApprovalDecision(
+  chatId: string,
+  callId: string,
+  action: string,
+): Promise<void> {
+  await invoke('send_approval_decision', { chatId, callId, action })
+}
+
 export async function getSettings(): Promise<SettingsInfo> {
   return await invoke<SettingsInfo>('get_settings')
 }

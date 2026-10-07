@@ -607,6 +607,40 @@ async fn send_message<R: Runtime>(
 }
 
 #[tauri::command]
+async fn send_approval_decision<R: Runtime>(
+    app: AppHandle<R>,
+    chat_id: Uuid,
+    call_id: String,
+    action: String,
+) -> Result<(), String> {
+    #[cfg(unix)]
+    {
+        let stream = connect_to_daemon(&app).await?;
+        let (_, mut writer) = stream.into_split();
+
+        let msg = ClientMessage::ApprovalDecision {
+            id: Uuid::new_v4(),
+            chat_id,
+            call_id,
+            action,
+        };
+        let mut payload = serde_json::to_string(&msg).map_err(|e| e.to_string())?;
+        payload.push('\n');
+        writer
+            .write_all(payload.as_bytes())
+            .await
+            .map_err(|e| e.to_string())?;
+        writer.flush().await.map_err(|e| e.to_string())?;
+        Ok(())
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (app, chat_id, call_id, action);
+        Err("Windows preview: local Unix domain socket daemon IPC is not supported on Windows. Run nookd on macOS or Linux.".to_string())
+    }
+}
+
+#[tauri::command]
 async fn cancel_message<R: Runtime>(
     app: AppHandle<R>,
     target_id: Option<Uuid>,
@@ -831,6 +865,7 @@ pub fn run() {
             delete_chat,
             send_message,
             cancel_message,
+            send_approval_decision,
             get_settings,
             set_settings,
             set_window_size,

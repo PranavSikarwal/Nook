@@ -118,6 +118,12 @@ pub enum ClientMessage {
     Ping {
         id: Uuid,
     },
+    ApprovalDecision {
+        id: Uuid,
+        chat_id: Uuid,
+        call_id: String,
+        action: String,
+    },
 }
 
 /// Replies and events sent from the Daemon to the Panel or `nookctl`.
@@ -149,6 +155,17 @@ pub enum DaemonMessage {
         message_id: Uuid,
         call_id: String,
         result: String,
+    },
+    ApprovalRequested {
+        id: Uuid,
+        chat_id: Uuid,
+        message_id: Uuid,
+        call_id: String,
+        tool_name: String,
+        arguments: String,
+        explanation: String,
+        resource_summary: String,
+        actions: Vec<String>,
     },
     MessageFinished {
         id: Uuid,
@@ -215,6 +232,11 @@ pub enum DaemonWorkerRequest {
         request_id: Uuid,
         chat_id: Uuid,
     },
+    ApprovalDecision {
+        request_id: Uuid,
+        call_id: String,
+        action: String,
+    },
     Shutdown,
 }
 
@@ -246,6 +268,16 @@ pub enum DaemonWorkerEvent {
         message_id: Uuid,
         call_id: String,
         result: String,
+    },
+    ApprovalRequested {
+        request_id: Uuid,
+        message_id: Uuid,
+        call_id: String,
+        tool_name: String,
+        arguments: String,
+        explanation: String,
+        resource_summary: String,
+        actions: Vec<String>,
     },
     MessageFinished {
         request_id: Uuid,

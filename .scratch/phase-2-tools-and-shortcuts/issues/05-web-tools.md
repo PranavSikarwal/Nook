@@ -1,7 +1,7 @@
 # Add DuckDuckGo search and guarded page fetch
 
 Type: task
-Status: open
+Status: resolved
 Blocked by: 03, 04
 
 ## Goal

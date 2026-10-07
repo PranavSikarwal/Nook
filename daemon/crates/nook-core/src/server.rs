@@ -401,6 +401,31 @@ async fn process_client_message(
         } => {
             handle_send_message(id, chat_id, text, attachments, state, tx_out).await;
         }
+
+        ClientMessage::ApprovalDecision {
+            id: _,
+            chat_id: _,
+            call_id,
+            action,
+        } => {
+            let worker_req_id = {
+                let open_reqs = state.open_requests.lock().await;
+                open_reqs.values().copied().next()
+            };
+
+            if let Some(w_id) = worker_req_id {
+                let sup_opt = state.supervisor.lock().await.clone();
+                if let Some(sup) = sup_opt {
+                    let _ = sup
+                        .send_request(DaemonWorkerRequest::ApprovalDecision {
+                            request_id: w_id,
+                            call_id,
+                            action,
+                        })
+                        .await;
+                }
+            }
+        }
     }
 }
 
@@ -655,6 +680,30 @@ async fn handle_send_message(
                         message_id: asst_message_id,
                         call_id,
                         result,
+                    })
+                    .await;
+            }
+
+            DaemonWorkerEvent::ApprovalRequested {
+                call_id,
+                tool_name,
+                arguments,
+                explanation,
+                resource_summary,
+                actions,
+                ..
+            } => {
+                let _ = tx_out
+                    .send(DaemonMessage::ApprovalRequested {
+                        id,
+                        chat_id,
+                        message_id: asst_message_id,
+                        call_id,
+                        tool_name,
+                        arguments,
+                        explanation,
+                        resource_summary,
+                        actions,
                     })
                     .await;
             }

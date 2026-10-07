@@ -6,6 +6,7 @@
   "oneOf": [
     { "$ref": "#/definitions/RunRequest" },
     { "$ref": "#/definitions/TitleRequest" },
+    { "$ref": "#/definitions/ApprovalDecisionRequest" },
     { "$ref": "#/definitions/CancelRequest" },
     { "$ref": "#/definitions/DeleteChatRequest" },
     { "$ref": "#/definitions/ShutdownRequest" },
@@ -14,6 +15,7 @@
     { "$ref": "#/definitions/TextDeltaEvent" },
     { "$ref": "#/definitions/ToolCallStartedEvent" },
     { "$ref": "#/definitions/ToolCallFinishedEvent" },
+    { "$ref": "#/definitions/ApprovalRequestedEvent" },
     { "$ref": "#/definitions/MessageFinishedEvent" },
     { "$ref": "#/definitions/TitleReadyEvent" },
     { "$ref": "#/definitions/DeletedEvent" },
@@ -85,6 +87,16 @@
         "first_message": { "type": "string" }
       },
       "required": ["type", "request_id", "chat_id", "first_message"]
+    },
+    "ApprovalDecisionRequest": {
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "const": "approval_decision" },
+        "request_id": { "$ref": "#/definitions/UUID" },
+        "call_id": { "type": "string" },
+        "action": { "type": "string" }
+      },
+      "required": ["type", "request_id", "call_id", "action"]
     },
     "CancelRequest": {
       "type": "object",
@@ -159,6 +171,34 @@
         "result": { "type": "string" }
       },
       "required": ["type", "request_id", "message_id", "call_id", "result"]
+    },
+    "ApprovalRequestedEvent": {
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "const": "approval_requested" },
+        "request_id": { "$ref": "#/definitions/UUID" },
+        "message_id": { "$ref": "#/definitions/UUID" },
+        "call_id": { "type": "string" },
+        "tool_name": { "type": "string" },
+        "arguments": { "type": "string" },
+        "explanation": { "type": "string" },
+        "resource_summary": { "type": "string" },
+        "actions": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "required": [
+        "type",
+        "request_id",
+        "message_id",
+        "call_id",
+        "tool_name",
+        "arguments",
+        "explanation",
+        "resource_summary",
+        "actions"
+      ]
     },
     "MessageFinishedEvent": {
       "type": "object",

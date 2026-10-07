@@ -4,12 +4,12 @@ Task details and "done when" checks are in `docs/plan.md`. Specs are in `docs/sp
 
 ## Current work: Phase 2 (Tools and shortcuts)
 
-- [ ] TS1. Define tool approval contracts and policy assets. Needs: T4
-- [ ] TS2. Add configurable focused-Panel shortcuts. Needs: T4
-- [ ] TS3. Add the registry and Cedar authorization bridge. Needs: TS1
-- [ ] TS4. Add approval pause, decision, and cancellation. Needs: TS1, TS3
-- [ ] TS5. Add DuckDuckGo search and guarded page fetch. Needs: TS3, TS4
-- [ ] TS6. Verify tools and shortcuts. Needs: TS2, TS4, TS5
+- [x] TS1. Define tool approval contracts and policy assets. Needs: T4
+- [x] TS2. Add configurable focused-Panel shortcuts. Needs: T4
+- [x] TS3. Add the registry and Cedar authorization bridge. Needs: TS1
+- [x] TS4. Add approval pause, decision, and cancellation. Needs: TS1, TS3
+- [x] TS5. Add DuckDuckGo search and guarded page fetch. Needs: TS3, TS4
+- [x] TS6. Verify tools and shortcuts. Needs: TS2, TS4, TS5
 
 ---
 

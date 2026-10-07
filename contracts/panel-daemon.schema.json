@@ -16,6 +16,8 @@
     { "$ref": "#/definitions/TextDeltaEvent" },
     { "$ref": "#/definitions/ToolCallStartedEvent" },
     { "$ref": "#/definitions/ToolCallFinishedEvent" },
+    { "$ref": "#/definitions/ApprovalRequestedEvent" },
+    { "$ref": "#/definitions/ApprovalDecisionRequest" },
     { "$ref": "#/definitions/MessageFinishedEvent" },
     { "$ref": "#/definitions/ChatTitledEvent" },
     { "$ref": "#/definitions/ChatsResponse" },
@@ -228,6 +230,47 @@
         "result": { "type": "string" }
       },
       "required": ["type", "id", "chat_id", "message_id", "call_id", "result"]
+    },
+    "ApprovalRequestedEvent": {
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "const": "approval_requested" },
+        "id": { "$ref": "#/definitions/UUID" },
+        "chat_id": { "$ref": "#/definitions/UUID" },
+        "message_id": { "$ref": "#/definitions/UUID" },
+        "call_id": { "type": "string" },
+        "tool_name": { "type": "string" },
+        "arguments": { "type": "string" },
+        "explanation": { "type": "string" },
+        "resource_summary": { "type": "string" },
+        "actions": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "required": [
+        "type",
+        "id",
+        "chat_id",
+        "message_id",
+        "call_id",
+        "tool_name",
+        "arguments",
+        "explanation",
+        "resource_summary",
+        "actions"
+      ]
+    },
+    "ApprovalDecisionRequest": {
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "const": "approval_decision" },
+        "id": { "$ref": "#/definitions/UUID" },
+        "chat_id": { "$ref": "#/definitions/UUID" },
+        "call_id": { "type": "string" },
+        "action": { "type": "string" }
+      },
+      "required": ["type", "id", "chat_id", "call_id", "action"]
     },
     "MessageFinishedEvent": {
       "type": "object",

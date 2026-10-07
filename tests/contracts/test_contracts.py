@@ -82,7 +82,7 @@ def test_panel_daemon_examples_valid() -> None:
     examples = load_ndjson(EXAMPLES_DIR / "panel-daemon.ndjson")
     validator = Draft7Validator(schema, format_checker=format_checker)
 
-    assert len(examples) == 21, f"Expected 21 example lines, found {len(examples)}"
+    assert len(examples) == 23, f"Expected 23 example lines, found {len(examples)}"
 
     for idx, obj in enumerate(examples, 1):
         errors = list(validator.iter_errors(obj))
@@ -97,7 +97,7 @@ def test_daemon_worker_examples_valid() -> None:
     examples = load_ndjson(EXAMPLES_DIR / "daemon-worker.ndjson")
     validator = Draft7Validator(schema, format_checker=format_checker)
 
-    assert len(examples) == 14, f"Expected 14 example lines, found {len(examples)}"
+    assert len(examples) == 16, f"Expected 16 example lines, found {len(examples)}"
 
     for idx, obj in enumerate(examples, 1):
         errors = list(validator.iter_errors(obj))

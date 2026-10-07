@@ -1,0 +1,38 @@
+# Nook tool definitions and policy tiers
+version: 1
+
+tools:
+  nook:web_search:
+    description: "Search the web using DuckDuckGo. Returns titles, links, and snippets."
+    capabilities:
+      network: true
+      read_only: true
+      requires_approval: false
+    approval:
+      tier: allow
+      actions:
+        - allow_once
+        - allow_for_chat
+        - always_allow
+
+  nook:web_fetch:
+    description: "Fetch a public web page over HTTP or HTTPS and extract readable text."
+    capabilities:
+      network: true
+      read_only: true
+      requires_approval: true
+    limits:
+      max_redirects: 5
+      timeout_seconds: 15
+      max_response_bytes: 2097152 # 2 MB
+      allowed_content_types:
+        - text/html
+        - text/plain
+        - text/markdown
+        - application/json
+    approval:
+      tier: ask_once_per_host
+      actions:
+        - allow_once
+        - allow_for_chat_host
+        - deny

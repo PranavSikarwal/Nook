@@ -14,6 +14,7 @@ from deepagents import (
 from deepagents.backends import StateBackend
 from deepagents.middleware.summarization import SummarizationMiddleware
 from langchain_core.messages import AIMessageChunk, HumanMessage
+from langchain_core.tools import StructuredTool
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.base import BaseCheckpointSaver
 
@@ -27,10 +28,13 @@ from nook_worker.protocol import (
     RunRequest,
     TextDeltaEvent,
 )
+from nook_worker.registry import ToolDefinition, default_registry
+from nook_worker.tools.fetch import WebFetchInput, execute_web_fetch
+from nook_worker.tools.search import WebSearchInput, execute_web_search
 
 SYSTEM_PROMPT = (
     "You are Nook, a concise desktop assistant. "
-    "You have no tools in this version. "
+    "You have access to web_search and web_fetch tools to look up current information. "
     "Always answer in Markdown."
 )
 
@@ -120,9 +124,44 @@ def build_deep_agent(
         trigger=("tokens", config.summarize_at_tokens),
     )
 
+    # Register tools into default_registry
+    default_registry.register(
+        ToolDefinition(
+            name="nook:web_search",
+            description="Search the web using DuckDuckGo. Returns titles, links, and snippets.",
+            argument_schema=WebSearchInput,
+            capabilities={"network": True, "read_only": True},
+            approval_tier="allow",
+            executor=execute_web_search,
+        )
+    )
+    default_registry.register(
+        ToolDefinition(
+            name="nook:web_fetch",
+            description="Fetch a public web page over HTTP or HTTPS and extract readable text.",
+            argument_schema=WebFetchInput,
+            capabilities={"network": True, "read_only": True},
+            approval_tier="ask_once_per_host",
+            executor=execute_web_fetch,
+        )
+    )
+
+    search_tool = StructuredTool.from_function(
+        coroutine=execute_web_search,
+        name="web_search",
+        description="Search the web using DuckDuckGo. Returns titles, links, and snippets.",
+        args_schema=WebSearchInput,
+    )
+    fetch_tool = StructuredTool.from_function(
+        coroutine=execute_web_fetch,
+        name="web_fetch",
+        description="Fetch a public web page over HTTP or HTTPS and extract readable text.",
+        args_schema=WebFetchInput,
+    )
+
     return create_deep_agent(
         model=model,
-        tools=[],
+        tools=[search_tool, fetch_tool],
         backend=backend,
         checkpointer=checkpointer,
         middleware=[custom_summarization],
