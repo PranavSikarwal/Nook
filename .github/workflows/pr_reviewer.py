@@ -471,6 +471,24 @@ def _run_single_command(
     return res.returncode, res.stdout.strip(), res.stderr.strip()
 
 
+DEFAULT_BASE_COMPARE = "origin/main...HEAD"
+
+
+def _group_tokens_into_pipelines(tokens: list[str]) -> list[list[str]]:
+    sub_cmds: list[list[str]] = []
+    current: list[str] = []
+    for token in tokens:
+        if token in ("&&", ";"):
+            if current:
+                sub_cmds.append(current)
+                current = []
+        else:
+            current.append(token)
+    if current:
+        sub_cmds.append(current)
+    return sub_cmds
+
+
 def tool_run_command(repo_root: Path, command: str, timeout_seconds: int = 300) -> str:
     clean_env = {
         k: v
@@ -491,19 +509,7 @@ def tool_run_command(repo_root: Path, command: str, timeout_seconds: int = 300) 
     if not tokens:
         return f"{ERR_PREFIX} Empty command."
 
-    # Group tokens into sub-command pipelines split on && or ;
-    sub_cmds: list[list[str]] = []
-    current: list[str] = []
-    for token in tokens:
-        if token in ("&&", ";"):
-            if current:
-                sub_cmds.append(current)
-                current = []
-        else:
-            current.append(token)
-    if current:
-        sub_cmds.append(current)
-
+    sub_cmds = _group_tokens_into_pipelines(tokens)
     stdout_parts: list[str] = []
     stderr_parts: list[str] = []
     last_exit_code = 0
@@ -533,7 +539,7 @@ def tool_run_command(repo_root: Path, command: str, timeout_seconds: int = 300) 
 
 def tool_get_changed_files(repo_root: Path) -> str:
     """Return stat summary and name status of all files changed against base."""
-    cmd = ["git", "diff", "--stat", "origin/main...HEAD"]
+    cmd = ["git", "diff", "--stat", DEFAULT_BASE_COMPARE]
     try:
         res = subprocess.run(
             cmd, cwd=repo_root, capture_output=True, text=True, timeout=30, check=False
@@ -545,7 +551,7 @@ def tool_get_changed_files(repo_root: Path) -> str:
 
 def tool_get_file_diff(repo_root: Path, path: str) -> str:
     """Return git diff for a specific file against base."""
-    cmd = ["git", "diff", "origin/main...HEAD", "--", path]
+    cmd = ["git", "diff", DEFAULT_BASE_COMPARE, "--", path]
     try:
         res = subprocess.run(
             cmd, cwd=repo_root, capture_output=True, text=True, timeout=30, check=False
@@ -779,7 +785,7 @@ def build_agent_prompts(
     raw_diff = get_pr_diff(gh, pr_number)
 
     if len(raw_diff) > 40000:
-        stat_summary = run_cli_command(["git", "diff", "--stat", "origin/main...HEAD"])
+        stat_summary = run_cli_command(["git", "diff", "--stat", DEFAULT_BASE_COMPARE])
         diff_text = (
             f"The full pull request diff is {len(raw_diff):,} characters.\n\n"
             f"### Changed Files Summary\n```text\n{stat_summary}\n```\n\n"
