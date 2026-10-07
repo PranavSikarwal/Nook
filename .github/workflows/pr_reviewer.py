@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -353,8 +354,8 @@ def tool_read_file(
 
 
 def tool_search_code(repo_root: Path, query: str, path: str = ".") -> str:
-    """Search for a pattern across the repository using git grep."""
-    cmd = ["git", "grep", "-n", "-I", "-e", query, "--", path]
+    """Search for a pattern across the repository using git grep with extended regex."""
+    cmd = ["git", "grep", "-E", "-n", "-I", "-e", query, "--", path]
     try:
         res = subprocess.run(
             cmd,
@@ -395,26 +396,49 @@ def tool_git_blame(repo_root: Path, path: str, start_line: int, end_line: int) -
         return f"{ERR_PREFIX} Git blame timed out."
 
 
-def tool_run_command(repo_root: Path, command: str) -> str:
+def _run_single_command(
+    repo_root: Path, command: str, clean_env: dict[str, str]
+) -> tuple[int, str, str]:
     parts = shlex.split(command)
     if not parts:
-        return f"{ERR_PREFIX} Empty command."
+        return 1, "", f"{ERR_PREFIX} Empty command."
     base_cmd = Path(parts[0]).name
     if base_cmd not in ALLOWED_COMMANDS:
-        return f"{ERR_PREFIX} Command '{base_cmd}' is not allowed. Permitted commands: {', '.join(sorted(ALLOWED_COMMANDS))}"
+        return (
+            1,
+            "",
+            f"{ERR_PREFIX} Command '{base_cmd}' is not allowed. Permitted commands: {', '.join(sorted(ALLOWED_COMMANDS))}",
+        )
 
     if base_cmd == "git":
         subcommands = [arg for arg in parts[1:] if not arg.startswith("-")]
         if not subcommands or subcommands[0] not in ALLOWED_GIT_SUBCOMMANDS:
             allowed_sub = ", ".join(sorted(ALLOWED_GIT_SUBCOMMANDS))
-            return f"{ERR_PREFIX} Disallowed git subcommand. Permitted: {allowed_sub}"
+            return (
+                1,
+                "",
+                f"{ERR_PREFIX} Disallowed git subcommand. Permitted: {allowed_sub}",
+            )
         for arg in parts[1:]:
             if any(
                 arg == flag or arg.startswith(f"{flag}=")
                 for flag in DISALLOWED_GIT_FLAGS
             ):
-                return f"{ERR_PREFIX} Disallowed git flag '{arg}'."
+                return 1, "", f"{ERR_PREFIX} Disallowed git flag '{arg}'."
 
+    res = subprocess.run(
+        parts,
+        cwd=repo_root,
+        env=clean_env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    return res.returncode, res.stdout.strip(), res.stderr.strip()
+
+
+def tool_run_command(repo_root: Path, command: str) -> str:
     clean_env = {
         k: v
         for k, v in os.environ.items()
@@ -424,24 +448,34 @@ def tool_run_command(repo_root: Path, command: str) -> str:
         )
     }
 
+    # Split chained commands on && or ;
+    sub_cmds = [c.strip() for c in re.split(r"&&|;", command) if c.strip()]
+    if not sub_cmds:
+        return f"{ERR_PREFIX} Empty command."
+
+    stdout_parts: list[str] = []
+    stderr_parts: list[str] = []
+    last_exit_code = 0
+
     try:
-        res = subprocess.run(
-            parts,
-            cwd=repo_root,
-            env=clean_env,
-            capture_output=True,
-            text=True,
-            timeout=60,
-            check=False,
-        )
-        combined = f"Exit code: {res.returncode}\n--- stdout ---\n{res.stdout.strip()}\n--- stderr ---\n{res.stderr.strip()}"
+        for sub_cmd in sub_cmds:
+            code, out, err = _run_single_command(repo_root, sub_cmd, clean_env)
+            last_exit_code = code
+            if out:
+                stdout_parts.append(out)
+            if err:
+                stderr_parts.append(err)
+            if code != 0:
+                break
+
+        combined = f"Exit code: {last_exit_code}\n--- stdout ---\n{'\n'.join(stdout_parts)}\n--- stderr ---\n{'\n'.join(stderr_parts)}"
         if len(combined) > 6000:
             combined = combined[:6000] + "\n... [Command output truncated]"
         return combined
     except subprocess.TimeoutExpired:
         return f"{ERR_PREFIX} Command timed out after 60 seconds."
     except OSError as exc:
-        return f"{ERR_PREFIX} Failed to execute '{parts[0]}': {exc}"
+        return f"{ERR_PREFIX} Failed to execute command: {exc}"
 
 
 def execute_tool_call(
@@ -518,6 +552,7 @@ def _build_code_review_prompt(
 
 ### Working Tree and Diff Notes
 - The working directory contains the PR checkout at its head commit. `git status` shows a clean tree because the commit is already checked out. To inspect changes against the base branch, compare against `origin/{base_ref}` (e.g. `git diff origin/{base_ref}...HEAD`).
+- Do NOT use `HEAD^` or `HEAD~1` to inspect the PR, because a pull request contains multiple commits. Always use `origin/{base_ref}...HEAD` to see the full PR diff.
 - Deleted files in this PR no longer exist on disk. `read_file` cannot read them directly. To inspect the contents of a deleted file before its removal, run `git show origin/{base_ref}:<path>` via `run_command`.
 
 Use your available tools (`read_file`, `search_code`, `git_blame`, `run_command`) to inspect context.
@@ -566,6 +601,7 @@ def _build_expert_review_prompt(
 
 ### Working Tree and Diff Notes
 - The working directory contains the PR checkout at its head commit. `git status` shows a clean tree because the commit is already checked out. To inspect changes against the base branch, compare against `origin/{base_ref}` (e.g. `git diff origin/{base_ref}...HEAD`).
+- Do NOT use `HEAD^` or `HEAD~1` to inspect the PR, because a pull request contains multiple commits. Always use `origin/{base_ref}...HEAD` to see the full PR diff.
 - Deleted files in this PR no longer exist on disk. `read_file` cannot read them directly. To inspect the contents of a deleted file before its removal, run `git show origin/{base_ref}:<path>` via `run_command`.
 
 Use your available tools to check code and run tests.
