@@ -92,7 +92,7 @@ class ApprovalManager:
         return False
 
     def cancel_all(self) -> None:
-        for future in list(self._pending_decisions.values()):
+        for future in self._pending_decisions.values():
             if not future.done():
                 future.cancel()
         self._pending_decisions.clear()

@@ -115,6 +115,51 @@ def register_agent_profile(model_name: str) -> None:
     register_harness_profile(f"openai:{model_name}", profile)
 
 
+async def _check_tool_approval(
+    registered_name: str, kwargs: dict[str, Any]
+) -> str | None:
+    """Return error message if access is denied, or None if approved."""
+    target_url = str(kwargs.get("url", ""))
+    parsed_host = urlparse(target_url).hostname or target_url
+    chat_id_str = str(default_approval_manager.current_chat_id or "")
+
+    if default_approval_manager.is_host_approved(chat_id_str, parsed_host):
+        return None
+
+    call_id = f"call_{uuid4().hex[:8]}"
+    action = await default_approval_manager.request_approval(
+        call_id=call_id,
+        tool_name=registered_name,
+        arguments=json.dumps(kwargs),
+        explanation=f"Web fetch requires approval to access {parsed_host}",
+        resource_summary=target_url,
+        actions=["allow_once", "allow_for_chat_host", "deny"],
+    )
+    if action == "deny":
+        return f"Error: User denied permission to access {parsed_host}."
+    if action in ("allow_for_chat_host", "allow_for_chat", "always_allow"):
+        default_approval_manager.approve_host(chat_id_str, parsed_host)
+    return None
+
+
+def _create_registry_runner(registered_name: str) -> Any:
+    async def registry_runner(**kwargs: Any) -> str:
+        defn = default_registry.get(registered_name)
+        if not defn:
+            return f"Error: Tool '{registered_name}' is not registered."
+        if defn.approval_tier == "deny":
+            return f"Error: Tool '{registered_name}' is denied by policy."
+
+        if defn.approval_tier == "ask_once_per_host":
+            deny_error = await _check_tool_approval(registered_name, kwargs)
+            if deny_error:
+                return deny_error
+
+        return await defn.executor(**kwargs)
+
+    return registry_runner
+
+
 def build_deep_agent(
     model: ChatOpenAI,
     config: WorkerConfig,
@@ -149,44 +194,6 @@ def build_deep_agent(
         ),
     ]
 
-    def make_registry_runner(registered_name: str):
-        async def registry_runner(**kwargs: Any) -> str:
-            defn = default_registry.get(registered_name)
-            if not defn:
-                return f"Error: Tool '{registered_name}' is not registered."
-            if defn.approval_tier == "deny":
-                return f"Error: Tool '{registered_name}' is denied by policy."
-
-            if defn.approval_tier == "ask_once_per_host":
-                target_url = str(kwargs.get("url", ""))
-                parsed_host = urlparse(target_url).hostname or target_url
-                chat_id_str = str(default_approval_manager.current_chat_id or "")
-
-                if not default_approval_manager.is_host_approved(
-                    chat_id_str, parsed_host
-                ):
-                    call_id = f"call_{uuid4().hex[:8]}"
-                    action = await default_approval_manager.request_approval(
-                        call_id=call_id,
-                        tool_name=registered_name,
-                        arguments=json.dumps(kwargs),
-                        explanation=f"Web fetch requires approval to access {parsed_host}",
-                        resource_summary=target_url,
-                        actions=["allow_once", "allow_for_chat_host", "deny"],
-                    )
-                    if action == "deny":
-                        return f"Error: User denied permission to access {parsed_host}."
-                    if action in (
-                        "allow_for_chat_host",
-                        "allow_for_chat",
-                        "always_allow",
-                    ):
-                        default_approval_manager.approve_host(chat_id_str, parsed_host)
-
-            return await defn.executor(**kwargs)
-
-        return registry_runner
-
     tools = []
     for reg_name, tool_name, desc, schema, caps, tier, fn in tool_specs:
         default_registry.register(
@@ -201,7 +208,7 @@ def build_deep_agent(
         )
         tools.append(
             StructuredTool.from_function(
-                coroutine=make_registry_runner(reg_name),
+                coroutine=_create_registry_runner(reg_name),
                 name=tool_name,
                 description=desc,
                 args_schema=schema,
