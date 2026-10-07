@@ -474,6 +474,10 @@ def _run_single_command(
 DEFAULT_BASE_COMPARE = "origin/main...HEAD"
 
 
+DISALLOWED_SHELL_TOKENS = {"|", ">", ">>", "<", "$", "`", "||"}
+MAX_SUBCOMMANDS = 5
+
+
 def _group_tokens_into_pipelines(tokens: list[str]) -> list[list[str]]:
     sub_cmds: list[list[str]] = []
     current: list[str] = []
@@ -509,15 +513,30 @@ def tool_run_command(repo_root: Path, command: str, timeout_seconds: int = 300) 
     if not tokens:
         return f"{ERR_PREFIX} Empty command."
 
+    for token in tokens:
+        if token in DISALLOWED_SHELL_TOKENS or any(op in token for op in ("`", "$(")):
+            return f"{ERR_PREFIX} Shell operator '{token}' is not supported."
+
     sub_cmds = _group_tokens_into_pipelines(tokens)
+    if len(sub_cmds) > MAX_SUBCOMMANDS:
+        return f"{ERR_PREFIX} Too many chained commands (maximum {MAX_SUBCOMMANDS} allowed)."
+
     stdout_parts: list[str] = []
     stderr_parts: list[str] = []
     last_exit_code = 0
+    start_time = time.monotonic()
+    deadline = start_time + effective_timeout
 
     try:
         for cmd_parts in sub_cmds:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return (
+                    f"{ERR_PREFIX} Command timed out after {effective_timeout} seconds."
+                )
+
             code, out, err = _run_single_command(
-                repo_root, cmd_parts, clean_env, timeout=effective_timeout
+                repo_root, cmd_parts, clean_env, timeout=max(1, int(remaining))
             )
             last_exit_code = code
             if out:

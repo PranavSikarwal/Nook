@@ -1,4 +1,5 @@
 import asyncio
+import sys
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -45,4 +46,6 @@ async def execute_web_search(query: str, max_results: int = 5) -> str:
         formatted = await asyncio.to_thread(_run_ddgs_sync, cleaned_query, max_results)
         return tool_result(formatted)
     except Exception as exc:
-        return tool_error(f"Search provider error: {exc}")
+        sys.stderr.write(f"Search provider error: {exc}\n")
+        sys.stderr.flush()
+        return tool_error("Search provider error: request failed")

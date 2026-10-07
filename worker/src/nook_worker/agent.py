@@ -150,6 +150,8 @@ def build_deep_agent(
             defn = default_registry.get(registered_name)
             if not defn:
                 return f"Error: Tool '{registered_name}' is not registered."
+            if defn.approval_tier == "deny":
+                return f"Error: Tool '{registered_name}' is denied by policy."
             return await defn.executor(**kwargs)
 
         return registry_runner

@@ -27,35 +27,40 @@ class WebFetchInput(BaseModel):
     url: str = Field(description="The public HTTP or HTTPS URL to fetch")
 
 
+class PinnedAsyncNetworkBackend(httpcore.AsyncNetworkBackend):
+    """Network backend that connects to target_ip while letting TLS/HTTP layers see original host."""
+
+    def __init__(self, target_ip: str) -> None:
+        self.target_ip = target_ip
+        self._base: Any = httpcore.AnyIOBackend()
+
+    async def connect_tcp(
+        self,
+        host: str,
+        port: int,
+        timeout: float | None = None,
+        local_address: str | None = None,
+        socket_options: Any = None,
+    ) -> httpcore.AsyncNetworkStream:
+        return await self._base.connect_tcp(
+            self.target_ip,
+            port,
+            timeout=timeout,
+            local_address=local_address,
+            socket_options=socket_options,
+        )
+
+
 class PinnedAsyncHTTPTransport(httpx.AsyncHTTPTransport):
     """Transport that forces TCP connections to a validated IP while preserving TLS SNI and Host."""
 
     def __init__(self, pinned_ip: str, **kwargs: Any) -> None:
         super().__init__(**kwargs)
-
-        class PinnedBackend(httpcore.AsyncNetworkBackend):
-            def __init__(self, target_ip: str) -> None:
-                self._target_ip = target_ip
-                self._base: Any = httpcore.AnyIOBackend()
-
-            async def connect_tcp(
-                self,
-                host: str,
-                port: int,
-                timeout: float | None = None,
-                local_address: str | None = None,
-                socket_options: Any = None,
-            ) -> httpcore.AsyncNetworkStream:
-                return await self._base.connect_tcp(
-                    self._target_ip,
-                    port,
-                    timeout=timeout,
-                    local_address=local_address,
-                    socket_options=socket_options,
-                )
-
-        # pyright: ignore[reportAttributeAccessIssue]
-        self._pool._network_backend = PinnedBackend(pinned_ip)
+        ssl_context = getattr(self._pool, "_ssl_context", None)
+        self._pool = httpcore.AsyncConnectionPool(
+            ssl_context=ssl_context,
+            network_backend=PinnedAsyncNetworkBackend(pinned_ip),
+        )
 
 
 def is_ip_blocked(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:

@@ -1,9 +1,15 @@
 import ipaddress
 import json
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from nook_worker.tools.fetch import execute_web_fetch, is_ip_blocked
+from nook_worker.tools.fetch import (
+    PinnedAsyncHTTPTransport,
+    PinnedAsyncNetworkBackend,
+    execute_web_fetch,
+    is_ip_blocked,
+)
 from nook_worker.tools.search import execute_web_search
 
 
@@ -48,3 +54,41 @@ async def test_web_search_empty_query():
     res = json.loads(await execute_web_search("   "))
     assert "error" in res
     assert "Empty search query" in res["error"]
+
+
+@pytest.mark.asyncio
+async def test_web_search_error_handling_sanitizes_message():
+    with patch(
+        "nook_worker.tools.search._run_ddgs_sync",
+        side_effect=RuntimeError("internal private IP 192.168.1.1 error details"),
+    ):
+        res = json.loads(await execute_web_search("some valid query"))
+        assert "error" in res
+        assert res["error"] == "Search provider error: request failed"
+        assert "192.168.1.1" not in res["error"]
+
+
+@pytest.mark.asyncio
+async def test_pinned_async_network_backend_connects_to_target_ip():
+    backend = PinnedAsyncNetworkBackend(target_ip="93.184.215.14")
+    mock_base = AsyncMock()
+    backend._base = mock_base
+
+    await backend.connect_tcp("example.com", 443, timeout=5.0)
+
+    mock_base.connect_tcp.assert_awaited_once_with(
+        "93.184.215.14",
+        443,
+        timeout=5.0,
+        local_address=None,
+        socket_options=None,
+    )
+
+
+@pytest.mark.asyncio
+async def test_pinned_async_http_transport_configures_backend():
+    transport = PinnedAsyncHTTPTransport(pinned_ip="93.184.215.14")
+    # Verify pool has the pinned network backend
+    backend = getattr(transport._pool, "_network_backend", None)
+    assert isinstance(backend, PinnedAsyncNetworkBackend)
+    assert backend.target_ip == "93.184.215.14"
