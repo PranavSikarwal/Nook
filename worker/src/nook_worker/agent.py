@@ -124,44 +124,51 @@ def build_deep_agent(
         trigger=("tokens", config.summarize_at_tokens),
     )
 
-    # Register tools into default_registry
-    default_registry.register(
-        ToolDefinition(
-            name="nook:web_search",
-            description="Search the web using DuckDuckGo. Returns titles, links, and snippets.",
-            argument_schema=WebSearchInput,
-            capabilities={"network": True, "read_only": True},
-            approval_tier="allow",
-            executor=execute_web_search,
-        )
-    )
-    default_registry.register(
-        ToolDefinition(
-            name="nook:web_fetch",
-            description="Fetch a public web page over HTTP or HTTPS and extract readable text.",
-            argument_schema=WebFetchInput,
-            capabilities={"network": True, "read_only": True},
-            approval_tier="ask_once_per_host",
-            executor=execute_web_fetch,
-        )
-    )
+    tool_specs = [
+        (
+            "nook:web_search",
+            "web_search",
+            "Search the web using DuckDuckGo. Returns titles, links, and snippets.",
+            WebSearchInput,
+            {"network": True, "read_only": True},
+            "allow",
+            execute_web_search,
+        ),
+        (
+            "nook:web_fetch",
+            "web_fetch",
+            "Fetch a public web page over HTTP or HTTPS and extract readable text.",
+            WebFetchInput,
+            {"network": True, "read_only": True},
+            "ask_once_per_host",
+            execute_web_fetch,
+        ),
+    ]
 
-    search_tool = StructuredTool.from_function(
-        coroutine=execute_web_search,
-        name="web_search",
-        description="Search the web using DuckDuckGo. Returns titles, links, and snippets.",
-        args_schema=WebSearchInput,
-    )
-    fetch_tool = StructuredTool.from_function(
-        coroutine=execute_web_fetch,
-        name="web_fetch",
-        description="Fetch a public web page over HTTP or HTTPS and extract readable text.",
-        args_schema=WebFetchInput,
-    )
+    tools = []
+    for reg_name, tool_name, desc, schema, caps, tier, fn in tool_specs:
+        default_registry.register(
+            ToolDefinition(
+                name=reg_name,
+                description=desc,
+                argument_schema=schema,
+                capabilities=caps,
+                approval_tier=tier,
+                executor=fn,
+            )
+        )
+        tools.append(
+            StructuredTool.from_function(
+                coroutine=fn,
+                name=tool_name,
+                description=desc,
+                args_schema=schema,
+            )
+        )
 
     return create_deep_agent(
         model=model,
-        tools=[search_tool, fetch_tool],
+        tools=tools,
         backend=backend,
         checkpointer=checkpointer,
         middleware=[custom_summarization],
