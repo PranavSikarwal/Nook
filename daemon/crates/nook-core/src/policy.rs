@@ -93,7 +93,8 @@ impl GrantStore {
 }
 
 fn make_str_expr(val: &str) -> Result<cedar_policy::RestrictedExpression, PolicyError> {
-    cedar_policy::RestrictedExpression::from_str(&format!("\"{val}\""))
+    let escaped = val.replace('\\', "\\\\").replace('"', "\\\"");
+    cedar_policy::RestrictedExpression::from_str(&format!("\"{escaped}\""))
         .map_err(|e| PolicyError::Evaluation(e.to_string()))
 }
 

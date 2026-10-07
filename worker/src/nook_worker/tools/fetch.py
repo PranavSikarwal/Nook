@@ -114,8 +114,17 @@ def extract_readable_text(content_type: str, content: bytes) -> str:
 async def _read_streamed_body(response: httpx.Response) -> bytes:
     """Read response body up to MAX_RESPONSE_BYTES chunks."""
     content_length = response.headers.get("content-length")
-    if content_length and int(content_length) > MAX_RESPONSE_BYTES:
-        raise ValueError(f"Response exceeds size limit of {MAX_RESPONSE_BYTES} bytes")
+    if content_length:
+        try:
+            cl_val = int(content_length.strip())
+            if cl_val > MAX_RESPONSE_BYTES or cl_val < 0:
+                raise ValueError(
+                    f"Response exceeds size limit of {MAX_RESPONSE_BYTES} bytes"
+                )
+        except ValueError as exc:
+            if "exceeds size limit" in str(exc):
+                raise
+            # Ignore invalid non-integer content-length headers and rely on streaming cap
 
     body_chunks: list[bytes] = []
     total_bytes = 0
@@ -188,16 +197,17 @@ async def _fetch_single_url(
                     None,
                 )
 
-            content_type = response.headers.get("content-type", "").lower()
-            if not any(t in content_type for t in ALLOWED_CONTENT_TYPES):
+            raw_content_type = response.headers.get("content-type", "").lower()
+            media_type = raw_content_type.split(";")[0].strip()
+            if media_type not in ALLOWED_CONTENT_TYPES:
                 return (
                     None,
-                    f"Unsupported Content-Type '{content_type}'. Must be text, markdown, HTML, or JSON.",
+                    f"Unsupported Content-Type '{raw_content_type}'. Must be text, markdown, HTML, or JSON.",
                     None,
                 )
 
             body_bytes = await _read_streamed_body(response)
-            extracted = extract_readable_text(content_type, body_bytes)
+            extracted = extract_readable_text(media_type, body_bytes)
             return (
                 None,
                 None,
