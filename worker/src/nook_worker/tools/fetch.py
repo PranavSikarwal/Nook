@@ -50,7 +50,7 @@ async def resolve_and_validate_host(hostname: str, port: int) -> list[str]:
 
     validated_ips: list[str] = []
     for _family, _, _, _, sockaddr in addr_info:
-        ip_str = sockaddr[0]
+        ip_str = str(sockaddr[0])
         try:
             ip_obj = ipaddress.ip_address(ip_str)
         except ValueError as exc:
