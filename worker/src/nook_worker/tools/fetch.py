@@ -77,6 +77,46 @@ def extract_readable_text(content_type: str, content: bytes) -> str:
     return content.decode("utf-8", errors="replace").strip()
 
 
+async def _read_streamed_body(response: httpx.Response) -> bytes:
+    """Read response body up to MAX_RESPONSE_BYTES chunks."""
+    content_length = response.headers.get("content-length")
+    if content_length and int(content_length) > MAX_RESPONSE_BYTES:
+        raise ValueError(f"Response exceeds size limit of {MAX_RESPONSE_BYTES} bytes")
+
+    body_chunks: list[bytes] = []
+    total_bytes = 0
+    async for chunk in response.aiter_bytes(chunk_size=CHUNK_SIZE):
+        total_bytes += len(chunk)
+        if total_bytes > MAX_RESPONSE_BYTES:
+            allowed_slice = chunk[: len(chunk) - (total_bytes - MAX_RESPONSE_BYTES)]
+            body_chunks.append(allowed_slice)
+            break
+        body_chunks.append(chunk)
+
+    return b"".join(body_chunks)
+
+
+async def _perform_single_get(
+    connect_url: str,
+    hostname: str,
+    headers: dict[str, str],
+) -> tuple[httpx.Response | None, str | None]:
+    """Execute a single HTTP stream request and check for redirect or error."""
+    async with httpx.AsyncClient(
+        verify=True,
+        timeout=TIMEOUT_SECONDS,
+        follow_redirects=False,
+    ) as client:
+        req = client.build_request(
+            "GET",
+            connect_url,
+            headers=headers,
+            extensions={"sni_hostname": hostname},
+        )
+        response = await client.send(req, stream=True)
+        return response, None
+
+
 async def execute_web_fetch(url: str) -> str:
     """Fetch a public HTTP or HTTPS web page with SSRF protection, DNS pinning,
 
@@ -102,16 +142,13 @@ async def execute_web_fetch(url: str) -> str:
 
         port = parsed.port or (443 if parsed.scheme == "https" else 80)
 
-        # 1. Resolve & validate all IP addresses
         try:
             validated_ips = await resolve_and_validate_host(hostname, port)
         except ValueError as exc:
             return json.dumps({"error": str(exc)})
 
-        # 2. Pin connection to first validated IP; bracket IPv6 literals
         pinned_ip = validated_ips[0]
         connect_host = f"[{pinned_ip}]" if ":" in pinned_ip else pinned_ip
-
         target_path = parsed.path or "/"
         if parsed.query:
             target_path = f"{target_path}?{parsed.query}"
@@ -124,88 +161,53 @@ async def execute_web_fetch(url: str) -> str:
         }
 
         try:
-            async with httpx.AsyncClient(
-                verify=True,
-                timeout=TIMEOUT_SECONDS,
-                follow_redirects=False,
-            ) as client:
-                req = client.build_request(
-                    "GET",
-                    connect_url,
-                    headers=headers,
-                    extensions={"sni_hostname": hostname},
-                )
+            response, _ = await _perform_single_get(connect_url, hostname, headers)
+            if response is None:
+                return json.dumps({"error": "Failed to connect"})
 
-                async with client.stream(
-                    req.method, req.url, headers=req.headers, extensions=req.extensions
-                ) as response:
-                    # Check for redirect
-                    if response.is_redirect:
-                        location = response.headers.get("location")
-                        if not location:
-                            return json.dumps(
-                                {"error": "Redirect received with no Location header"}
-                            )
-
-                        current_url = urljoin(current_url, location)
-                        redirect_count += 1
-                        continue
-
-                    # Validate response status
-                    if response.status_code >= 400:
+            try:
+                if response.is_redirect:
+                    location = response.headers.get("location")
+                    if not location:
                         return json.dumps(
-                            {
-                                "error": f"HTTP {response.status_code}: {response.reason_phrase}",
-                                "status_code": response.status_code,
-                            }
+                            {"error": "Redirect received with no Location header"}
                         )
+                    current_url = urljoin(current_url, location)
+                    redirect_count += 1
+                    continue
 
-                    # Validate content type
-                    content_type = response.headers.get("content-type", "").lower()
-                    is_allowed_type = any(
-                        t in content_type for t in ALLOWED_CONTENT_TYPES
-                    )
-                    if not is_allowed_type:
-                        return json.dumps(
-                            {
-                                "error": f"Unsupported Content-Type '{content_type}'. Must be text, markdown, HTML, or JSON."
-                            }
-                        )
-
-                    # Early check for Content-Length
-                    content_length = response.headers.get("content-length")
-                    if content_length and int(content_length) > MAX_RESPONSE_BYTES:
-                        return json.dumps(
-                            {
-                                "error": f"Response exceeds size limit of {MAX_RESPONSE_BYTES} bytes"
-                            }
-                        )
-
-                    # Stream chunks up to MAX_RESPONSE_BYTES
-                    body_chunks: list[bytes] = []
-                    total_bytes = 0
-                    async for chunk in response.aiter_bytes(chunk_size=CHUNK_SIZE):
-                        total_bytes += len(chunk)
-                        if total_bytes > MAX_RESPONSE_BYTES:
-                            allowed_slice = chunk[
-                                : len(chunk) - (total_bytes - MAX_RESPONSE_BYTES)
-                            ]
-                            body_chunks.append(allowed_slice)
-                            break
-                        body_chunks.append(chunk)
-
-                    body_bytes = b"".join(body_chunks)
-                    extracted = extract_readable_text(content_type, body_bytes)
+                if response.status_code >= 400:
                     return json.dumps(
                         {
-                            "url": current_url,
+                            "error": f"HTTP {response.status_code}: {response.reason_phrase}",
                             "status_code": response.status_code,
-                            "content": extracted[:100000],
-                        },
-                        ensure_ascii=False,
+                        }
                     )
+
+                content_type = response.headers.get("content-type", "").lower()
+                if not any(t in content_type for t in ALLOWED_CONTENT_TYPES):
+                    return json.dumps(
+                        {
+                            "error": f"Unsupported Content-Type '{content_type}'. Must be text, markdown, HTML, or JSON."
+                        }
+                    )
+
+                body_bytes = await _read_streamed_body(response)
+                extracted = extract_readable_text(content_type, body_bytes)
+                return json.dumps(
+                    {
+                        "url": current_url,
+                        "status_code": response.status_code,
+                        "content": extracted[:100000],
+                    },
+                    ensure_ascii=False,
+                )
+            finally:
+                await response.aclose()
         except asyncio.CancelledError:
             raise
+        except ValueError as exc:
+            return json.dumps({"error": str(exc)})
         except httpx.TimeoutException:
             return json.dumps({"error": "Request timed out"})
         except httpx.HTTPError as exc:

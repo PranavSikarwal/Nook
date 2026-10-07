@@ -40,6 +40,59 @@ const ATTACHMENTS_HEIGHT = 110
 const DRAWER_HEIGHT = 440
 const EXPANDED_HEIGHT = 520
 
+interface ShortcutContext {
+  inputRef: React.RefObject<HTMLInputElement | null>
+  fileInputRef: React.RefObject<HTMLInputElement | null>
+  isStreaming: boolean
+  activeApproval: ApprovalRequest | null
+  activePanel: ActivePanel
+  onNewChat: () => void
+  onToggleHistory: () => void
+  onToggleSettings: () => void
+  onStop: () => void
+  onApprovalDecide: (action: string) => void
+  onCloseAuxiliary: () => void
+}
+
+function executeShortcutAction(action: string, ctx: ShortcutContext): boolean {
+  switch (action) {
+    case 'focus_input':
+      ctx.inputRef.current?.focus()
+      return true
+    case 'new_chat':
+      if (!ctx.isStreaming) ctx.onNewChat()
+      return true
+    case 'toggle_history':
+      ctx.onToggleHistory()
+      return true
+    case 'open_settings':
+      ctx.onToggleSettings()
+      return true
+    case 'attach_file':
+      ctx.fileInputRef.current?.click()
+      return true
+    case 'cancel_active_work':
+      if (ctx.activeApproval) {
+        ctx.onApprovalDecide('deny')
+        ctx.onStop()
+        return true
+      }
+      if (ctx.isStreaming) {
+        ctx.onStop()
+        return true
+      }
+      return false
+    case 'close_auxiliary_view':
+      if (ctx.activePanel !== 'none') {
+        ctx.onCloseAuxiliary()
+        return true
+      }
+      return false
+    default:
+      return false
+  }
+}
+
 export default function App() {
   const [activePanel, setActivePanel] = useState<ActivePanel>('none')
   const [chatId, setChatId] = useState<string>(() => crypto.randomUUID())
@@ -211,75 +264,12 @@ export default function App() {
   // Focused in-window keyboard shortcuts dispatcher
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Don't intercept shortcuts while user is recording in settings
       const activeEl = document.activeElement
       if (activeEl?.tagName === 'BUTTON' && activeEl.textContent?.includes('Press key combo')) {
         return
       }
 
-      const combo = normalizeKeyboardEvent(e)
-      if (!combo) return
-
-      // Find matching action
-      for (const [action, key] of Object.entries(shortcuts)) {
-        if (key.toLowerCase() === combo.toLowerCase()) {
-          switch (action) {
-            case 'focus_input': {
-              e.preventDefault()
-              inputRef.current?.focus()
-              return
-            }
-            case 'new_chat': {
-              e.preventDefault()
-              if (!isStreaming) {
-                handleNewChat()
-              }
-              return
-            }
-            case 'toggle_history': {
-              e.preventDefault()
-              setActivePanel((prev) => (prev === 'history' ? 'none' : 'history'))
-              return
-            }
-            case 'open_settings': {
-              e.preventDefault()
-              setActivePanel((prev) => (prev === 'settings' ? 'none' : 'settings'))
-              return
-            }
-            case 'attach_file': {
-              e.preventDefault()
-              fileInputRef.current?.click()
-              return
-            }
-            case 'cancel_active_work': {
-              if (activeApproval) {
-                e.preventDefault()
-                void handleApprovalDecide('deny')
-                void handleStop()
-                return
-              }
-              if (isStreaming) {
-                e.preventDefault()
-                void handleStop()
-                return
-              }
-              break
-            }
-            case 'close_auxiliary_view': {
-              if (activePanel !== 'none') {
-                e.preventDefault()
-                setActivePanel('none')
-                return
-              }
-              break
-            }
-            default:
-              break
-          }
-        }
-      }
-
-      // Universal fallback for Escape: close auxiliary panels or cancel active approval
+      // Universal fallback for Escape
       if (e.key === 'Escape') {
         if (activeApproval) {
           e.preventDefault()
@@ -290,6 +280,31 @@ export default function App() {
         if (activePanel !== 'none') {
           e.preventDefault()
           setActivePanel('none')
+          return
+        }
+      }
+
+      const combo = normalizeKeyboardEvent(e)
+      if (!combo) return
+
+      const ctx: ShortcutContext = {
+        inputRef,
+        fileInputRef,
+        isStreaming,
+        activeApproval,
+        activePanel,
+        onNewChat: handleNewChat,
+        onToggleHistory: () => setActivePanel((prev) => (prev === 'history' ? 'none' : 'history')),
+        onToggleSettings: () => setActivePanel((prev) => (prev === 'settings' ? 'none' : 'settings')),
+        onStop: () => void handleStop(),
+        onApprovalDecide: (action) => void handleApprovalDecide(action),
+        onCloseAuxiliary: () => setActivePanel('none'),
+      }
+
+      for (const [action, key] of Object.entries(shortcuts)) {
+        if (key.toLowerCase() === combo.toLowerCase() && executeShortcutAction(action, ctx)) {
+          e.preventDefault()
+          return
         }
       }
     }

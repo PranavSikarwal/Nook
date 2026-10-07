@@ -21,7 +21,7 @@ export function ApprovalCard({ request, onDecide, disabled = false }: ApprovalCa
       case 'deny':
         return 'Deny'
       default:
-        return action.replace(/_/g, ' ')
+        return action.replaceAll('_', ' ')
     }
   }
 

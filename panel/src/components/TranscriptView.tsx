@@ -126,7 +126,7 @@ export function TranscriptView({
                 </div>
               )}
 
-              {activeApproval && activeApproval.message_id === msg.id && onApprovalDecide && (
+              {activeApproval?.message_id === msg.id && onApprovalDecide && (
                 <ApprovalCard
                   request={activeApproval}
                   onDecide={onApprovalDecide}
