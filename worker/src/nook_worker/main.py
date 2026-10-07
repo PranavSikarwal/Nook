@@ -73,6 +73,11 @@ async def handle_run(
         await write_line(format_event(finished_event))
         raise
     except Exception as err:  # noqa: BLE001
+        import traceback
+
+        sys.stderr.write(f"handle_run error: {err}\n")
+        traceback.print_exc(file=sys.stderr)
+        sys.stderr.flush()
         default_approval_manager.cancel_for_request(request.request_id)
         err_info = map_exception_to_error_info(err)
         err_event = ErrorEvent(
