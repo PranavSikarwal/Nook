@@ -94,3 +94,109 @@ async def test_approval_cancellation():
 
     with pytest.raises(asyncio.CancelledError):
         await task
+
+
+@pytest.mark.asyncio
+async def test_approval_fails_closed_without_context():
+    manager = ApprovalManager()
+    manager.clear_context()
+
+    # Without context, must fail-closed (deny)
+    res = await manager.request_approval(
+        call_id="call_no_ctx",
+        tool_name="nook:web_fetch",
+        arguments="{}",
+        explanation="No context test",
+        resource_summary="test",
+        actions=["allow_once", "deny"],
+    )
+    assert res == "deny"
+
+
+@pytest.mark.asyncio
+async def test_approval_write_failure_cleans_up_future():
+    manager = ApprovalManager()
+
+    async def failing_write_line(_: str) -> None:
+        raise OSError("Broken pipe")
+
+    manager.set_context(
+        request_id=uuid4(),
+        message_id=uuid4(),
+        chat_id=uuid4(),
+        write_line=failing_write_line,
+    )
+
+    with pytest.raises(OSError, match="Broken pipe"):
+        await manager.request_approval(
+            call_id="call_pipe_err",
+            tool_name="nook:web_fetch",
+            arguments="{}",
+            explanation="Test write error",
+            resource_summary="test",
+            actions=["allow_once", "deny"],
+        )
+
+    # Future must not leak in pending decisions
+    assert "call_pipe_err" not in manager._pending_decisions
+
+
+@pytest.mark.asyncio
+async def test_concurrent_runs_context_isolation():
+    manager = ApprovalManager()
+    events_run1: list[str] = []
+    events_run2: list[str] = []
+
+    async def write_run1(line: str) -> None:
+        events_run1.append(line)
+
+    async def write_run2(line: str) -> None:
+        events_run2.append(line)
+
+    req1, msg1, chat1 = uuid4(), uuid4(), uuid4()
+    req2, msg2, chat2 = uuid4(), uuid4(), uuid4()
+
+    async def run1():
+        manager.set_context(req1, msg1, chat1, write_run1)
+        await asyncio.sleep(0.02)
+        return await manager.request_approval(
+            call_id="call_r1",
+            tool_name="nook:web_fetch",
+            arguments="{}",
+            explanation="Run 1",
+            resource_summary="url1",
+            actions=["allow_once", "deny"],
+        )
+
+    async def run2():
+        manager.set_context(req2, msg2, chat2, write_run2)
+        await asyncio.sleep(0.01)
+        return await manager.request_approval(
+            call_id="call_r2",
+            tool_name="nook:web_fetch",
+            arguments="{}",
+            explanation="Run 2",
+            resource_summary="url2",
+            actions=["allow_once", "deny"],
+        )
+
+    t1 = asyncio.create_task(run1())
+    t2 = asyncio.create_task(run2())
+
+    await asyncio.sleep(0.05)
+
+    assert len(events_run1) == 1
+    assert len(events_run2) == 1
+
+    ev1 = parse_event(events_run1[0])
+    ev2 = parse_event(events_run2[0])
+
+    assert ev1.request_id == req1  # type: ignore[attr-defined]
+    assert ev2.request_id == req2  # type: ignore[attr-defined]
+
+    # Resolve decisions separately
+    manager.resolve_decision("call_r1", "allow_once")
+    manager.resolve_decision("call_r2", "deny")
+
+    assert await t1 == "allow_once"
+    assert await t2 == "deny"

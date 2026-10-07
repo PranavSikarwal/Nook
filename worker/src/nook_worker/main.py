@@ -64,7 +64,7 @@ async def handle_run(
                 )
             await write_line(format_event(event))
     except asyncio.CancelledError:
-        default_approval_manager.cancel_all()
+        default_approval_manager.cancel_for_request(request.request_id)
         finished_event = MessageFinishedEvent(
             request_id=request.request_id,
             message_id=message_id,
@@ -73,7 +73,7 @@ async def handle_run(
         await write_line(format_event(finished_event))
         raise
     except Exception as err:  # noqa: BLE001
-        default_approval_manager.cancel_all()
+        default_approval_manager.cancel_for_request(request.request_id)
         err_info = map_exception_to_error_info(err)
         err_event = ErrorEvent(
             request_id=request.request_id,
@@ -81,7 +81,7 @@ async def handle_run(
         )
         await write_line(format_event(err_event))
     finally:
-        default_approval_manager.clear_context()
+        default_approval_manager.clear_context(request.request_id)
 
 
 async def handle_title(
@@ -173,6 +173,7 @@ def _dispatch_request(
         case ShutdownRequest():
             return False
         case CancelRequest(request_id=req_id):
+            default_approval_manager.cancel_for_request(req_id)
             active_task = active_tasks.get(req_id)
             if active_task and not active_task.done():
                 active_task.cancel()
