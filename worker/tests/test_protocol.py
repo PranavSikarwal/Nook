@@ -49,8 +49,8 @@ def test_parse_examples_file():
 
     req_decision = parse_request(lines[2])
     assert isinstance(req_decision, ApprovalDecisionRequest)
-    assert req_decision.call_id == "call_fetch_1"
-    assert req_decision.action == "allow_for_chat_host"
+    assert req_decision.call_id == "call_search_9"
+    assert req_decision.action == "allow_once"
 
     req_cancel = parse_request(lines[3])
     assert isinstance(req_cancel, CancelRequest)
@@ -83,8 +83,8 @@ def test_parse_examples_file():
 
     ev_approval_req = parse_event(lines[11])
     assert isinstance(ev_approval_req, ApprovalRequestedEvent)
-    assert ev_approval_req.call_id == "call_fetch_1"
-    assert ev_approval_req.tool_name == "nook:web_fetch"
+    assert ev_approval_req.call_id == "call_search_9"
+    assert ev_approval_req.tool_name == "nook:web_search"
 
     ev_finished = parse_event(lines[12])
     assert isinstance(ev_finished, MessageFinishedEvent)

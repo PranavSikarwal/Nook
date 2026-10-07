@@ -250,80 +250,54 @@ mod tests {
     const SCHEMA_SRC: &str = include_str!("../../../../policy/cedar/schema.cedarschema");
     const POLICIES_SRC: &str = include_str!("../../../../policy/cedar/policies.cedar");
 
+    fn create_test_authorizer() -> CedarAuthorizer {
+        CedarAuthorizer::from_str(SCHEMA_SRC, POLICIES_SRC).expect("valid test policy files")
+    }
+
+    async fn check_fetch(authorizer: &CedarAuthorizer, chat_id: Uuid, host: &str) -> bool {
+        authorizer
+            .authorize_tool(
+                chat_id,
+                "web_fetch",
+                "ask_once_per_host",
+                Some(host),
+                Some(&format!("https://{host}")),
+                Some("digest_xyz"),
+            )
+            .await
+            .expect("evaluation succeeds")
+    }
+
     #[tokio::test]
     async fn test_web_search_allowed_by_default() {
-        let auth = CedarAuthorizer::from_str(SCHEMA_SRC, POLICIES_SRC).unwrap();
-        let chat_id = Uuid::new_v4();
-
-        let allowed = auth
-            .authorize_tool(chat_id, "web_search", "allow", None, None, None)
+        let auth = create_test_authorizer();
+        assert!(auth
+            .authorize_tool(Uuid::new_v4(), "web_search", "allow", None, None, None)
             .await
-            .unwrap();
-        assert!(allowed);
+            .unwrap());
     }
 
     #[tokio::test]
-    async fn test_web_fetch_denied_without_grant() {
-        let auth = CedarAuthorizer::from_str(SCHEMA_SRC, POLICIES_SRC).unwrap();
+    async fn test_web_fetch_authorization_workflow() {
+        let auth = create_test_authorizer();
         let chat_id = Uuid::new_v4();
 
-        let allowed = auth
-            .authorize_tool(
-                chat_id,
-                "web_fetch",
-                "ask_once_per_host",
-                Some("docs.example.com"),
-                Some("https://docs.example.com"),
-                Some("digest123"),
-            )
-            .await
-            .unwrap();
-        assert!(!allowed);
-    }
+        // 1. Initial attempt without grant: denied
+        assert!(!check_fetch(&auth, chat_id, "docs.example.com").await);
 
-    #[tokio::test]
-    async fn test_web_fetch_allowed_with_host_grant() {
-        let auth = CedarAuthorizer::from_str(SCHEMA_SRC, POLICIES_SRC).unwrap();
-        let chat_id = Uuid::new_v4();
+        // 2. Add host grant
+        auth.grant_store().lock().await.add_grant(ScopedGrant {
+            chat_id,
+            tool_name: "web_fetch".to_string(),
+            scope: "chat_host".to_string(),
+            host: Some("docs.example.com".to_string()),
+            argument_digest: None,
+        });
 
-        // Add grant
-        {
-            let store_arc = auth.grant_store();
-            let mut store = store_arc.lock().await;
-            store.add_grant(ScopedGrant {
-                chat_id,
-                tool_name: "web_fetch".to_string(),
-                scope: "chat_host".to_string(),
-                host: Some("docs.example.com".to_string()),
-                argument_digest: None,
-            });
-        }
+        // 3. Approved host: allowed
+        assert!(check_fetch(&auth, chat_id, "docs.example.com").await);
 
-        let allowed = auth
-            .authorize_tool(
-                chat_id,
-                "web_fetch",
-                "ask_once_per_host",
-                Some("docs.example.com"),
-                Some("https://docs.example.com"),
-                Some("digest123"),
-            )
-            .await
-            .unwrap();
-        assert!(allowed);
-
-        // Different host still denied
-        let different_host = auth
-            .authorize_tool(
-                chat_id,
-                "web_fetch",
-                "ask_once_per_host",
-                Some("malicious.example.com"),
-                Some("https://malicious.example.com"),
-                Some("digest456"),
-            )
-            .await
-            .unwrap();
-        assert!(!different_host);
+        // 4. Unapproved host: still denied
+        assert!(!check_fetch(&auth, chat_id, "unapproved.example.com").await);
     }
 }

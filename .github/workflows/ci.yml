@@ -80,3 +80,25 @@ jobs:
 
       - name: Run repository-wide Pyright
         run: worker/.venv/bin/pyright
+
+      - name: Install Ubuntu WebKit and Tauri build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libssl-dev
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Run Panel linter and build
+        run: |
+          cd panel
+          npm ci --ignore-scripts
+          npm run lint
+          npm run build
+
+      - name: Run Tauri cargo check
+        run: |
+          cd panel/src-tauri
+          cargo check
