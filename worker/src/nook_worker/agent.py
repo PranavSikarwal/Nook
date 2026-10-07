@@ -145,6 +145,15 @@ def build_deep_agent(
         ),
     ]
 
+    def make_registry_runner(registered_name: str):
+        async def registry_runner(**kwargs: Any) -> str:
+            defn = default_registry.get(registered_name)
+            if not defn:
+                return f"Error: Tool '{registered_name}' is not registered."
+            return await defn.executor(**kwargs)
+
+        return registry_runner
+
     tools = []
     for reg_name, tool_name, desc, schema, caps, tier, fn in tool_specs:
         default_registry.register(
@@ -159,7 +168,7 @@ def build_deep_agent(
         )
         tools.append(
             StructuredTool.from_function(
-                coroutine=fn,
+                coroutine=make_registry_runner(reg_name),
                 name=tool_name,
                 description=desc,
                 args_schema=schema,

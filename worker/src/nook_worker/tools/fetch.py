@@ -1,8 +1,10 @@
 import asyncio
 import ipaddress
 import socket
+from typing import Any
 from urllib.parse import urljoin, urlparse
 
+import httpcore
 import httpx
 from bs4 import BeautifulSoup
 from pydantic import BaseModel, Field
@@ -23,6 +25,37 @@ ALLOWED_CONTENT_TYPES = [
 
 class WebFetchInput(BaseModel):
     url: str = Field(description="The public HTTP or HTTPS URL to fetch")
+
+
+class PinnedAsyncHTTPTransport(httpx.AsyncHTTPTransport):
+    """Transport that forces TCP connections to a validated IP while preserving TLS SNI and Host."""
+
+    def __init__(self, pinned_ip: str, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+
+        class PinnedBackend(httpcore.AsyncNetworkBackend):
+            def __init__(self, target_ip: str) -> None:
+                self._target_ip = target_ip
+                self._base: Any = httpcore.AnyIOBackend()
+
+            async def connect_tcp(
+                self,
+                host: str,
+                port: int,
+                timeout: float | None = None,
+                local_address: str | None = None,
+                socket_options: Any = None,
+            ) -> httpcore.AsyncNetworkStream:
+                return await self._base.connect_tcp(
+                    self._target_ip,
+                    port,
+                    timeout=timeout,
+                    local_address=local_address,
+                    socket_options=socket_options,
+                )
+
+        # pyright: ignore[reportAttributeAccessIssue]
+        self._pool._network_backend = PinnedBackend(pinned_ip)
 
 
 def is_ip_blocked(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
@@ -97,25 +130,91 @@ async def _read_streamed_body(response: httpx.Response) -> bytes:
     return b"".join(body_chunks)
 
 
-async def _perform_single_get(
-    connect_url: str,
-    hostname: str,
-    headers: dict[str, str],
-) -> tuple[httpx.Response | None, str | None]:
-    """Execute a single HTTP stream request and check for redirect or error."""
-    async with httpx.AsyncClient(
-        verify=True,
-        timeout=TIMEOUT_SECONDS,
-        follow_redirects=False,
-    ) as client:
-        req = client.build_request(
-            "GET",
-            connect_url,
-            headers=headers,
-            extensions={"sni_hostname": hostname},
+def _parse_and_check_url(url: str) -> tuple[str, str, int]:
+    """Parse URL and check scheme and hostname."""
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError(
+            f"Unsupported URL scheme '{parsed.scheme}'. Only http and https are allowed."
         )
-        response = await client.send(req, stream=True)
-        return response, None
+
+    hostname = parsed.hostname
+    if not hostname:
+        raise ValueError(f"Invalid URL '{url}': missing hostname")
+
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    return parsed.scheme, hostname, port
+
+
+async def _fetch_single_url(
+    target_url: str,
+) -> tuple[str | None, str | None, dict[str, Any] | None]:
+    """Perform one HTTP fetch step with IP pinning and redirect validation.
+
+    Returns (redirect_url, error_message, success_result).
+    """
+    try:
+        _, hostname, port = _parse_and_check_url(target_url)
+        validated_ips = await resolve_and_validate_host(hostname, port)
+    except ValueError as exc:
+        return None, str(exc), None
+
+    pinned_ip = validated_ips[0]
+    transport = PinnedAsyncHTTPTransport(pinned_ip=pinned_ip, verify=True)
+    headers = {
+        "User-Agent": "NookDesktopAssistant/0.1.0",
+        "Accept": "text/html,text/plain,text/markdown,application/json;q=0.9,*/*;q=0.5",
+    }
+
+    try:
+        async with httpx.AsyncClient(
+            transport=transport,
+            timeout=TIMEOUT_SECONDS,
+            follow_redirects=False,
+        ) as client:
+            async with client.stream("GET", target_url, headers=headers) as response:
+                if response.is_redirect:
+                    location = response.headers.get("location")
+                    if not location:
+                        return None, "Redirect received with no Location header", None
+                    return urljoin(target_url, location), None, None
+
+                if response.status_code >= 400:
+                    return (
+                        None,
+                        f"HTTP {response.status_code}: {response.reason_phrase}",
+                        None,
+                    )
+
+                content_type = response.headers.get("content-type", "").lower()
+                if not any(t in content_type for t in ALLOWED_CONTENT_TYPES):
+                    return (
+                        None,
+                        f"Unsupported Content-Type '{content_type}'. Must be text, markdown, HTML, or JSON.",
+                        None,
+                    )
+
+                body_bytes = await _read_streamed_body(response)
+                extracted = extract_readable_text(content_type, body_bytes)
+                return (
+                    None,
+                    None,
+                    {
+                        "url": target_url,
+                        "status_code": response.status_code,
+                        "content": extracted[:100000],
+                    },
+                )
+    except asyncio.CancelledError:
+        raise
+    except ValueError as exc:
+        return None, str(exc), None
+    except httpx.TimeoutException:
+        return None, "Request timed out", None
+    except httpx.HTTPError as exc:
+        return None, f"HTTP request failed: {type(exc).__name__}", None
+    except Exception:
+        return None, "An error occurred while fetching the requested URL", None
 
 
 async def execute_web_fetch(url: str) -> str:
@@ -124,84 +223,15 @@ async def execute_web_fetch(url: str) -> str:
     streaming size limits, and redirect validation.
     """
     current_url = url.strip()
-    redirect_count = 0
 
-    while redirect_count <= MAX_REDIRECTS:
-        parsed = urlparse(current_url)
-        if parsed.scheme not in ("http", "https"):
-            return tool_error(
-                f"Unsupported URL scheme '{parsed.scheme}'. Only http and https are allowed."
-            )
-
-        hostname = parsed.hostname
-        if not hostname:
-            return tool_error(f"Invalid URL '{current_url}': missing hostname")
-
-        port = parsed.port or (443 if parsed.scheme == "https" else 80)
-
-        try:
-            validated_ips = await resolve_and_validate_host(hostname, port)
-        except ValueError as exc:
-            return tool_error(str(exc))
-
-        pinned_ip = validated_ips[0]
-        connect_host = f"[{pinned_ip}]" if ":" in pinned_ip else pinned_ip
-        target_path = parsed.path or "/"
-        if parsed.query:
-            target_path = f"{target_path}?{parsed.query}"
-
-        connect_url = f"{parsed.scheme}://{connect_host}:{port}{target_path}"
-        headers = {
-            "Host": hostname if port in (80, 443) else f"{hostname}:{port}",
-            "User-Agent": "NookDesktopAssistant/0.1.0",
-            "Accept": "text/html,text/plain,text/markdown,application/json;q=0.9,*/*;q=0.5",
-        }
-
-        try:
-            response, _ = await _perform_single_get(connect_url, hostname, headers)
-            if response is None:
-                return tool_error("Failed to connect")
-
-            try:
-                if response.is_redirect:
-                    location = response.headers.get("location")
-                    if not location:
-                        return tool_error("Redirect received with no Location header")
-                    current_url = urljoin(current_url, location)
-                    redirect_count += 1
-                    continue
-
-                if response.status_code >= 400:
-                    return tool_error(
-                        f"HTTP {response.status_code}: {response.reason_phrase}"
-                    )
-
-                content_type = response.headers.get("content-type", "").lower()
-                if not any(t in content_type for t in ALLOWED_CONTENT_TYPES):
-                    return tool_error(
-                        f"Unsupported Content-Type '{content_type}'. Must be text, markdown, HTML, or JSON."
-                    )
-
-                body_bytes = await _read_streamed_body(response)
-                extracted = extract_readable_text(content_type, body_bytes)
-                return tool_result(
-                    {
-                        "url": current_url,
-                        "status_code": response.status_code,
-                        "content": extracted[:100000],
-                    }
-                )
-            finally:
-                await response.aclose()
-        except asyncio.CancelledError:
-            raise
-        except ValueError as exc:
-            return tool_error(str(exc))
-        except httpx.TimeoutException:
-            return tool_error("Request timed out")
-        except httpx.HTTPError as exc:
-            return tool_error(f"HTTP request failed: {type(exc).__name__}")
-        except Exception:
-            return tool_error("An error occurred while fetching the requested URL")
+    for _ in range(MAX_REDIRECTS + 1):
+        redirect_url, error_msg, result = await _fetch_single_url(current_url)
+        if error_msg:
+            return tool_error(error_msg)
+        if result:
+            return tool_result(result)
+        if redirect_url:
+            current_url = redirect_url
+            continue
 
     return tool_error(f"Too many redirects (exceeded limit of {MAX_REDIRECTS})")

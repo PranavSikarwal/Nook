@@ -26,12 +26,12 @@ interface ModelSettingsTabProps {
 }
 
 interface SettingInputFieldProps {
-  id: string
-  label: string
-  value: string
-  onChange: (value: string) => void
-  placeholder?: string
-  required?: boolean
+  readonly id: string
+  readonly label: string
+  readonly value: string
+  readonly onChange: (value: string) => void
+  readonly placeholder?: string
+  readonly required?: boolean
 }
 
 function SettingInputField({
