@@ -474,23 +474,7 @@ def _run_single_command(
 DEFAULT_BASE_COMPARE = "origin/main...HEAD"
 
 
-DISALLOWED_SHELL_TOKENS = {"|", ">", ">>", "<", "$", "`", "||"}
-MAX_SUBCOMMANDS = 5
-
-
-def _group_tokens_into_pipelines(tokens: list[str]) -> list[list[str]]:
-    sub_cmds: list[list[str]] = []
-    current: list[str] = []
-    for token in tokens:
-        if token in ("&&", ";"):
-            if current:
-                sub_cmds.append(current)
-                current = []
-        else:
-            current.append(token)
-    if current:
-        sub_cmds.append(current)
-    return sub_cmds
+DISALLOWED_SHELL_TOKENS = {"&&", ";", "||", "|", ">", ">>", "<", "$", "`", "&"}
 
 
 def tool_run_command(repo_root: Path, command: str, timeout_seconds: int = 300) -> str:
@@ -514,39 +498,19 @@ def tool_run_command(repo_root: Path, command: str, timeout_seconds: int = 300) 
         return f"{ERR_PREFIX} Empty command."
 
     for token in tokens:
-        if token in DISALLOWED_SHELL_TOKENS or any(op in token for op in ("`", "$(")):
-            return f"{ERR_PREFIX} Shell operator '{token}' is not supported."
-
-    sub_cmds = _group_tokens_into_pipelines(tokens)
-    if len(sub_cmds) > MAX_SUBCOMMANDS:
-        return f"{ERR_PREFIX} Too many chained commands (maximum {MAX_SUBCOMMANDS} allowed)."
-
-    stdout_parts: list[str] = []
-    stderr_parts: list[str] = []
-    last_exit_code = 0
-    start_time = time.monotonic()
-    deadline = start_time + effective_timeout
+        if token in DISALLOWED_SHELL_TOKENS or any(
+            op in token for op in ("`", "$(", ";", "&&", "||", "|", "&")
+        ):
+            return (
+                f"{ERR_PREFIX} Chained commands and shell operators are not permitted. "
+                "Execute one command per tool call."
+            )
 
     try:
-        for cmd_parts in sub_cmds:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                return (
-                    f"{ERR_PREFIX} Command timed out after {effective_timeout} seconds."
-                )
-
-            code, out, err = _run_single_command(
-                repo_root, cmd_parts, clean_env, timeout=max(1, int(remaining))
-            )
-            last_exit_code = code
-            if out:
-                stdout_parts.append(out)
-            if err:
-                stderr_parts.append(err)
-            if code != 0:
-                break
-
-        combined = f"Exit code: {last_exit_code}\n--- stdout ---\n{'\n'.join(stdout_parts)}\n--- stderr ---\n{'\n'.join(stderr_parts)}"
+        code, out, err = _run_single_command(
+            repo_root, tokens, clean_env, timeout=effective_timeout
+        )
+        combined = f"Exit code: {code}\n--- stdout ---\n{out}\n--- stderr ---\n{err}"
         if len(combined) > 6000:
             combined = combined[:6000] + "\n... [Command output truncated]"
         return combined
