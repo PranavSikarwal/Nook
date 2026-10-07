@@ -129,12 +129,17 @@ async def _read_streamed_body(response: httpx.Response) -> bytes:
                 raise
 
     body_chunks: list[bytes] = []
-    total_bytes = 0
+    total_decompressed = 0
     async for chunk in response.aiter_bytes(chunk_size=CHUNK_SIZE):
-        total_bytes += len(chunk)
-        if total_bytes > MAX_RESPONSE_BYTES:
+        total_decompressed += len(chunk)
+        wire_bytes = getattr(response, "num_bytes_downloaded", 0)
+        if wire_bytes > MAX_RESPONSE_BYTES:
             raise ValueError(
-                f"Response body exceeded size limit of {MAX_RESPONSE_BYTES} bytes"
+                f"Response wire size exceeded limit of {MAX_RESPONSE_BYTES} bytes"
+            )
+        if total_decompressed > MAX_RESPONSE_BYTES:
+            raise ValueError(
+                f"Decompressed response body exceeded size limit of {MAX_RESPONSE_BYTES} bytes"
             )
         body_chunks.append(chunk)
 
