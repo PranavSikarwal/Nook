@@ -420,31 +420,42 @@ async fn process_client_message(
             call_id,
             action,
         } => {
-            let entry = {
+            let decision_target = {
                 let mut approvals = state.pending_approvals.lock().await;
-                approvals.remove(&call_id)
+                if let Some(entry) = approvals.get(&call_id) {
+                    if entry.chat_id == chat_id {
+                        let sup_opt = state.supervisor.lock().await.clone();
+                        if let Some(sup) = sup_opt {
+                            let entry_removed = approvals.remove(&call_id).unwrap();
+                            Ok((sup, entry_removed.worker_request_id))
+                        } else {
+                            Err("Worker supervisor is not available")
+                        }
+                    } else {
+                        Err("Approval call ID does not belong to the specified chat")
+                    }
+                } else {
+                    Err("Unknown or invalid approval call id")
+                }
             };
 
-            match entry {
-                Some(entry) if entry.chat_id == chat_id => {
-                    let sup_opt = state.supervisor.lock().await.clone();
-                    if let Some(sup) = sup_opt {
-                        let _ = sup
-                            .send_request(DaemonWorkerRequest::ApprovalDecision {
-                                request_id: entry.worker_request_id,
-                                call_id,
-                                action,
-                            })
-                            .await;
-                    }
+            match decision_target {
+                Ok((sup, worker_req_id)) => {
+                    let _ = sup
+                        .send_request(DaemonWorkerRequest::ApprovalDecision {
+                            request_id: worker_req_id,
+                            call_id,
+                            action,
+                        })
+                        .await;
                 }
-                _ => {
+                Err(err_msg) => {
                     let _ = tx_out
                         .send(DaemonMessage::Error {
                             id,
                             error: ErrorInfo {
                                 code: ErrorCode::InvalidRequest,
-                                message: "Unknown or invalid approval call id".to_string(),
+                                message: err_msg.to_string(),
                                 retryable: false,
                             },
                         })

@@ -257,3 +257,32 @@ async def test_clear_chat_prunes_cache():
 
     assert not manager.is_host_approved(chat_a, "docs.example.com")
     assert manager.is_host_approved(chat_b, "api.example.com")
+
+
+@pytest.mark.asyncio
+async def test_approval_times_out_and_fails_closed():
+    # Use short timeout of 0.05s
+    manager = ApprovalManager(approval_timeout=0.05)
+
+    async def mock_write_line(_: str) -> None:
+        pass
+
+    manager.set_context(
+        request_id=uuid4(),
+        message_id=uuid4(),
+        chat_id=uuid4(),
+        write_line=mock_write_line,
+    )
+
+    result = await manager.request_approval(
+        call_id="call_timeout_1",
+        tool_name="nook:web_fetch",
+        arguments="{}",
+        explanation="Test timeout",
+        resource_summary="https://timeout.com",
+        actions=["allow_once", "deny"],
+    )
+
+    # Must fail-closed on timeout
+    assert result == "deny"
+    assert "call_timeout_1" not in manager._pending_decisions

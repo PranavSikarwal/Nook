@@ -40,10 +40,13 @@ def _normalize_host(host: str) -> str:
 class ApprovalManager:
     """Manages interactive tool approval requests and decisions between agent and daemon."""
 
-    def __init__(self, max_cached_hosts: int = 1000) -> None:
+    def __init__(
+        self, max_cached_hosts: int = 1000, approval_timeout: float = 300.0
+    ) -> None:
         self._pending_decisions: dict[str, PendingApproval] = {}
         self._approved_hosts: set[tuple[str, str]] = set()
         self._max_cached_hosts = max_cached_hosts
+        self._approval_timeout = approval_timeout
 
     def set_context(
         self,
@@ -123,7 +126,9 @@ class ApprovalManager:
 
         try:
             await ctx.write_line(format_event(event))
-            return await future
+            return await asyncio.wait_for(future, timeout=self._approval_timeout)
+        except TimeoutError:
+            return "deny"
         finally:
             self._pending_decisions.pop(call_id, None)
 

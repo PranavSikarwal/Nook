@@ -108,7 +108,7 @@ export default function App() {
   const [activeApproval, setActiveApproval] = useState<ApprovalRequest | null>(null)
 
   const activeRequestIdRef = useRef<string | null>(null)
-  const activeSendRef = useRef<{ chatId: string; localMsgId: string } | null>(null)
+  const activeSendRef = useRef<{ chatId: string; localMsgId: string; requestId?: string } | null>(null)
 
   const inputRef = useRef<HTMLInputElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -322,6 +322,15 @@ export default function App() {
         return
       }
 
+      // If this event has an id and we already have the assigned request id, drop mismatches
+      if (
+        'id' in event &&
+        activeSendRef.current?.requestId &&
+        event.id !== activeSendRef.current.requestId
+      ) {
+        return
+      }
+
       if (event.type === 'message_started') {
         setMessages((prev) =>
           prev.map((m) =>
@@ -394,6 +403,9 @@ export default function App() {
     try {
       const reqId = await sendMessage(sendChatId, question, currentAtts, onDaemonEvent)
       activeRequestIdRef.current = reqId
+      if (activeSendRef.current && activeSendRef.current.localMsgId === localMsgId) {
+        activeSendRef.current.requestId = reqId
+      }
     } catch (err) {
       setIsStreaming(false)
       setActiveApproval(null)
