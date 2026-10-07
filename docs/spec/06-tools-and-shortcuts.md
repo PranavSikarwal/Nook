@@ -75,7 +75,7 @@ events to an action identifier and invokes the registered action handler.
 | --- | --- | --- |
 | Focus input | `Cmd+L` | `Ctrl+L` |
 | New Chat | `Cmd+N` | `Ctrl+N` |
-| Toggle History | `Cmd+H` | `Ctrl+H` |
+| Toggle History | Not set | Not set |
 | Open Settings | `Cmd+,` | `Ctrl+,` |
 | Attach an Attachment | `Cmd+U` | `Ctrl+U` |
 | Cancel active work | `Escape` | `Escape` |
@@ -249,7 +249,8 @@ to the user. An approval decision includes the call id and one configured action
 | Invalid arguments | The Worker returns a tool error and does not request approval. |
 | Cedar policy or schema invalid at start | The Daemon fails startup closed and reports the configuration error. |
 | Approval call id unknown or expired | The Daemon rejects the decision and does not resume a reply. |
-| User denies or presses Escape | The Worker ends the reply as `cancelled`. |
+| User denies | The tool returns a rejected result; the agent continues the reply. |
+| User presses Escape | The Worker ends the reply as `cancelled`. |
 | Search provider failure | The Worker returns a retryable tool error. |
 | Fetch URL fails validation | The Worker returns a non-retryable tool error. |
 | Fetch response exceeds a limit | The Worker stops reading and returns a non-retryable tool error. |

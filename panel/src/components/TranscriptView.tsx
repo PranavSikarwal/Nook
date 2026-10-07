@@ -59,6 +59,13 @@ function renderAssistantContent(msg: ChatMessage) {
   if (msg.status === 'streaming') {
     return null
   }
+  if (msg.status === 'cancelled') {
+    return (
+      <p className="text-zinc-500 italic text-xs">
+        (Generation cancelled)
+      </p>
+    )
+  }
   return (
     <p className="text-zinc-500 italic text-xs">
       (Model produced no text response)
@@ -138,6 +145,12 @@ export function TranscriptView({
               {(msg.text?.trim()?.length ?? 0) > 0 && msg.status !== 'streaming' && (
                 <div className="flex items-center justify-end mt-2 pt-2 border-t border-white/5">
                   <CopyMessageButton text={msg.text ?? ''} />
+                </div>
+              )}
+
+              {msg.status === 'cancelled' && (msg.text?.trim()?.length ?? 0) > 0 && (
+                <div className="mt-2 text-[11px] text-zinc-500 italic select-none">
+                  (Generation cancelled)
                 </div>
               )}
 

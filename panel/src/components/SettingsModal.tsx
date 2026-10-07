@@ -238,7 +238,7 @@ function ShortcutsTab({ onShortcutsChanged }: ShortcutsTabProps) {
 
       <div className="divide-y divide-white/5 rounded-lg border border-white/10 bg-white/5">
         {DEFAULT_SHORTCUTS.map((def) => {
-          const currentKey = shortcuts[def.action] || def.defaultKey
+          const currentKey = shortcuts[def.action] ?? def.defaultKey
           const isRecording = recordingAction === def.action
           return (
             <div key={def.action} className="flex items-center justify-between p-2.5">
@@ -248,6 +248,7 @@ function ShortcutsTab({ onShortcutsChanged }: ShortcutsTabProps) {
               </div>
               <button
                 type="button"
+                data-recording={isRecording ? 'true' : undefined}
                 onClick={() => {
                   setShortcutError(null)
                   setRecordingAction(isRecording ? null : def.action)
@@ -258,7 +259,7 @@ function ShortcutsTab({ onShortcutsChanged }: ShortcutsTabProps) {
                     : 'bg-black/30 border-white/10 text-zinc-300 hover:border-purple-500/50 hover:text-white'
                 }`}
               >
-                {isRecording ? 'Press key combo...' : currentKey}
+                {isRecording ? 'Press key combo...' : currentKey || 'Not set'}
               </button>
             </div>
           )

@@ -39,7 +39,7 @@ export const DEFAULT_SHORTCUTS: ShortcutDefinition[] = [
     action: 'toggle_history',
     label: 'Toggle history',
     description: 'Open or close the history drawer',
-    defaultKey: mod('H'),
+    defaultKey: '',
   },
   {
     action: 'open_settings',
@@ -133,8 +133,21 @@ export function findShortcutConflict(
   keyCombo: string,
   currentShortcuts: ShortcutMap,
 ): ShortcutAction | null {
+  if (!keyCombo) return null
+
+  // Allow duplicate Escape between cancel_active_work and close_auxiliary_view
+  const isEscapeDualBinding =
+    keyCombo.toLowerCase() === 'escape' &&
+    (action === 'cancel_active_work' || action === 'close_auxiliary_view')
+
   for (const [act, key] of Object.entries(currentShortcuts)) {
-    if (act !== action && key.toLowerCase() === keyCombo.toLowerCase()) {
+    if (act !== action && key && key.toLowerCase() === keyCombo.toLowerCase()) {
+      if (
+        isEscapeDualBinding &&
+        (act === 'cancel_active_work' || act === 'close_auxiliary_view')
+      ) {
+        continue
+      }
       return act as ShortcutAction
     }
   }

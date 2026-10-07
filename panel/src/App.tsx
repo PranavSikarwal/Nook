@@ -106,21 +106,29 @@ export default function App() {
   const [shortcuts, setShortcuts] = useState<ShortcutMap>(loadShortcuts)
   const [activeApproval, setActiveApproval] = useState<ApprovalRequest | null>(null)
 
+  const activeRequestIdRef = useRef<string | null>(null)
+  const activeSendRef = useRef<{ chatId: string; localMsgId: string } | null>(null)
+
   const inputRef = useRef<HTMLInputElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const isCompact = activePanel === 'none' && messages.length === 0 && attachments.length === 0
 
-  const handleStop = async () => {
+  const handleStop = useCallback(async () => {
     setIsStreaming(false)
+    setActiveApproval(null)
+    const targetId = activeRequestIdRef.current
+    activeRequestIdRef.current = null
+    activeSendRef.current = null
     try {
-      await cancelMessage()
+      await cancelMessage(targetId ?? undefined)
     } catch {
       // Ignore cancel error
     }
-  }
+  }, [])
 
-  const handleNewChat = () => {
+  const handleNewChat = useCallback(() => {
+    if (isStreaming) return
     setChatId(crypto.randomUUID())
     setMessages([])
     setAttachments([])
@@ -128,7 +136,9 @@ export default function App() {
     setActivePanel('none')
     setIsStreaming(false)
     setActiveApproval(null)
-  }
+    activeRequestIdRef.current = null
+    activeSendRef.current = null
+  }, [isStreaming])
 
   // Sync window size with view state
   useEffect(() => {
@@ -177,101 +187,6 @@ export default function App() {
     void listChats().then(setChats).catch(() => {})
   }, [])
 
-  // Process incoming daemon events
-  const handleDaemonEvent = (event: DaemonEvent) => {
-    if (event.type === 'message_started') {
-      setMessages((prev) => {
-        const last = prev[prev.length - 1]
-        if (last?.role === 'assistant') {
-          return [
-            ...prev.slice(0, -1),
-            { ...last, id: event.message_id, message_id: event.message_id },
-          ]
-        }
-        return prev
-      })
-    } else if (event.type === 'text_delta') {
-      setMessages((prev) => {
-        const last = prev[prev.length - 1]
-        if (last?.role === 'assistant') {
-          return [
-            ...prev.slice(0, -1),
-            {
-              ...last,
-              id: event.message_id || last.id,
-              message_id: event.message_id,
-              text: last.text + event.text,
-            },
-          ]
-        }
-        return [
-          ...prev,
-          {
-            id: event.message_id,
-            message_id: event.message_id,
-            role: 'assistant',
-            text: event.text,
-            status: 'streaming',
-            attachments: [],
-            created_at: new Date().toISOString(),
-          },
-        ]
-      })
-    } else if (event.type === 'approval_requested') {
-      setActiveApproval(event)
-      setMessages((prev) => {
-        const last = prev[prev.length - 1]
-        if (last?.role === 'assistant') {
-          return [
-            ...prev.slice(0, -1),
-            { ...last, id: event.message_id, message_id: event.message_id },
-          ]
-        }
-        return prev
-      })
-    } else if (event.type === 'message_finished') {
-      setIsStreaming(false)
-      setActiveApproval(null)
-      setMessages((prev) => {
-        const last = prev[prev.length - 1]
-        if (last?.role === 'assistant') {
-          return [
-            ...prev.slice(0, -1),
-            { ...last, status: event.status === 'error' ? 'error' : 'complete' },
-          ]
-        }
-        return prev
-      })
-      void listChats().then(setChats).catch(() => {})
-    } else if (event.type === 'chat_titled') {
-      void listChats().then(setChats).catch(() => {})
-    } else if (event.type === 'error') {
-      setIsStreaming(false)
-      setActiveApproval(null)
-      setMessages((prev) => {
-        const last = prev[prev.length - 1]
-        if (last?.role === 'assistant') {
-          return [
-            ...prev.slice(0, -1),
-            { ...last, status: 'error', error: event.error },
-          ]
-        }
-        return [
-          ...prev,
-          {
-            id: crypto.randomUUID(),
-            role: 'assistant',
-            text: 'An error occurred while communicating with the model endpoint.',
-            status: 'error',
-            error: event.error,
-            attachments: [],
-            created_at: new Date().toISOString(),
-          },
-        ]
-      })
-    }
-  }
-
   const handleApprovalDecide = useCallback(
     async (action: string) => {
       if (!activeApproval) return
@@ -292,7 +207,10 @@ export default function App() {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const activeEl = document.activeElement
-      if (activeEl?.tagName === 'BUTTON' && activeEl.textContent?.includes('Press key combo')) {
+      if (
+        activeEl?.getAttribute('data-recording') === 'true' ||
+        (activeEl?.tagName === 'BUTTON' && activeEl.textContent?.includes('Press key combo'))
+      ) {
         return
       }
 
@@ -300,7 +218,7 @@ export default function App() {
       if (e.key === 'Escape') {
         if (activeApproval) {
           e.preventDefault()
-          void handleApprovalDecide('deny')
+          setActiveApproval(null)
           void handleStop()
           return
         }
@@ -338,7 +256,7 @@ export default function App() {
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [shortcuts, isStreaming, activePanel, activeApproval, handleApprovalDecide])
+  }, [shortcuts, isStreaming, activePanel, activeApproval, handleApprovalDecide, handleStop, handleNewChat])
 
   // Native window dragging on non-interactive background areas
   useEffect(() => {
@@ -373,8 +291,10 @@ export default function App() {
       created_at: new Date().toISOString(),
     }
 
+    const localMsgId = crypto.randomUUID()
+    const sendChatId = chatId
     const assistantMsg: ChatMessage = {
-      id: crypto.randomUUID(),
+      id: localMsgId,
       role: 'assistant',
       text: '',
       status: 'streaming',
@@ -388,24 +308,109 @@ export default function App() {
       setAttachments([])
     }
     setIsStreaming(true)
+    setActiveApproval(null)
     setActivePanel('none')
 
+    activeSendRef.current = { chatId: sendChatId, localMsgId }
+
+    const onDaemonEvent = (event: DaemonEvent) => {
+      if (
+        activeSendRef.current?.chatId !== sendChatId ||
+        activeSendRef.current?.localMsgId !== localMsgId
+      ) {
+        return
+      }
+
+      if (event.type === 'message_started') {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === localMsgId ? { ...m, message_id: event.message_id } : m
+          )
+        )
+      } else if (event.type === 'text_delta') {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === localMsgId
+              ? {
+                  ...m,
+                  message_id: event.message_id || m.message_id,
+                  text: m.text + event.text,
+                }
+              : m
+          )
+        )
+      } else if (event.type === 'approval_requested') {
+        setActiveApproval(event)
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === localMsgId ? { ...m, message_id: event.message_id } : m
+          )
+        )
+      } else if (event.type === 'message_finished') {
+        setIsStreaming(false)
+        setActiveApproval(null)
+        activeRequestIdRef.current = null
+        activeSendRef.current = null
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === localMsgId
+              ? {
+                  ...m,
+                  status:
+                    event.status === 'error'
+                      ? 'error'
+                      : event.status === 'cancelled'
+                        ? 'cancelled'
+                        : 'complete',
+                }
+              : m
+          )
+        )
+        void listChats().then(setChats).catch(() => {})
+      } else if (event.type === 'chat_titled') {
+        void listChats().then(setChats).catch(() => {})
+      } else if (event.type === 'error') {
+        setIsStreaming(false)
+        setActiveApproval(null)
+        activeRequestIdRef.current = null
+        activeSendRef.current = null
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === localMsgId
+              ? {
+                  ...m,
+                  status: 'error',
+                  error: event.error,
+                }
+              : m
+          )
+        )
+      }
+    }
+
     try {
-      await sendMessage(chatId, question, currentAtts, handleDaemonEvent)
+      const reqId = await sendMessage(sendChatId, question, currentAtts, onDaemonEvent)
+      activeRequestIdRef.current = reqId
     } catch (err) {
       setIsStreaming(false)
-      setMessages((prev) => [
-        ...prev.slice(0, -1),
-        {
-          ...assistantMsg,
-          status: 'error',
-          error: {
-            code: 'internal',
-            message: err instanceof Error ? err.message : String(err),
-            retryable: true,
-          },
-        },
-      ])
+      setActiveApproval(null)
+      activeRequestIdRef.current = null
+      activeSendRef.current = null
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === localMsgId
+            ? {
+                ...m,
+                status: 'error',
+                error: {
+                  code: 'internal',
+                  message: err instanceof Error ? err.message : String(err),
+                  retryable: true,
+                },
+              }
+            : m
+        )
+      )
     }
   }
 
@@ -418,21 +423,6 @@ export default function App() {
     const userMsg = messages[failedIdx - 1]
     if (userMsg?.role !== 'user') return
 
-    setMessages((prev) => {
-      const updated = [...prev]
-      const target = updated[failedIdx]
-      if (target) {
-        updated[failedIdx] = {
-          ...target,
-          text: '',
-          status: 'streaming',
-          error: undefined,
-        }
-      }
-      return updated
-    })
-    setIsStreaming(true)
-
     const attsInput: AttachmentInput[] = userMsg.attachments
       .filter((a) => a.path)
       .map((a) => ({
@@ -441,25 +431,8 @@ export default function App() {
         file_path: a.path,
       }))
 
-    void sendMessage(chatId, userMsg.text, attsInput, handleDaemonEvent).catch((err) => {
-      setIsStreaming(false)
-      setMessages((prev) => {
-        const updated = [...prev]
-        const target = updated[failedIdx]
-        if (target) {
-          updated[failedIdx] = {
-            ...target,
-            status: 'error',
-            error: {
-              code: 'internal',
-              message: err instanceof Error ? err.message : String(err),
-              retryable: true,
-            },
-          }
-        }
-        return updated
-      })
-    })
+    setMessages((prev) => prev.slice(0, failedIdx))
+    void handleSend(userMsg.text, attsInput)
   }
 
   const handleAttachFiles = async (files: FileList) => {
@@ -517,11 +490,15 @@ export default function App() {
   }
 
   const handleSelectChat = async (selectedId: string) => {
+    if (isStreaming) {
+      await handleStop()
+    }
     try {
       const transcript = await getChat(selectedId)
       setChatId(transcript.chat_id)
       const loadedMessages: ChatMessage[] = (transcript.messages || []).map((m: any) => ({
         id: m.id || m.message_id || crypto.randomUUID(),
+        message_id: m.message_id || m.id,
         role: m.role || 'assistant',
         text: m.text ?? '',
         status: m.status ?? 'complete',

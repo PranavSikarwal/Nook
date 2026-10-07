@@ -34,12 +34,12 @@ export async function sendMessage(
   text: string,
   attachments: AttachmentInput[] = [],
   onEvent?: (event: DaemonEvent) => void,
-): Promise<void> {
+): Promise<string> {
   const channel = new Channel<DaemonEvent>()
   if (onEvent) {
     channel.onmessage = onEvent
   }
-  await invoke('send_message', {
+  return await invoke<string>('send_message', {
     chatId,
     text,
     attachments,

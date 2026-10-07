@@ -479,7 +479,7 @@ async fn send_message<R: Runtime>(
     text: String,
     attachments: Vec<AttachmentInput>,
     on_event: tauri::ipc::Channel<DaemonMessage>,
-) -> Result<(), String> {
+) -> Result<String, String> {
     #[cfg(unix)]
     {
         if attachments.len() > 5 {
@@ -588,16 +588,20 @@ async fn send_message<R: Runtime>(
                     let _ = on_event.send(event);
                     if is_terminal {
                         let mut active = state_for_cleanup.lock().await;
-                        *active = None;
+                        if *active == Some(req_id) {
+                            *active = None;
+                        }
                         break;
                     }
                 }
             }
             let mut active = state_for_cleanup.lock().await;
-            *active = None;
+            if *active == Some(req_id) {
+                *active = None;
+            }
         });
 
-        Ok(())
+        Ok(req_id.to_string())
     }
     #[cfg(not(unix))]
     {

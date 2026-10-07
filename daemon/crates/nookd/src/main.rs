@@ -1,11 +1,11 @@
-use std::collections::HashMap;
-use std::sync::Arc;
-use std::time::Duration;
 use nook_core::config::Config;
 use nook_core::db;
 use nook_core::keychain;
 use nook_core::server::{AppState, Server};
 use nook_core::supervisor::WorkerSupervisor;
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::{broadcast, Mutex, RwLock};
 use tracing::{error, info, warn};
 
@@ -41,7 +41,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
         if let Ok(repaired) = db::repair_open_replies(p).await {
             if repaired > 0 {
-                info!(repaired_count = repaired, "Repaired open replies from previous run");
+                info!(
+                    repaired_count = repaired,
+                    "Repaired open replies from previous run"
+                );
             }
         }
     } else {
@@ -66,6 +69,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         pool,
         supervisor: Mutex::new(supervisor),
         open_requests: Mutex::new(HashMap::new()),
+        pending_approvals: Mutex::new(HashMap::new()),
         cancelled_requests: Mutex::new(std::collections::HashSet::new()),
     });
 

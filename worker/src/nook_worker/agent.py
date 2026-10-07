@@ -266,13 +266,41 @@ class RealAgentRunner:
             }
         }
 
+        previous_call_id: str | None = None
+        has_emitted_text = False
+
         async for chunk, _metadata in self._agent.astream(
             {"messages": [input_message]},
             stream_mode="messages",
             config=stream_config,
         ):
+            if isinstance(_metadata, dict) and (
+                _metadata.get("lc_internal_call")
+                or _metadata.get("lc_source") == "summarization"
+            ):
+                continue
+
             delta = _extract_text_delta(chunk)
             if delta:
+                chunk_call_id = getattr(chunk, "id", None) or (
+                    _metadata.get("run_id") if isinstance(_metadata, dict) else None
+                )
+                if (
+                    has_emitted_text
+                    and previous_call_id is not None
+                    and chunk_call_id is not None
+                    and chunk_call_id != previous_call_id
+                ):
+                    yield TextDeltaEvent(
+                        request_id=request.request_id,
+                        message_id=msg_id,
+                        text="\n\n",
+                    )
+
+                if chunk_call_id is not None:
+                    previous_call_id = chunk_call_id
+                has_emitted_text = True
+
                 yield TextDeltaEvent(
                     request_id=request.request_id,
                     message_id=msg_id,

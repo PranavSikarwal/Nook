@@ -19,6 +19,42 @@ for line in sys.stdin:
 
     if req_type == "shutdown":
         sys.exit(0)
+    elif req_type == "run" and req.get("text") == "needs approval":
+        msg_id = "44444444-4444-4444-4444-444444444444"
+        for event in (
+            {"type": "message_started", "request_id": req_id, "message_id": msg_id},
+            {
+                "type": "approval_requested",
+                "request_id": req_id,
+                "message_id": msg_id,
+                "call_id": "call_fake",
+                "tool_name": "nook:web_fetch",
+                "arguments": "{}",
+                "explanation": "Fake approval",
+                "resource_summary": "https://example.com",
+                "actions": ["allow_once", "deny"],
+            },
+        ):
+            sys.stdout.write(json.dumps(event) + "\n")
+        sys.stdout.flush()
+    elif req_type == "approval_decision":
+        msg_id = "44444444-4444-4444-4444-444444444444"
+        for event in (
+            {
+                "type": "text_delta",
+                "request_id": req_id,
+                "message_id": msg_id,
+                "text": f"Decision: {req.get('action')}",
+            },
+            {
+                "type": "message_finished",
+                "request_id": req_id,
+                "message_id": msg_id,
+                "status": "complete",
+            },
+        ):
+            sys.stdout.write(json.dumps(event) + "\n")
+        sys.stdout.flush()
     elif req_type == "run":
         msg_id = "44444444-4444-4444-4444-444444444444"
         sys.stdout.write(
