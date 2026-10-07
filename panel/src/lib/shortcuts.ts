@@ -141,7 +141,7 @@ export function findShortcutConflict(
     (action === 'cancel_active_work' || action === 'close_auxiliary_view')
 
   for (const [act, key] of Object.entries(currentShortcuts)) {
-    if (act !== action && key && key.toLowerCase() === keyCombo.toLowerCase()) {
+    if (act !== action && key?.toLowerCase() === keyCombo.toLowerCase()) {
       if (
         isEscapeDualBinding &&
         (act === 'cancel_active_work' || act === 'close_auxiliary_view')

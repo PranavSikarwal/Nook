@@ -241,6 +241,24 @@ def _extract_text_delta(chunk: Any) -> str:
     return ""
 
 
+def _should_skip_chunk(metadata: Any) -> bool:
+    if not isinstance(metadata, dict):
+        return False
+    return bool(
+        metadata.get("lc_internal_call") or metadata.get("lc_source") == "summarization"
+    )
+
+
+def _extract_chunk_call_id(chunk: Any, metadata: Any) -> str | None:
+    chunk_id = getattr(chunk, "id", None)
+    if chunk_id:
+        return str(chunk_id)
+    if isinstance(metadata, dict):
+        run_id = metadata.get("run_id")
+        return str(run_id) if run_id else None
+    return None
+
+
 class RealAgentRunner:
     def __init__(self, agent: Any) -> None:
         self._agent = agent
@@ -274,38 +292,35 @@ class RealAgentRunner:
             stream_mode="messages",
             config=stream_config,
         ):
-            if isinstance(_metadata, dict) and (
-                _metadata.get("lc_internal_call")
-                or _metadata.get("lc_source") == "summarization"
-            ):
+            if _should_skip_chunk(_metadata):
                 continue
 
             delta = _extract_text_delta(chunk)
-            if delta:
-                chunk_call_id = getattr(chunk, "id", None) or (
-                    _metadata.get("run_id") if isinstance(_metadata, dict) else None
-                )
-                if (
-                    has_emitted_text
-                    and previous_call_id is not None
-                    and chunk_call_id is not None
-                    and chunk_call_id != previous_call_id
-                ):
-                    yield TextDeltaEvent(
-                        request_id=request.request_id,
-                        message_id=msg_id,
-                        text="\n\n",
-                    )
+            if not delta:
+                continue
 
-                if chunk_call_id is not None:
-                    previous_call_id = chunk_call_id
-                has_emitted_text = True
-
+            chunk_call_id = _extract_chunk_call_id(chunk, _metadata)
+            if (
+                has_emitted_text
+                and previous_call_id is not None
+                and chunk_call_id is not None
+                and chunk_call_id != previous_call_id
+            ):
                 yield TextDeltaEvent(
                     request_id=request.request_id,
                     message_id=msg_id,
-                    text=delta,
+                    text="\n\n",
                 )
+
+            if chunk_call_id is not None:
+                previous_call_id = chunk_call_id
+            has_emitted_text = True
+
+            yield TextDeltaEvent(
+                request_id=request.request_id,
+                message_id=msg_id,
+                text=delta,
+            )
 
         yield MessageFinishedEvent(
             request_id=request.request_id,

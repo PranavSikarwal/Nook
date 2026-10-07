@@ -28,6 +28,7 @@ import type {
   ChatMessage,
   ChatSummary,
   DaemonEvent,
+  MessageStatus,
   SettingsInfo,
   SettingsPayload,
 } from './lib/types'
@@ -208,7 +209,7 @@ export default function App() {
     const handleKeyDown = (e: KeyboardEvent) => {
       const activeEl = document.activeElement
       if (
-        activeEl?.getAttribute('data-recording') === 'true' ||
+        (activeEl as HTMLElement)?.dataset?.recording === 'true' ||
         (activeEl?.tagName === 'BUTTON' && activeEl.textContent?.includes('Press key combo'))
       ) {
         return
@@ -351,17 +352,19 @@ export default function App() {
         setActiveApproval(null)
         activeRequestIdRef.current = null
         activeSendRef.current = null
+        let finalStatus: MessageStatus = 'complete'
+        if (event.status === 'error') {
+          finalStatus = 'error'
+        } else if (event.status === 'cancelled') {
+          finalStatus = 'cancelled'
+        }
+
         setMessages((prev) =>
           prev.map((m) =>
             m.id === localMsgId
               ? {
                   ...m,
-                  status:
-                    event.status === 'error'
-                      ? 'error'
-                      : event.status === 'cancelled'
-                        ? 'cancelled'
-                        : 'complete',
+                  status: finalStatus,
                 }
               : m
           )
