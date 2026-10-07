@@ -177,8 +177,8 @@ def _dispatch_request(
             active_task = active_tasks.get(req_id)
             if active_task and not active_task.done():
                 active_task.cancel()
-        case ApprovalDecisionRequest(call_id=call_id, action=action):
-            default_approval_manager.resolve_decision(call_id, action)
+        case ApprovalDecisionRequest(request_id=req_id, call_id=call_id, action=action):
+            default_approval_manager.resolve_decision(req_id, call_id, action)
         case RunRequest(request_id=req_id):
             _spawn_tracked_task(
                 handle_run(req, runner, write_line), req_id, active_tasks
@@ -196,7 +196,8 @@ def _dispatch_request(
                     req_id,
                     active_tasks,
                 )
-        case DeleteChatRequest(request_id=req_id):
+        case DeleteChatRequest(request_id=req_id, chat_id=c_id):
+            default_approval_manager.clear_chat(str(c_id))
             if delete_handler is not None:
                 _spawn_tracked_task(
                     handle_delete(req, delete_handler, write_line),

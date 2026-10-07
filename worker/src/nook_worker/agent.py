@@ -126,7 +126,7 @@ async def _check_tool_approval(
     if default_approval_manager.is_host_approved(chat_id_str, parsed_host):
         return None
 
-    call_id = f"call_{uuid4().hex[:8]}"
+    call_id = f"call_{uuid4().hex}"
     action = await default_approval_manager.request_approval(
         call_id=call_id,
         tool_name=registered_name,

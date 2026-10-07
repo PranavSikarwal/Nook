@@ -37,8 +37,8 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
             <AlertCircle className="size-5" />
             <span className="text-sm font-semibold">Render Error Encountered</span>
           </div>
-          <p className="text-xs text-zinc-400 mb-4 text-center max-w-sm truncate">
-            {this.state.error?.message || 'An unexpected UI error occurred'}
+          <p className="text-xs text-zinc-400 mb-4 text-center max-w-sm">
+            An unexpected error occurred while rendering the view. Click below to recover.
           </p>
           <button
             onClick={this.handleReset}

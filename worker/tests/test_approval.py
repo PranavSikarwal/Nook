@@ -44,8 +44,8 @@ async def test_approval_flow_emits_event_and_resumes_on_decision():
     assert event.type == "approval_requested"
     assert event.call_id == "call_test_123"  # type: ignore[attr-defined]
 
-    # Resolve decision
-    resolved = manager.resolve_decision("call_test_123", "allow_once")
+    # Resolve decision with matching request_id
+    resolved = manager.resolve_decision(req_id, "call_test_123", "allow_once")
     assert resolved is True
 
     result = await task
@@ -195,8 +195,65 @@ async def test_concurrent_runs_context_isolation():
     assert ev2.request_id == req2  # type: ignore[attr-defined]
 
     # Resolve decisions separately
-    manager.resolve_decision("call_r1", "allow_once")
-    manager.resolve_decision("call_r2", "deny")
+    manager.resolve_decision(req1, "call_r1", "allow_once")
+    manager.resolve_decision(req2, "call_r2", "deny")
 
     assert await t1 == "allow_once"
     assert await t2 == "deny"
+
+
+@pytest.mark.asyncio
+async def test_resolve_decision_validates_request_and_action():
+    manager = ApprovalManager()
+
+    async def mock_write_line(_: str) -> None:
+        pass
+
+    req_id = uuid4()
+    wrong_req_id = uuid4()
+    manager.set_context(
+        request_id=req_id,
+        message_id=uuid4(),
+        chat_id=uuid4(),
+        write_line=mock_write_line,
+    )
+
+    task = asyncio.create_task(
+        manager.request_approval(
+            call_id="call_val_1",
+            tool_name="nook:web_fetch",
+            arguments="{}",
+            explanation="Test",
+            resource_summary="test",
+            actions=["allow_once", "deny"],
+        )
+    )
+    await asyncio.sleep(0.01)
+
+    # 1. Wrong request ID rejected
+    assert manager.resolve_decision(wrong_req_id, "call_val_1", "allow_once") is False
+
+    # 2. Unlisted action rejected
+    assert manager.resolve_decision(req_id, "call_val_1", "invalid_action") is False
+
+    # 3. Valid resolution succeeds
+    assert manager.resolve_decision(req_id, "call_val_1", "allow_once") is True
+    assert await task == "allow_once"
+
+
+@pytest.mark.asyncio
+async def test_clear_chat_prunes_cache():
+    manager = ApprovalManager()
+    chat_a = str(uuid4())
+    chat_b = str(uuid4())
+
+    manager.approve_host(chat_a, "docs.example.com")
+    manager.approve_host(chat_b, "api.example.com")
+
+    assert manager.is_host_approved(chat_a, "docs.example.com")
+    assert manager.is_host_approved(chat_b, "api.example.com")
+
+    manager.clear_chat(chat_a)
+
+    assert not manager.is_host_approved(chat_a, "docs.example.com")
+    assert manager.is_host_approved(chat_b, "api.example.com")
