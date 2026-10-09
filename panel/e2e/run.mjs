@@ -219,7 +219,7 @@ async function main() {
     let testDaemonPath = daemonPath
     if (mode === 'smoke') {
       testDaemonPath = path.join(appDir, 'nookd-delayed')
-      const quotedDaemonPath = daemonPath.replaceAll("'", "'\\''")
+      const quotedDaemonPath = daemonPath.replaceAll("'", String.raw`'\''`)
       const launcher = [
         '#!/bin/sh',
         'sleep 8',
