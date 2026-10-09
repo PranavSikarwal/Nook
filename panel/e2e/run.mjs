@@ -206,9 +206,9 @@ async function main() {
     const baseUrl = isLive ? required('NOOK_BASE_URL') : 'http://127.0.0.1:9/v1'
     const model = isLive ? required('NOOK_MODEL') : 'nook-e2e-no-network'
     const testConfig = [
-      String.raw`base_url = "${baseUrl.replaceAll('"', '\\"')}"`,
-      String.raw`model = "${model.replaceAll('"', '\\"')}"`,
-      String.raw`database_url = "${databaseUrl.replaceAll('"', '\\"')}"`,
+      `base_url = ${JSON.stringify(baseUrl)}`,
+      `model = ${JSON.stringify(model)}`,
+      `database_url = ${JSON.stringify(databaseUrl)}`,
       'max_input_tokens = 1000000',
       'summarize_at_tokens = 750000',
       '',
@@ -219,8 +219,11 @@ async function main() {
     let testDaemonPath = daemonPath
     if (mode === 'smoke') {
       testDaemonPath = path.join(appDir, 'nookd-delayed')
-      const escapedDaemonPath = daemonPath.replaceAll("'", "'\\''")
-      await writeFile(testDaemonPath, `#!/bin/sh\nsleep 8\nexec '${escapedDaemonPath}'\n`)
+      const quotedDaemonPath = daemonPath.replaceAll("'", "'\\''")
+      await writeFile(testDaemonPath, String.raw`#!/bin/sh
+sleep 8
+exec '${quotedDaemonPath}'
+`)
       await chmod(testDaemonPath, 0o755)
     }
 

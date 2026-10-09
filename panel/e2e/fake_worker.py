@@ -141,21 +141,20 @@ async def run_message(request: dict[str, Any]) -> None:
         raise
 
 
-async def handle_shutdown(_: dict[str, Any]) -> bool:
+def handle_shutdown() -> bool:
     for task in active_requests.values():
         task.cancel()
     return False
 
 
-async def handle_run(request: dict[str, Any]) -> bool:
+def handle_run(request: dict[str, Any]) -> None:
     request_id = str(request["request_id"])
     task = asyncio.create_task(run_message(request))
     active_requests[request_id] = task
     task.add_done_callback(lambda _: active_requests.pop(request_id, None))
-    return True
 
 
-async def handle_cancel(request: dict[str, Any]) -> bool:
+def handle_cancel(request: dict[str, Any]) -> None:
     target_id = str(request.get("target_id", ""))
     for call_id, pending in tuple(pending_approvals.items()):
         if pending["request_id"] == target_id:
@@ -163,13 +162,12 @@ async def handle_cancel(request: dict[str, Any]) -> bool:
     task = active_requests.get(target_id)
     if task and not task.done():
         task.cancel()
-    return True
 
 
-async def handle_approval_decision(request: dict[str, Any]) -> bool:
+async def handle_approval_decision(request: dict[str, Any]) -> None:
     approval = pending_approvals.pop(str(request.get("call_id", "")), None)
     if not approval:
-        return True
+        return
 
     action = str(request.get("action", "deny"))
     if action == "allow_for_chat_host":
@@ -183,10 +181,9 @@ async def handle_approval_decision(request: dict[str, Any]) -> bool:
     )
     await emit_text(approval["request_id"], approval["message_id"], response)
     await finish_request(approval["request_id"], approval["message_id"])
-    return True
 
 
-async def handle_title(request: dict[str, Any]) -> bool:
+async def handle_title(request: dict[str, Any]) -> None:
     await write_event(
         {
             "type": "title_ready",
@@ -194,10 +191,9 @@ async def handle_title(request: dict[str, Any]) -> bool:
             "title": "E2E test chat",
         }
     )
-    return True
 
 
-async def handle_delete_chat(request: dict[str, Any]) -> bool:
+async def handle_delete_chat(request: dict[str, Any]) -> None:
     chat_id = str(request.get("chat_id", ""))
     approved_hosts.difference_update(
         (grant_chat, host)
@@ -211,33 +207,33 @@ async def handle_delete_chat(request: dict[str, Any]) -> bool:
             "chat_id": chat_id,
         }
     )
-    return True
 
 
-REQUEST_HANDLERS = {
-    "shutdown": handle_shutdown,
-    "run": handle_run,
-    "cancel": handle_cancel,
-    "approval_decision": handle_approval_decision,
-    "title": handle_title,
-    "delete_chat": handle_delete_chat,
-}
-
-
-async def handle_request(request: dict[str, Any]) -> bool:
-    handler = REQUEST_HANDLERS.get(str(request.get("type", "")))
-    return await handler(request) if handler else True
+async def handle_request(request: dict[str, Any]) -> None:
+    request_type = str(request.get("type", ""))
+    if request_type == "run":
+        handle_run(request)
+    elif request_type == "cancel":
+        handle_cancel(request)
+    elif request_type == "approval_decision":
+        await handle_approval_decision(request)
+    elif request_type == "title":
+        await handle_title(request)
+    elif request_type == "delete_chat":
+        await handle_delete_chat(request)
 
 
 async def main() -> None:
     await write_event({"type": "ready", "version": "e2e"})
     while line := await asyncio.to_thread(sys.stdin.readline):
         try:
-            should_continue = await handle_request(json.loads(line))
+            request = json.loads(line)
         except (json.JSONDecodeError, KeyError):
             continue
-        if not should_continue:
+        if request.get("type") == "shutdown":
+            handle_shutdown()
             return
+        await handle_request(request)
 
 
 if __name__ == "__main__":
