@@ -16,6 +16,7 @@ import {
   getChat,
   getSettings,
   listChats,
+  pingDaemon,
   sendApprovalDecision,
   sendMessage,
   setSettings,
@@ -106,6 +107,7 @@ export default function App() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [shortcuts, setShortcuts] = useState<ShortcutMap>(loadShortcuts)
   const [activeApproval, setActiveApproval] = useState<ApprovalRequest | null>(null)
+  const [isDaemonReady, setIsDaemonReady] = useState(false)
 
   const activeRequestIdRef = useRef<string | null>(null)
   const activeSendRef = useRef<{ chatId: string; localMsgId: string; requestId?: string } | null>(null)
@@ -140,6 +142,27 @@ export default function App() {
     activeRequestIdRef.current = null
     activeSendRef.current = null
   }, [isStreaming])
+
+  useEffect(() => {
+    let isCancelled = false
+    let retryTimer: ReturnType<typeof setTimeout>
+
+    const checkDaemon = async () => {
+      const isReady = await pingDaemon()
+      if (isCancelled) return
+      if (isReady) {
+        setIsDaemonReady(true)
+        return
+      }
+      retryTimer = setTimeout(() => void checkDaemon(), 250)
+    }
+
+    void checkDaemon()
+    return () => {
+      isCancelled = true
+      clearTimeout(retryTimer)
+    }
+  }, [])
 
   // Sync window size with view state
   useEffect(() => {
@@ -313,24 +336,9 @@ export default function App() {
     setActivePanel('none')
 
     activeSendRef.current = { chatId: sendChatId, localMsgId }
+    const pendingEvents: DaemonEvent[] = []
 
-    const onDaemonEvent = (event: DaemonEvent) => {
-      if (
-        activeSendRef.current?.chatId !== sendChatId ||
-        activeSendRef.current?.localMsgId !== localMsgId
-      ) {
-        return
-      }
-
-      // If this event has an id and we already have the assigned request id, drop mismatches
-      if (
-        'id' in event &&
-        activeSendRef.current?.requestId &&
-        event.id !== activeSendRef.current.requestId
-      ) {
-        return
-      }
-
+    const applyDaemonEvent = (event: DaemonEvent) => {
       if (event.type === 'message_started') {
         setMessages((prev) =>
           prev.map((m) =>
@@ -400,12 +408,29 @@ export default function App() {
       }
     }
 
+    const onDaemonEvent = (event: DaemonEvent) => {
+      const activeSend = activeSendRef.current
+      if (activeSend?.chatId !== sendChatId || activeSend.localMsgId !== localMsgId) return
+      if (!activeSend.requestId) {
+        pendingEvents.push(event)
+        return
+      }
+      if ('id' in event && event.id !== activeSend.requestId) return
+      if (event.type === 'chat_titled' && event.chat_id !== sendChatId) return
+      applyDaemonEvent(event)
+    }
+
     try {
       const reqId = await sendMessage(sendChatId, question, currentAtts, onDaemonEvent)
       activeRequestIdRef.current = reqId
       if (activeSendRef.current?.localMsgId === localMsgId) {
         activeSendRef.current.requestId = reqId
+        for (const event of pendingEvents) {
+          if ('id' in event && event.id === reqId) applyDaemonEvent(event)
+          else if (event.type === 'chat_titled' && event.chat_id === sendChatId) applyDaemonEvent(event)
+        }
       }
+      pendingEvents.length = 0
     } catch (err) {
       setIsStreaming(false)
       setActiveApproval(null)
@@ -511,7 +536,7 @@ export default function App() {
     try {
       const transcript = await getChat(selectedId)
       setChatId(transcript.chat_id)
-      const loadedMessages: ChatMessage[] = (transcript.messages || []).map((m: any) => ({
+      const loadedMessages: ChatMessage[] = (transcript.messages || []).map((m) => ({
         id: m.id || m.message_id || crypto.randomUUID(),
         message_id: m.message_id || m.id,
         role: m.role || 'assistant',
@@ -561,6 +586,7 @@ export default function App() {
           onAttachFiles={(files) => void handleAttachFiles(files)}
           onAttachPath={handleAttachPath}
           isStreaming={isStreaming}
+          disabled={!isDaemonReady}
           inputRef={inputRef}
           fileInputRef={fileInputRef}
           standalone
@@ -648,6 +674,7 @@ export default function App() {
           onAttachFiles={(files) => void handleAttachFiles(files)}
           onAttachPath={handleAttachPath}
           isStreaming={isStreaming}
+          disabled={!isDaemonReady}
           inputRef={inputRef}
           fileInputRef={fileInputRef}
           standalone={false}

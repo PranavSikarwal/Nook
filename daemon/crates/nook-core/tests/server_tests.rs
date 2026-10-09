@@ -1,6 +1,7 @@
 use nook_core::config::Config;
 use nook_core::protocol::{ClientMessage, DaemonMessage};
-use nook_core::server::{AppState, Server};
+use nook_core::server::{AppState, PendingApprovalEntry, Server};
+use nook_core::supervisor::WorkerSupervisor;
 use std::collections::HashMap;
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
@@ -244,6 +245,88 @@ async fn test_server_approval_decision_rejects_unknown_call_id() {
         other => panic!("Expected Error response, got {other:?}"),
     }
 
+    shutdown_tx.send(()).unwrap();
+    server_task.await.unwrap().unwrap();
+}
+
+#[tokio::test]
+async fn test_server_approval_forward_failure_keeps_pending_entry() {
+    let socket_path = PathBuf::from(format!(
+        "/tmp/nk_f_{}.sock",
+        &Uuid::new_v4().to_string()[..8]
+    ));
+    let temp_dir = tempfile::tempdir().unwrap();
+    let config_path = temp_dir.path().join("config.toml");
+    let (shutdown_tx, shutdown_rx) = broadcast::channel(1);
+    let fake_worker = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fake_worker.py");
+    let supervisor = WorkerSupervisor::new(
+        &Config::default(),
+        None,
+        Some(vec![
+            "python3".into(),
+            fake_worker.to_string_lossy().into_owned(),
+        ]),
+    )
+    .await
+    .unwrap();
+    supervisor.shutdown().await;
+
+    let state = Arc::new(AppState {
+        config: RwLock::new(Config::default()),
+        config_path,
+        pool: None,
+        supervisor: Mutex::new(Some(supervisor)),
+        open_requests: Mutex::new(HashMap::new()),
+        pending_approvals: Mutex::new(HashMap::new()),
+        cancelled_requests: Mutex::new(std::collections::HashSet::new()),
+    });
+    let chat_id = Uuid::new_v4();
+    let call_id = "call_forward_failure".to_string();
+    state.pending_approvals.lock().await.insert(
+        call_id.clone(),
+        PendingApprovalEntry {
+            chat_id,
+            client_request_id: Uuid::new_v4(),
+            worker_request_id: Uuid::new_v4(),
+        },
+    );
+
+    let server = Server::bind(&socket_path, shutdown_rx, state.clone())
+        .await
+        .unwrap();
+    let server_task = tokio::spawn(server.run());
+    let mut stream = UnixStream::connect(&socket_path).await.unwrap();
+    let decision_id = Uuid::new_v4();
+    let decision = ClientMessage::ApprovalDecision {
+        id: decision_id,
+        chat_id,
+        call_id: call_id.clone(),
+        action: "allow_once".to_string(),
+    };
+    let mut payload = serde_json::to_string(&decision).unwrap();
+    payload.push('\n');
+    stream.write_all(payload.as_bytes()).await.unwrap();
+
+    let (reader, _client_writer) = stream.into_split();
+    let mut lines = BufReader::new(reader).lines();
+    let reply_line = tokio::time::timeout(Duration::from_secs(2), lines.next_line())
+        .await
+        .expect("Timeout waiting for reply")
+        .unwrap()
+        .expect("Expected a Worker forwarding error");
+    let reply: DaemonMessage = serde_json::from_str(&reply_line).unwrap();
+    match reply {
+        DaemonMessage::Error { id, error } => {
+            assert_eq!(id, decision_id);
+            assert!(error.retryable);
+            assert!(error.message.contains("Failed to forward"));
+        }
+        other => panic!("Expected Error response, got {other:?}"),
+    }
+
+    assert!(state.pending_approvals.lock().await.contains_key(&call_id));
     shutdown_tx.send(()).unwrap();
     server_task.await.unwrap().unwrap();
 }

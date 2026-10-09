@@ -2,9 +2,14 @@ import asyncio
 import sys
 from typing import Any
 
+from ddgs.exceptions import DDGSException
 from pydantic import BaseModel, Field
 
 from nook_worker.tools.common import tool_error, tool_result
+
+
+def _is_no_results_error(error: DDGSException) -> bool:
+    return str(error).strip() in {"No results found", "No results found."}
 
 
 class WebSearchInput(BaseModel):
@@ -16,7 +21,6 @@ class WebSearchInput(BaseModel):
 
 def _run_ddgs_sync(query: str, max_results: int) -> list[dict[str, Any]]:
     from ddgs import DDGS
-    from ddgs.exceptions import DDGSException
 
     try:
         client = DDGS(timeout=10, verify=True)
@@ -34,7 +38,7 @@ def _run_ddgs_sync(query: str, max_results: int) -> list[dict[str, Any]]:
             for r in results
         ]
     except DDGSException as exc:
-        if "No results found" in str(exc):
+        if _is_no_results_error(exc):
             return []
         raise
 
@@ -51,6 +55,10 @@ async def execute_web_search(query: str, max_results: int = 5) -> str:
     try:
         formatted = await asyncio.to_thread(_run_ddgs_sync, cleaned_query, max_results)
         return tool_result(formatted)
+    except DDGSException as exc:
+        if _is_no_results_error(exc):
+            return tool_result([])
+        return tool_error("Search provider error: request failed")
     except Exception as exc:
         sys.stderr.write(f"Search provider error: {exc}\n")
         sys.stderr.flush()

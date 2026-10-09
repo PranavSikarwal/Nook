@@ -3,6 +3,7 @@ import json
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from ddgs.exceptions import DDGSException
 
 from nook_worker.tools.fetch import (
     PinnedAsyncHTTPTransport,
@@ -54,6 +55,16 @@ async def test_web_search_empty_query():
     res = json.loads(await execute_web_search("   "))
     assert "error" in res
     assert "Empty search query" in res["error"]
+
+
+@pytest.mark.asyncio
+async def test_web_search_returns_empty_results_when_provider_has_no_results():
+    with patch(
+        "nook_worker.tools.search._run_ddgs_sync",
+        side_effect=DDGSException("No results found."),
+    ):
+        res = json.loads(await execute_web_search("some valid query"))
+        assert res == []
 
 
 @pytest.mark.asyncio

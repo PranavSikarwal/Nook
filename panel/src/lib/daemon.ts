@@ -10,12 +10,18 @@ import type {
 } from './types'
 
 const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
+const isBrowserMock = !isTauri && import.meta.env.VITE_ENABLE_BROWSER_MOCK === 'true'
 
-// Browser mock state for interactive preview & Playwright automated testing
 let mockPendingApproval: ((action: string) => void) | null = null
+const previewSettings: SettingsInfo = {
+  base_url: 'https://example.invalid/v1',
+  model: 'preview-model',
+  has_api_key: false,
+}
 
 export async function pingDaemon(): Promise<boolean> {
-  if (!isTauri) return true
+  if (isBrowserMock) return true
+  if (!isTauri) return false
   try {
     return await invoke<boolean>('ping_daemon')
   } catch {
@@ -24,7 +30,7 @@ export async function pingDaemon(): Promise<boolean> {
 }
 
 export async function listChats(): Promise<ChatSummary[]> {
-  if (!isTauri) {
+  if (isBrowserMock) {
     return [
       {
         chat_id: 'preview-chat-1',
@@ -42,7 +48,7 @@ export async function listChats(): Promise<ChatSummary[]> {
 }
 
 export async function getChat(chatId: string): Promise<ChatTranscript> {
-  if (!isTauri) {
+  if (isBrowserMock) {
     return {
       chat_id: chatId,
       title: 'Previous Conversation',
@@ -70,7 +76,7 @@ export async function getChat(chatId: string): Promise<ChatTranscript> {
 }
 
 export async function deleteChat(chatId: string): Promise<boolean> {
-  if (!isTauri) return true
+  if (isBrowserMock) return true
   return await invoke<boolean>('delete_chat', { chatId })
 }
 
@@ -80,7 +86,7 @@ export async function sendMessage(
   attachments: AttachmentInput[] = [],
   onEvent?: (event: DaemonEvent) => void,
 ): Promise<string> {
-  if (!isTauri) {
+  if (isBrowserMock) {
     const reqId = crypto.randomUUID()
     const msgId = crypto.randomUUID()
     setTimeout(() => {
@@ -174,7 +180,7 @@ export async function sendMessage(
 }
 
 export async function startDrag(): Promise<void> {
-  if (!isTauri) return
+  if (isBrowserMock) return
   try {
     await invoke('start_drag')
   } catch {
@@ -183,7 +189,7 @@ export async function startDrag(): Promise<void> {
 }
 
 export async function cancelMessage(targetId?: string): Promise<void> {
-  if (!isTauri) {
+  if (isBrowserMock) {
     if (mockPendingApproval) {
       mockPendingApproval('deny')
     }
@@ -197,7 +203,7 @@ export async function sendApprovalDecision(
   callId: string,
   action: string,
 ): Promise<void> {
-  if (!isTauri) {
+  if (isBrowserMock) {
     if (mockPendingApproval) {
       mockPendingApproval(action)
     }
@@ -207,22 +213,16 @@ export async function sendApprovalDecision(
 }
 
 export async function getSettings(): Promise<SettingsInfo> {
-  if (!isTauri) {
-    return {
-      base_url: 'https://proxy-foundry.centralindia.cloudapp.azure.com/v1',
-      model: 'gemini-3.8-flash-high',
-      has_api_key: true,
-    }
-  }
+  if (isBrowserMock) return { ...previewSettings }
   return await invoke<SettingsInfo>('get_settings')
 }
 
 export async function setSettings(payload: SettingsPayload): Promise<SettingsInfo> {
-  if (!isTauri) {
+  if (isBrowserMock) {
     return {
       base_url: payload.base_url,
       model: payload.model,
-      has_api_key: Boolean(payload.api_key),
+      has_api_key: false,
     }
   }
   return await invoke<SettingsInfo>('set_settings', { payload })

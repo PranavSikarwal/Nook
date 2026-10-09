@@ -36,7 +36,7 @@ export function ApprovalCard({ request, onDecide, disabled = false }: ApprovalCa
   }
 
   return (
-    <div className="mt-3 p-3 rounded-xl bg-purple-950/30 border border-purple-500/30 text-zinc-200 text-xs shadow-lg">
+    <div data-testid="approval-card" className="mt-3 p-3 rounded-xl bg-purple-950/30 border border-purple-500/30 text-zinc-200 text-xs shadow-lg">
       <div className="flex items-center gap-2 mb-2 text-purple-300 font-semibold text-xs">
         <ShieldAlert className="size-4 text-purple-400 shrink-0" />
         <span>Tool Approval Required</span>

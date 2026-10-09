@@ -48,34 +48,38 @@ export function HistoryDrawer({
             })
 
             return (
-              <button
+              <div
                 key={chat.chat_id}
-                type="button"
-                className={`w-full text-left flex items-center justify-between px-4 py-2.5 hover:bg-white/5 transition-colors cursor-pointer group ${
+                data-chat-row={chat.chat_id}
+                data-active={isActive}
+                className={`w-full text-left flex items-center justify-between px-4 py-2.5 hover:bg-white/5 transition-colors group ${
                   isActive ? 'bg-purple-500/10 border-l-2 border-purple-500' : ''
                 }`}
-                onClick={() => onSelectChat(chat.chat_id)}
               >
-                <div className="flex-1 min-w-0 pr-3">
+                <button
+                  type="button"
+                  data-chat-select
+                  aria-current={isActive ? 'true' : undefined}
+                  className="flex-1 min-w-0 pr-3 text-left cursor-pointer"
+                  onClick={() => onSelectChat(chat.chat_id)}
+                >
                   <div className="text-xs font-medium truncate text-zinc-200 group-hover:text-white">
                     {chat.title || 'Untitled Conversation'}
                   </div>
                   <div className="text-[10px] text-zinc-500 mt-0.5">{dateStr}</div>
-                </div>
+                </button>
 
                 <button
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    onDeleteChat(chat.chat_id)
-                  }}
+                  onClick={() => onDeleteChat(chat.chat_id)}
                   type="button"
+                  data-chat-delete
                   title="Delete chat"
                   aria-label={`Delete chat ${chat.title || 'Untitled'}`}
                   className="opacity-0 group-hover:opacity-100 text-zinc-500 hover:text-red-400 p-1.5 rounded transition-all hover:bg-white/10"
                 >
                   <Trash2 className="size-3.5" />
                 </button>
-              </button>
+              </div>
             )
           })
         )}

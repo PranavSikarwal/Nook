@@ -421,13 +421,12 @@ async fn process_client_message(
             action,
         } => {
             let decision_target = {
-                let mut approvals = state.pending_approvals.lock().await;
+                let approvals = state.pending_approvals.lock().await;
                 if let Some(entry) = approvals.get(&call_id) {
                     if entry.chat_id == chat_id {
                         let sup_opt = state.supervisor.lock().await.clone();
                         if let Some(sup) = sup_opt {
-                            let entry_removed = approvals.remove(&call_id).unwrap();
-                            Ok((sup, entry_removed.worker_request_id))
+                            Ok((sup, entry.worker_request_id))
                         } else {
                             Err("Worker supervisor is not available")
                         }
@@ -441,13 +440,32 @@ async fn process_client_message(
 
             match decision_target {
                 Ok((sup, worker_req_id)) => {
-                    let _ = sup
+                    match sup
                         .send_request(DaemonWorkerRequest::ApprovalDecision {
                             request_id: worker_req_id,
-                            call_id,
+                            call_id: call_id.clone(),
                             action,
                         })
-                        .await;
+                        .await
+                    {
+                        Ok(_) => {
+                            state.pending_approvals.lock().await.remove(&call_id);
+                        }
+                        Err(error) => {
+                            let _ = tx_out
+                                .send(DaemonMessage::Error {
+                                    id,
+                                    error: ErrorInfo {
+                                        code: ErrorCode::InvalidRequest,
+                                        message: format!(
+                                            "Failed to forward approval decision: {error}"
+                                        ),
+                                        retryable: true,
+                                    },
+                                })
+                                .await;
+                        }
+                    }
                 }
                 Err(err_msg) => {
                     let _ = tx_out

@@ -102,8 +102,8 @@ export function TranscriptView({
 
         if (isUser) {
           return (
-            <div key={msgKey} className="flex justify-end">
-              <div className="max-w-[85%] bg-[#8a38f5] text-white px-4 py-2 rounded-2xl rounded-tr-sm text-sm shadow-sm leading-relaxed whitespace-pre-wrap break-words select-text">
+            <div key={msgKey} data-message-role="user" data-message-status={msg.status} className="flex justify-end">
+              <div className="max-w-[85%] bg-[#8a38f5] text-white px-4 py-2 rounded-2xl rounded-tr-sm text-sm shadow-sm leading-relaxed whitespace-pre-wrap wrap-break-word select-text">
                 {msg.text}
                 {(msg.attachments?.length ?? 0) > 0 && (
                   <div className="mt-2 pt-2 border-t border-white/20 flex flex-wrap gap-1">
@@ -124,7 +124,12 @@ export function TranscriptView({
 
         return (
           <div key={msgKey} className="flex justify-start">
-            <div className="max-w-[95%] w-full bg-white/[0.04] border border-white/[0.08] px-4 py-3 rounded-2xl rounded-tl-sm text-sm select-text">
+            <div
+              data-message-role="assistant"
+              data-message-status={msg.status}
+              data-message-id={msg.message_id ?? msg.id}
+              className="max-w-[95%] w-full bg-white/4 border border-white/8 px-4 py-3 rounded-2xl rounded-tl-sm text-sm select-text"
+            >
               {renderAssistantContent(msg)}
 
               {msg.status === 'streaming' && !activeApproval && (
@@ -134,11 +139,8 @@ export function TranscriptView({
                 </div>
               )}
 
-              {Boolean(activeApproval) && (activeApproval?.message_id === msg.message_id || activeApproval?.message_id === msg.id || msg.status === 'streaming') && onApprovalDecide && (
-                <ApprovalCard
-                  request={activeApproval!}
-                  onDecide={onApprovalDecide}
-                />
+              {msg.message_id !== undefined && activeApproval?.message_id === msg.message_id && onApprovalDecide && (
+                <ApprovalCard request={activeApproval!} onDecide={onApprovalDecide} />
               )}
 
               {/* Action bar for completed assistant response */}
