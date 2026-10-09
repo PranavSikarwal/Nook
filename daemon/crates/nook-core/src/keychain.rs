@@ -36,6 +36,20 @@ fn get_api_key_from(
     keychain_key().filter(|key| !key.trim().is_empty())
 }
 
+pub fn set_api_key(key: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    #[cfg(target_os = "macos")]
+    {
+        set_generic_password(SERVICE_NAME, ACCOUNT_NAME, key.as_bytes())?;
+        Ok(())
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = key;
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::get_api_key_from;
@@ -74,19 +88,5 @@ mod tests {
     fn empty_environment_key_is_absent_when_keychain_is_disabled() {
         let result = get_api_key_from(Some("1"), Some("  "), || Some("keychain-secret".into()));
         assert_eq!(result, None);
-    }
-}
-
-pub fn set_api_key(key: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    #[cfg(target_os = "macos")]
-    {
-        set_generic_password(SERVICE_NAME, ACCOUNT_NAME, key.as_bytes())?;
-        Ok(())
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = key;
-        Ok(())
     }
 }

@@ -153,25 +153,6 @@ fn resolve_worker_command(config: &Config, custom_command: Option<Vec<String>>) 
     ]
 }
 
-#[cfg(test)]
-mod tests {
-    use super::uses_uv_project;
-
-    #[test]
-    fn uv_project_launch_ignores_active_virtual_environment() {
-        let uv_project_command = vec![
-            "uv".to_string(),
-            "run".to_string(),
-            "--project".to_string(),
-            "worker".to_string(),
-        ];
-        let custom_command = vec!["python".to_string(), "worker.py".to_string()];
-
-        assert!(uses_uv_project(&uv_project_command));
-        assert!(!uses_uv_project(&custom_command));
-    }
-}
-
 impl WorkerSupervisor {
     pub async fn new(
         config: &Config,
@@ -549,5 +530,24 @@ impl WorkerSupervisor {
         if let Some(ref stdin) = stdin_tx {
             let _ = stdin.send(payload).await;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::uses_uv_project;
+
+    #[test]
+    fn uv_project_launch_ignores_active_virtual_environment() {
+        let uv_project_command = vec![
+            "uv".to_string(),
+            "run".to_string(),
+            "--project".to_string(),
+            "worker".to_string(),
+        ];
+        let custom_command = vec!["python".to_string(), "worker.py".to_string()];
+
+        assert!(uses_uv_project(&uv_project_command));
+        assert!(!uses_uv_project(&custom_command));
     }
 }
