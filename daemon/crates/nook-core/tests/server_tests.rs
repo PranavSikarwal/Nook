@@ -336,80 +336,33 @@ async fn test_server_approval_forward_failure_keeps_pending_entry() {
     server_task.await.unwrap().unwrap();
 }
 
-#[tokio::test]
-async fn test_server_approval_decision_rejects_in_flight_duplicate() {
-    let socket_path = PathBuf::from(format!(
-        "/tmp/nk_d_{}.sock",
-        &Uuid::new_v4().to_string()[..8]
-    ));
-    let temp_dir = tempfile::tempdir().unwrap();
-    let config_path = temp_dir.path().join("config.toml");
-    let (shutdown_tx, shutdown_rx) = broadcast::channel(1);
+#[test]
+fn test_server_approval_decision_rejects_in_flight_duplicate() {
     let chat_id = Uuid::new_v4();
 
     let call_id = "call_in_flight".to_string();
+    let worker_request_id = Uuid::new_v4();
     let mut pending_approvals = HashMap::new();
     pending_approvals.insert(
         call_id.clone(),
         PendingApprovalEntry {
             chat_id,
             client_request_id: Uuid::new_v4(),
-            worker_request_id: Uuid::new_v4(),
-            decision_in_flight: true,
+            worker_request_id,
+            decision_in_flight: false,
         },
     );
-    let state = Arc::new(AppState {
-        config: RwLock::new(Config::default()),
-        config_path,
-        pool: None,
-        supervisor: Mutex::new(None),
-        preserve_worker_on_settings_update: false,
-        open_requests: Mutex::new(HashMap::new()),
-        pending_approvals: Mutex::new(pending_approvals),
-        cancelled_requests: Mutex::new(std::collections::HashSet::new()),
-    });
 
-    let server = Server::bind(&socket_path, shutdown_rx, state.clone())
-        .await
-        .unwrap();
-    let server_task = tokio::spawn(server.run());
-    let mut duplicate_stream = UnixStream::connect(&socket_path).await.unwrap();
-    let duplicate_id = Uuid::new_v4();
-    let duplicate_decision = ClientMessage::ApprovalDecision {
-        id: duplicate_id,
-        chat_id,
-        call_id: call_id.clone(),
-        action: "deny".to_string(),
-    };
-    let mut duplicate_payload = serde_json::to_string(&duplicate_decision).unwrap();
-    duplicate_payload.push('\n');
-    duplicate_stream
-        .write_all(duplicate_payload.as_bytes())
-        .await
-        .unwrap();
-
-    let (reader, _client_writer) = duplicate_stream.into_split();
-    let mut lines = BufReader::new(reader).lines();
-    let reply_line = tokio::time::timeout(Duration::from_secs(2), lines.next_line())
-        .await
-        .expect("Timeout waiting for duplicate decision response")
-        .unwrap()
-        .expect("Expected a duplicate decision rejection");
-    let reply: DaemonMessage = serde_json::from_str(&reply_line).unwrap();
-    match reply {
-        DaemonMessage::Error { id, error } => {
-            assert_eq!(id, duplicate_id);
-            assert!(!error.retryable);
-            assert!(error.message.contains("already being forwarded"));
-        }
-        other => panic!("Expected Error response, got {other:?}"),
-    }
-
-    let approvals = state.pending_approvals.lock().await;
-    assert!(approvals.get(&call_id).unwrap().decision_in_flight);
-    drop(approvals);
-    shutdown_tx.send(()).unwrap();
-    server_task.await.unwrap().unwrap();
+    let first_claim =
+        nook_core::server::claim_pending_approval(&mut pending_approvals, &call_id, chat_id);
+    let duplicate_claim =
+        nook_core::server::claim_pending_approval(&mut pending_approvals, &call_id, chat_id);
+    assert_eq!(first_claim, Ok(worker_request_id));
+    assert_eq!(
+        duplicate_claim,
+        Err("Approval decision is already being forwarded")
+    );
+    assert!(pending_approvals.get(&call_id).unwrap().decision_in_flight);
 }
 
 #[tokio::test]

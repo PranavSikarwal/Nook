@@ -27,6 +27,26 @@ pub struct PendingApprovalEntry {
     pub decision_in_flight: bool,
 }
 
+pub fn claim_pending_approval(
+    approvals: &mut HashMap<String, PendingApprovalEntry>,
+    call_id: &str,
+    chat_id: Uuid,
+) -> Result<Uuid, &'static str> {
+    match approvals.get_mut(call_id) {
+        Some(entry) if entry.chat_id != chat_id => {
+            Err("Approval call ID does not belong to the specified chat")
+        }
+        Some(entry) if entry.decision_in_flight => {
+            Err("Approval decision is already being forwarded")
+        }
+        Some(entry) => {
+            entry.decision_in_flight = true;
+            Ok(entry.worker_request_id)
+        }
+        None => Err("Unknown or invalid approval call id"),
+    }
+}
+
 pub struct AppState {
     pub config: RwLock<Config>,
     pub config_path: PathBuf,
@@ -428,19 +448,7 @@ async fn process_client_message(
         } => {
             let decision_target = {
                 let mut approvals = state.pending_approvals.lock().await;
-                match approvals.get_mut(&call_id) {
-                    Some(entry) if entry.chat_id != chat_id => {
-                        Err("Approval call ID does not belong to the specified chat")
-                    }
-                    Some(entry) if entry.decision_in_flight => {
-                        Err("Approval decision is already being forwarded")
-                    }
-                    Some(entry) => {
-                        entry.decision_in_flight = true;
-                        Ok(entry.worker_request_id)
-                    }
-                    None => Err("Unknown or invalid approval call id"),
-                }
+                claim_pending_approval(&mut approvals, &call_id, chat_id)
             };
 
             match decision_target {
