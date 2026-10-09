@@ -92,8 +92,8 @@ export async function sendMessage(
       })
 
       if (text.includes('http://') || text.includes('https://')) {
-        const urlMatch = text.match(/https?:\/\/[^\s]+/)
-        const url = urlMatch ? urlMatch[0] : 'https://platform.claude.com'
+        const urlMatch = /https?:\/\/[^\s]+/.exec(text)
+        const url = urlMatch?.[0] ?? 'https://platform.claude.com'
         const host = new URL(url).hostname
 
         // Emit approval request event
