@@ -8,13 +8,12 @@ on:
         required: true
         type: number
 
-permissions:
-  contents: read
-  pull-requests: read
-  statuses: write
-
 jobs:
   resolve-pr:
+    permissions:
+      contents: read
+      pull-requests: read
+      statuses: write
     name: Resolve pull request head
     runs-on: ubuntu-latest
     outputs:
@@ -60,6 +59,8 @@ jobs:
     name: Deterministic native tests
     needs: resolve-pr
     runs-on: macos-14
+    permissions:
+      contents: read
     steps:
       - name: Check out tested commit
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -118,11 +119,13 @@ jobs:
     needs: [resolve-pr, deterministic]
     runs-on: macos-14
     environment: native-e2e-live
+    permissions:
+      contents: read
     steps:
-      - name: Check out tested commit
+      - name: Check out trusted live-test code
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
-          ref: ${{ needs.resolve-pr.outputs.head_sha }}
+          ref: main
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -179,6 +182,9 @@ jobs:
     if: always() && needs.resolve-pr.result == 'success'
     needs: [resolve-pr, deterministic, live]
     runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+      statuses: write
     steps:
       - name: Recheck pull request head and report result
         uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.8

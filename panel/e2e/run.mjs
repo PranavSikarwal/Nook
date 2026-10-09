@@ -80,7 +80,7 @@ async function releaseRunLock() {
 }
 
 async function stopActiveChild(signal) {
-  if (!activeChild || activeChild.exitCode !== null) return
+  if (activeChild?.exitCode !== null) return
   const child = activeChild
   child.kill(signal)
   await new Promise((resolve) => child.once('exit', resolve))
@@ -206,9 +206,9 @@ async function main() {
     const baseUrl = isLive ? required('NOOK_BASE_URL') : 'http://127.0.0.1:9/v1'
     const model = isLive ? required('NOOK_MODEL') : 'nook-e2e-no-network'
     const testConfig = [
-      `base_url = "${baseUrl.replaceAll('"', '\\"')}"`,
-      `model = "${model.replaceAll('"', '\\"')}"`,
-      `database_url = "${databaseUrl.replaceAll('"', '\\"')}"`,
+      String.raw`base_url = "${baseUrl.replaceAll('"', '\\"')}"`,
+      String.raw`model = "${model.replaceAll('"', '\\"')}"`,
+      String.raw`database_url = "${databaseUrl.replaceAll('"', '\\"')}"`,
       'max_input_tokens = 1000000',
       'summarize_at_tokens = 750000',
       '',
@@ -277,7 +277,9 @@ for (const signal of ['SIGINT', 'SIGTERM']) {
   })
 }
 
-main().catch((error) => {
+try {
+  await main()
+} catch (error) {
   console.error(error)
   process.exitCode = 1
-})
+}

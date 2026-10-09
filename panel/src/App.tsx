@@ -434,8 +434,9 @@ export default function App() {
       if (activeSendRef.current?.localMsgId === localMsgId) {
         activeSendRef.current.requestId = reqId
         for (const event of pendingEvents) {
-          if ('id' in event && event.id === reqId) applyDaemonEvent(event)
-          else if (event.type === 'chat_titled' && event.chat_id === sendChatId) applyDaemonEvent(event)
+          const belongsToRequest = 'id' in event && event.id === reqId
+          const belongsToChat = event.type === 'chat_titled' && event.chat_id === sendChatId
+          if (belongsToRequest || belongsToChat) applyDaemonEvent(event)
         }
       }
       pendingEvents.length = 0
