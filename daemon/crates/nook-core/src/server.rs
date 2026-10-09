@@ -31,6 +31,7 @@ pub struct AppState {
     pub config_path: PathBuf,
     pub pool: Option<PgPool>,
     pub supervisor: Mutex<Option<WorkerSupervisor>>,
+    pub preserve_worker_on_settings_update: bool,
     pub open_requests: Mutex<HashMap<Uuid, Uuid>>, // maps client id -> worker request_id
     pub pending_approvals: Mutex<HashMap<String, PendingApprovalEntry>>, // maps call_id -> entry
     pub cancelled_requests: Mutex<HashSet<Uuid>>,
@@ -229,22 +230,26 @@ async fn process_client_message(
             }
 
             // Restart supervisor with updated settings without holding mutex across shutdown
-            let old_sup_to_shutdown = {
-                let cfg = state.config.read().await;
-                let key = keychain::get_api_key();
-                match WorkerSupervisor::new(&cfg, key, None).await {
-                    Ok(new_sup) => {
-                        let mut sup_guard = state.supervisor.lock().await;
-                        sup_guard.replace(new_sup)
+            if !state.preserve_worker_on_settings_update {
+                let old_sup_to_shutdown = {
+                    let cfg = state.config.read().await;
+                    let key = keychain::get_api_key();
+                    match WorkerSupervisor::new(&cfg, key, None).await {
+                        Ok(new_sup) => {
+                            let mut sup_guard = state.supervisor.lock().await;
+                            sup_guard.replace(new_sup)
+                        }
+                        Err(e) => {
+                            error!(
+                                "Failed to restart worker supervisor with updated settings: {e}"
+                            );
+                            None
+                        }
                     }
-                    Err(e) => {
-                        error!("Failed to restart worker supervisor with updated settings: {e}");
-                        None
-                    }
+                };
+                if let Some(old_sup) = old_sup_to_shutdown {
+                    old_sup.shutdown().await;
                 }
-            };
-            if let Some(old_sup) = old_sup_to_shutdown {
-                old_sup.shutdown().await;
             }
 
             let has_key = keychain::get_api_key().is_some();
@@ -780,6 +785,7 @@ async fn handle_send_message(
                 let msg_status = match status {
                     FinishStatus::Complete => MessageStatus::Complete,
                     FinishStatus::Cancelled => MessageStatus::Cancelled,
+                    FinishStatus::Error => MessageStatus::Error,
                 };
                 let _ = db::save_assistant_message(
                     &pool,
@@ -837,6 +843,14 @@ async fn handle_send_message(
                 .await;
 
                 let _ = tx_out.send(DaemonMessage::Error { id, error }).await;
+                let _ = tx_out
+                    .send(DaemonMessage::MessageFinished {
+                        id,
+                        chat_id,
+                        message_id: asst_message_id,
+                        status: FinishStatus::Error,
+                    })
+                    .await;
                 break;
             }
 

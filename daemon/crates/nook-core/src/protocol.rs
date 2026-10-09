@@ -52,6 +52,7 @@ pub enum MessageStatus {
 pub enum FinishStatus {
     Complete,
     Cancelled,
+    Error,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

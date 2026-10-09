@@ -5,6 +5,9 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 
+[features]
+e2e = []
+
 [dependencies]
 nook-core = { path = "../nook-core" }
 tokio.workspace = true

@@ -121,8 +121,16 @@ export default function App() {
     setIsStreaming(false)
     setActiveApproval(null)
     const targetId = activeRequestIdRef.current
+    const activeMessageId = activeSendRef.current?.localMsgId
     activeRequestIdRef.current = null
     activeSendRef.current = null
+    if (activeMessageId) {
+      setMessages((prev) =>
+        prev.map((message) =>
+          message.id === activeMessageId ? { ...message, status: 'cancelled' } : message
+        )
+      )
+    }
     try {
       await cancelMessage(targetId ?? undefined)
     } catch {

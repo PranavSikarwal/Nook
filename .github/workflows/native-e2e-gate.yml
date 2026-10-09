@@ -1,0 +1,213 @@
+name: Native Tauri E2E Gate
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Pull request number to test
+        required: true
+        type: number
+
+permissions:
+  contents: read
+  pull-requests: read
+  statuses: write
+
+jobs:
+  resolve-pr:
+    name: Resolve pull request head
+    runs-on: ubuntu-latest
+    outputs:
+      head_sha: ${{ steps.pr.outputs.head_sha }}
+      head_ref: ${{ steps.pr.outputs.head_ref }}
+    steps:
+      - name: Validate pull request
+        id: pr
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.8
+        with:
+          script: |
+            const number = Number('${{ inputs.pr_number }}');
+            if (!Number.isSafeInteger(number) || number < 1) {
+              core.setFailed('pr_number must be a positive integer.');
+              return;
+            }
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: number,
+            });
+            if (pr.state !== 'open' || pr.base.ref !== 'main') {
+              core.setFailed('The pull request must be open and target main.');
+              return;
+            }
+            core.setOutput('head_sha', pr.head.sha);
+            core.setOutput('head_ref', pr.head.ref);
+
+      - name: Mark tested commit pending
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.8
+        with:
+          script: |
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha: '${{ steps.pr.outputs.head_sha }}',
+              state: 'pending',
+              context: 'Native Tauri E2E Gate',
+              description: 'Native end-to-end tests are running.',
+            });
+
+  deterministic:
+    name: Deterministic native tests
+    needs: resolve-pr
+    runs-on: macos-14
+    steps:
+      - name: Check out tested commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ needs.resolve-pr.outputs.head_sha }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: panel/package-lock.json
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        with:
+          enable-cache: true
+          version: "0.11.25"
+
+      - name: Set up Python
+        run: uv python install 3.13
+
+      - name: Install PostgreSQL
+        run: |
+          brew install postgresql@16
+          brew services start postgresql@16
+          "$(brew --prefix postgresql@16)/bin/pg_isready" -h 127.0.0.1 -p 5432
+
+      - name: Install Worker dependencies
+        working-directory: worker
+        run: |
+          uv venv
+          uv pip install --no-build --require-hashes -r requirements.txt
+
+      - name: Install Panel dependencies
+        working-directory: panel
+        run: npm ci --ignore-scripts
+
+      - name: Run deterministic native suite
+        working-directory: panel
+        env:
+          NOOK_E2E_DATABASE_URL: postgresql://runner@127.0.0.1:5432/postgres
+        run: npm run test:e2e:deterministic
+
+      - name: Upload deterministic run artifacts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: native-e2e-deterministic-${{ github.run_id }}
+          path: /tmp/ne*/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  live:
+    name: Live news check
+    needs: [resolve-pr, deterministic]
+    runs-on: macos-14
+    environment: native-e2e-live
+    steps:
+      - name: Check out tested commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ needs.resolve-pr.outputs.head_sha }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: panel/package-lock.json
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        with:
+          enable-cache: true
+          version: "0.11.25"
+
+      - name: Set up Python
+        run: uv python install 3.13
+
+      - name: Install PostgreSQL
+        run: |
+          brew install postgresql@16
+          brew services start postgresql@16
+          "$(brew --prefix postgresql@16)/bin/pg_isready" -h 127.0.0.1 -p 5432
+
+      - name: Install Worker dependencies
+        working-directory: worker
+        run: |
+          uv venv
+          uv pip install --no-build --require-hashes -r requirements.txt
+
+      - name: Install Panel dependencies
+        working-directory: panel
+        run: npm ci --ignore-scripts
+
+      - name: Run live news check
+        working-directory: panel
+        env:
+          NOOK_E2E_DATABASE_URL: postgresql://runner@127.0.0.1:5432/postgres
+          NOOK_BASE_URL: ${{ secrets.NOOK_BASE_URL }}
+          NOOK_MODEL: ${{ secrets.NOOK_MODEL }}
+          NOOK_API_KEY: ${{ secrets.NOOK_API_KEY }}
+        run: npm run test:e2e:live
+
+      - name: Upload live run artifacts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: native-e2e-live-${{ github.run_id }}
+          path: /tmp/ne*/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  report:
+    name: Report gate status
+    if: always() && needs.resolve-pr.result == 'success'
+    needs: [resolve-pr, deterministic, live]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Recheck pull request head and report result
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.8
+        env:
+          TESTED_SHA: ${{ needs.resolve-pr.outputs.head_sha }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          DETERMINISTIC_RESULT: ${{ needs.deterministic.result }}
+          LIVE_RESULT: ${{ needs.live.result }}
+        with:
+          script: |
+            const testedSha = process.env.TESTED_SHA;
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: Number(process.env.PR_NUMBER),
+            });
+            const passed = pr.state === 'open'
+              && pr.base.ref === 'main'
+              && pr.head.sha === testedSha
+              && process.env.DETERMINISTIC_RESULT === 'success'
+              && process.env.LIVE_RESULT === 'success';
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha: testedSha,
+              state: passed ? 'success' : 'failure',
+              context: 'Native Tauri E2E Gate',
+              description: passed
+                ? 'Deterministic and live native tests passed.'
+                : 'Tests failed or the pull request head changed.',
+            });
+            if (!passed) core.setFailed('The native E2E gate failed or the PR head changed.');

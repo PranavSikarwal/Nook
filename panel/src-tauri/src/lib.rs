@@ -232,6 +232,25 @@ pub async fn ensure_daemon_started(state: &DaemonState) {
                     cmd.env("PATH", extra);
                 }
             }
+            if let Some(app_dir) = std::env::var_os("NOOK_APP_DIR") {
+                cmd.env("NOOK_APP_DIR", app_dir);
+            }
+            for env_key in [
+                "NOOK_BASE_URL",
+                "NOOK_MODEL",
+                "NOOK_DATABASE_URL",
+                "NOOK_API_KEY",
+                "NOOK_DISABLE_KEYCHAIN",
+                "NOOK_WORKER_DIR",
+            ] {
+                if let Some(value) = std::env::var_os(env_key) {
+                    cmd.env(env_key, value);
+                }
+            }
+            #[cfg(feature = "e2e")]
+            if let Some(value) = std::env::var_os("NOOK_E2E_WORKER_COMMAND") {
+                cmd.env("NOOK_E2E_WORKER_COMMAND", value);
+            }
 
             match cmd.spawn() {
                 Ok(child) => {
@@ -581,10 +600,7 @@ async fn send_message<R: Runtime>(
             let _keep_writer_alive = writer;
             while let Ok(Some(line)) = lines.next_line().await {
                 if let Ok(event) = serde_json::from_str::<DaemonMessage>(&line) {
-                    let is_terminal = matches!(
-                        event,
-                        DaemonMessage::MessageFinished { .. } | DaemonMessage::Error { .. }
-                    );
+                    let is_terminal = matches!(event, DaemonMessage::MessageFinished { .. });
                     let _ = on_event.send(event);
                     if is_terminal {
                         let mut active = state_for_cleanup.lock().await;
@@ -827,7 +843,7 @@ pub fn run() {
 
     let shortcut: Shortcut = shortcut_str.parse().expect("Valid shortcut string");
 
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
@@ -837,7 +853,14 @@ pub fn run() {
                     }
                 })
                 .build(),
-        )
+        );
+
+    #[cfg(feature = "e2e")]
+    let builder = builder
+        .plugin(tauri_plugin_wdio::init())
+        .plugin(tauri_plugin_wdio_webdriver::init());
+
+    builder
         .manage(DaemonState::default())
         .setup(move |app| {
             #[cfg(target_os = "macos")]
