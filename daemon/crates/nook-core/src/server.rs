@@ -19,12 +19,20 @@ use crate::protocol::{
 };
 use crate::supervisor::WorkerSupervisor;
 
+#[derive(Debug, Clone)]
+pub struct PendingApprovalEntry {
+    pub chat_id: Uuid,
+    pub client_request_id: Uuid,
+    pub worker_request_id: Uuid,
+}
+
 pub struct AppState {
     pub config: RwLock<Config>,
     pub config_path: PathBuf,
     pub pool: Option<PgPool>,
     pub supervisor: Mutex<Option<WorkerSupervisor>>,
     pub open_requests: Mutex<HashMap<Uuid, Uuid>>, // maps client id -> worker request_id
+    pub pending_approvals: Mutex<HashMap<String, PendingApprovalEntry>>, // maps call_id -> entry
     pub cancelled_requests: Mutex<HashSet<Uuid>>,
 }
 
@@ -373,6 +381,10 @@ async fn process_client_message(
                 let mut cancelled = state.cancelled_requests.lock().await;
                 cancelled.insert(target_id);
             }
+            {
+                let mut approvals = state.pending_approvals.lock().await;
+                approvals.retain(|_, v| v.client_request_id != target_id);
+            }
 
             let worker_req_id = {
                 let open_reqs = state.open_requests.lock().await;
@@ -403,24 +415,49 @@ async fn process_client_message(
         }
 
         ClientMessage::ApprovalDecision {
-            id: _,
-            chat_id: _,
+            id,
+            chat_id,
             call_id,
             action,
         } => {
-            let worker_req_id = {
-                let open_reqs = state.open_requests.lock().await;
-                open_reqs.values().copied().next()
+            let decision_target = {
+                let mut approvals = state.pending_approvals.lock().await;
+                if let Some(entry) = approvals.get(&call_id) {
+                    if entry.chat_id == chat_id {
+                        let sup_opt = state.supervisor.lock().await.clone();
+                        if let Some(sup) = sup_opt {
+                            let entry_removed = approvals.remove(&call_id).unwrap();
+                            Ok((sup, entry_removed.worker_request_id))
+                        } else {
+                            Err("Worker supervisor is not available")
+                        }
+                    } else {
+                        Err("Approval call ID does not belong to the specified chat")
+                    }
+                } else {
+                    Err("Unknown or invalid approval call id")
+                }
             };
 
-            if let Some(w_id) = worker_req_id {
-                let sup_opt = state.supervisor.lock().await.clone();
-                if let Some(sup) = sup_opt {
+            match decision_target {
+                Ok((sup, worker_req_id)) => {
                     let _ = sup
                         .send_request(DaemonWorkerRequest::ApprovalDecision {
-                            request_id: w_id,
+                            request_id: worker_req_id,
                             call_id,
                             action,
+                        })
+                        .await;
+                }
+                Err(err_msg) => {
+                    let _ = tx_out
+                        .send(DaemonMessage::Error {
+                            id,
+                            error: ErrorInfo {
+                                code: ErrorCode::InvalidRequest,
+                                message: err_msg.to_string(),
+                                retryable: false,
+                            },
                         })
                         .await;
                 }
@@ -451,6 +488,8 @@ async fn handle_send_message(
             open_reqs.remove(&id);
             let mut cancelled = st_clone.cancelled_requests.lock().await;
             cancelled.remove(&id);
+            let mut approvals = st_clone.pending_approvals.lock().await;
+            approvals.retain(|_, v| v.client_request_id != id);
         }
     };
 
@@ -693,6 +732,17 @@ async fn handle_send_message(
                 actions,
                 ..
             } => {
+                {
+                    let mut approvals = state.pending_approvals.lock().await;
+                    approvals.insert(
+                        call_id.clone(),
+                        PendingApprovalEntry {
+                            chat_id,
+                            client_request_id: id,
+                            worker_request_id: worker_req_id,
+                        },
+                    );
+                }
                 let _ = tx_out
                     .send(DaemonMessage::ApprovalRequested {
                         id,

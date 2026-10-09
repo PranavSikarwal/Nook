@@ -16,21 +16,27 @@ class WebSearchInput(BaseModel):
 
 def _run_ddgs_sync(query: str, max_results: int) -> list[dict[str, Any]]:
     from ddgs import DDGS
+    from ddgs.exceptions import DDGSException
 
-    client = DDGS(timeout=10, verify=True)
-    results = client.text(
-        query=query,
-        max_results=min(max(max_results, 1), 10),
-        backend="duckduckgo",
-    )
-    return [
-        {
-            "title": str(r.get("title", "")).strip(),
-            "href": str(r.get("href", "")).strip(),
-            "body": str(r.get("body", "")).strip(),
-        }
-        for r in results
-    ]
+    try:
+        client = DDGS(timeout=10, verify=True)
+        results = client.text(
+            query=query,
+            max_results=min(max(max_results, 1), 10),
+            backend="duckduckgo",
+        )
+        return [
+            {
+                "title": str(r.get("title", "")).strip(),
+                "href": str(r.get("href", "")).strip(),
+                "body": str(r.get("body", "")).strip(),
+            }
+            for r in results
+        ]
+    except DDGSException as exc:
+        if "No results found" in str(exc):
+            return []
+        raise
 
 
 async def execute_web_search(query: str, max_results: int = 5) -> str:

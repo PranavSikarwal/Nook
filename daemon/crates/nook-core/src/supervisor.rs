@@ -465,9 +465,12 @@ impl WorkerSupervisor {
         let req_id = match &request {
             DaemonWorkerRequest::Run { request_id, .. }
             | DaemonWorkerRequest::Title { request_id, .. }
-            | DaemonWorkerRequest::ApprovalDecision { request_id, .. }
             | DaemonWorkerRequest::DeleteChat { request_id, .. } => Some(*request_id),
-            DaemonWorkerRequest::Cancel { .. } | DaemonWorkerRequest::Shutdown => None,
+            // A decision shares the running reply's request_id. Registering a
+            // listener for it would replace the reply's sender.
+            DaemonWorkerRequest::ApprovalDecision { .. }
+            | DaemonWorkerRequest::Cancel { .. }
+            | DaemonWorkerRequest::Shutdown => None,
         };
 
         let mut payload = serde_json::to_string(&request)

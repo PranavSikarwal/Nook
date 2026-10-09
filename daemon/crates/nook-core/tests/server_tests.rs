@@ -1,11 +1,11 @@
+use nook_core::config::Config;
+use nook_core::protocol::{ClientMessage, DaemonMessage};
+use nook_core::server::{AppState, Server};
 use std::collections::HashMap;
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
-use nook_core::config::Config;
-use nook_core::protocol::{ClientMessage, DaemonMessage};
-use nook_core::server::{AppState, Server};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
 use tokio::sync::{broadcast, Mutex, RwLock};
@@ -13,7 +13,10 @@ use uuid::Uuid;
 
 #[tokio::test]
 async fn test_server_ping_pong_and_permissions() {
-    let socket_path = PathBuf::from(format!("/tmp/nk_p_{}.sock", &Uuid::new_v4().to_string()[..8]));
+    let socket_path = PathBuf::from(format!(
+        "/tmp/nk_p_{}.sock",
+        &Uuid::new_v4().to_string()[..8]
+    ));
     let temp_dir = tempfile::tempdir().unwrap();
     let config_path = temp_dir.path().join("config.toml");
     let (shutdown_tx, shutdown_rx) = broadcast::channel(1);
@@ -24,10 +27,13 @@ async fn test_server_ping_pong_and_permissions() {
         pool: None,
         supervisor: Mutex::new(None),
         open_requests: Mutex::new(HashMap::new()),
+        pending_approvals: Mutex::new(HashMap::new()),
         cancelled_requests: Mutex::new(std::collections::HashSet::new()),
     });
 
-    let server = Server::bind(&socket_path, shutdown_rx, state).await.unwrap();
+    let server = Server::bind(&socket_path, shutdown_rx, state)
+        .await
+        .unwrap();
 
     // Verify file mode 0600
     let metadata = std::fs::metadata(&socket_path).unwrap();
@@ -65,12 +71,18 @@ async fn test_server_ping_pong_and_permissions() {
     server_task.await.unwrap().unwrap();
 
     // Verify socket file was cleaned up
-    assert!(!socket_path.exists(), "Socket file should be removed on shutdown");
+    assert!(
+        !socket_path.exists(),
+        "Socket file should be removed on shutdown"
+    );
 }
 
 #[tokio::test]
 async fn test_server_returns_error_for_unknown_type_with_id() {
-    let socket_path = PathBuf::from(format!("/tmp/nk_e_{}.sock", &Uuid::new_v4().to_string()[..8]));
+    let socket_path = PathBuf::from(format!(
+        "/tmp/nk_e_{}.sock",
+        &Uuid::new_v4().to_string()[..8]
+    ));
     let temp_dir = tempfile::tempdir().unwrap();
     let config_path = temp_dir.path().join("config.toml");
     let (shutdown_tx, shutdown_rx) = broadcast::channel(1);
@@ -81,10 +93,13 @@ async fn test_server_returns_error_for_unknown_type_with_id() {
         pool: None,
         supervisor: Mutex::new(None),
         open_requests: Mutex::new(HashMap::new()),
+        pending_approvals: Mutex::new(HashMap::new()),
         cancelled_requests: Mutex::new(std::collections::HashSet::new()),
     });
 
-    let server = Server::bind(&socket_path, shutdown_rx, state).await.unwrap();
+    let server = Server::bind(&socket_path, shutdown_rx, state)
+        .await
+        .unwrap();
     let server_task = tokio::spawn(server.run());
 
     let mut stream = UnixStream::connect(&socket_path).await.unwrap();
@@ -171,4 +186,141 @@ fn test_attachment_validation_rules() {
         path: "/path/to/fake.pdf".to_string(),
     };
     assert!(validate_attachment(&invalid_pdf_mime).is_err());
+}
+
+#[tokio::test]
+async fn test_server_approval_decision_rejects_unknown_call_id() {
+    let socket_path = PathBuf::from(format!(
+        "/tmp/nk_a_{}.sock",
+        &Uuid::new_v4().to_string()[..8]
+    ));
+    let temp_dir = tempfile::tempdir().unwrap();
+    let config_path = temp_dir.path().join("config.toml");
+    let (shutdown_tx, shutdown_rx) = broadcast::channel(1);
+
+    let state = Arc::new(AppState {
+        config: RwLock::new(Config::default()),
+        config_path,
+        pool: None,
+        supervisor: Mutex::new(None),
+        open_requests: Mutex::new(HashMap::new()),
+        pending_approvals: Mutex::new(HashMap::new()),
+        cancelled_requests: Mutex::new(std::collections::HashSet::new()),
+    });
+
+    let server = Server::bind(&socket_path, shutdown_rx, state)
+        .await
+        .unwrap();
+    let server_task = tokio::spawn(server.run());
+
+    let mut stream = UnixStream::connect(&socket_path).await.unwrap();
+    let req_id = Uuid::new_v4();
+    let decision = ClientMessage::ApprovalDecision {
+        id: req_id,
+        chat_id: Uuid::new_v4(),
+        call_id: "unknown_call_123".to_string(),
+        action: "allow_once".to_string(),
+    };
+
+    let mut payload = serde_json::to_string(&decision).unwrap();
+    payload.push('\n');
+    stream.write_all(payload.as_bytes()).await.unwrap();
+
+    let (reader, _client_writer) = stream.into_split();
+    let mut lines = BufReader::new(reader).lines();
+    let reply_line = tokio::time::timeout(Duration::from_secs(2), lines.next_line())
+        .await
+        .expect("Timeout waiting for reply")
+        .unwrap()
+        .expect("Expected a reply line");
+
+    let reply: DaemonMessage = serde_json::from_str(&reply_line).unwrap();
+    match reply {
+        DaemonMessage::Error { id, error } => {
+            assert_eq!(id, req_id);
+            assert_eq!(error.code, nook_core::protocol::ErrorCode::InvalidRequest);
+            assert!(error.message.contains("Unknown or invalid"));
+        }
+        other => panic!("Expected Error response, got {other:?}"),
+    }
+
+    shutdown_tx.send(()).unwrap();
+    server_task.await.unwrap().unwrap();
+}
+
+#[tokio::test]
+async fn test_server_approval_decision_mismatched_chat_is_nondestructive() {
+    let socket_path = PathBuf::from(format!(
+        "/tmp/nk_m_{}.sock",
+        &Uuid::new_v4().to_string()[..8]
+    ));
+    let temp_dir = tempfile::tempdir().unwrap();
+    let config_path = temp_dir.path().join("config.toml");
+    let (shutdown_tx, shutdown_rx) = broadcast::channel(1);
+
+    let state = Arc::new(AppState {
+        config: RwLock::new(Config::default()),
+        config_path,
+        pool: None,
+        supervisor: Mutex::new(None),
+        open_requests: Mutex::new(HashMap::new()),
+        pending_approvals: Mutex::new(HashMap::new()),
+        cancelled_requests: Mutex::new(std::collections::HashSet::new()),
+    });
+
+    let legitimate_chat_id = Uuid::new_v4();
+    let client_req_id = Uuid::new_v4();
+    let worker_req_id = Uuid::new_v4();
+    let test_call_id = "call_safe_123".to_string();
+
+    {
+        let mut approvals = state.pending_approvals.lock().await;
+        approvals.insert(
+            test_call_id.clone(),
+            nook_core::server::PendingApprovalEntry {
+                chat_id: legitimate_chat_id,
+                client_request_id: client_req_id,
+                worker_request_id: worker_req_id,
+            },
+        );
+    }
+
+    let server = Server::bind(&socket_path, shutdown_rx, state.clone())
+        .await
+        .unwrap();
+    let server_task = tokio::spawn(server.run());
+
+    let mut stream = UnixStream::connect(&socket_path).await.unwrap();
+    let malicious_decision = ClientMessage::ApprovalDecision {
+        id: Uuid::new_v4(),
+        chat_id: Uuid::new_v4(), // Different chat ID
+        call_id: test_call_id.clone(),
+        action: "deny".to_string(),
+    };
+
+    let mut payload = serde_json::to_string(&malicious_decision).unwrap();
+    payload.push('\n');
+    stream.write_all(payload.as_bytes()).await.unwrap();
+
+    let (reader, _client_writer) = stream.into_split();
+    let mut lines = BufReader::new(reader).lines();
+    let reply_line = tokio::time::timeout(Duration::from_secs(2), lines.next_line())
+        .await
+        .expect("Timeout waiting for reply")
+        .unwrap()
+        .expect("Expected a reply line");
+
+    let reply: DaemonMessage = serde_json::from_str(&reply_line).unwrap();
+    assert!(matches!(reply, DaemonMessage::Error { .. }));
+
+    // Verify pending approval was NOT consumed or removed
+    {
+        let approvals = state.pending_approvals.lock().await;
+        assert!(approvals.contains_key(&test_call_id));
+        let entry = approvals.get(&test_call_id).unwrap();
+        assert_eq!(entry.chat_id, legitimate_chat_id);
+    }
+
+    shutdown_tx.send(()).unwrap();
+    server_task.await.unwrap().unwrap();
 }

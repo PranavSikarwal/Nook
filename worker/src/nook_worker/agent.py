@@ -1,5 +1,7 @@
+import json
 from collections.abc import AsyncIterator
 from typing import Any, Protocol
+from urllib.parse import urlparse
 from uuid import UUID, uuid4
 
 import httpx
@@ -18,6 +20,7 @@ from langchain_core.tools import StructuredTool
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.base import BaseCheckpointSaver
 
+from nook_worker.approval import default_approval_manager
 from nook_worker.attachments import AttachmentError, process_attachments_and_text
 from nook_worker.config import WorkerConfig
 from nook_worker.protocol import (
@@ -35,6 +38,7 @@ from nook_worker.tools.search import WebSearchInput, execute_web_search
 SYSTEM_PROMPT = (
     "You are Nook, a concise desktop assistant. "
     "You have access to web_search and web_fetch tools to look up current information. "
+    "When asked to read, fetch, or summarize a URL or web page, you must use the web_fetch tool. "
     "Always answer in Markdown."
 )
 
@@ -111,6 +115,51 @@ def register_agent_profile(model_name: str) -> None:
     register_harness_profile(f"openai:{model_name}", profile)
 
 
+async def _check_tool_approval(
+    registered_name: str, kwargs: dict[str, Any]
+) -> str | None:
+    """Return error message if access is denied, or None if approved."""
+    target_url = str(kwargs.get("url", ""))
+    parsed_host = urlparse(target_url).hostname or target_url
+    chat_id_str = str(default_approval_manager.current_chat_id or "")
+
+    if default_approval_manager.is_host_approved(chat_id_str, parsed_host):
+        return None
+
+    call_id = f"call_{uuid4().hex}"
+    action = await default_approval_manager.request_approval(
+        call_id=call_id,
+        tool_name=registered_name,
+        arguments=json.dumps(kwargs),
+        explanation=f"Web fetch requires approval to access {parsed_host}",
+        resource_summary=target_url,
+        actions=["allow_once", "allow_for_chat_host", "deny"],
+    )
+    if action == "deny":
+        return f"Error: User denied permission to access {parsed_host}."
+    if action in ("allow_for_chat_host", "allow_for_chat", "always_allow"):
+        default_approval_manager.approve_host(chat_id_str, parsed_host)
+    return None
+
+
+def _create_registry_runner(registered_name: str) -> Any:
+    async def registry_runner(**kwargs: Any) -> str:
+        defn = default_registry.get(registered_name)
+        if not defn:
+            return f"Error: Tool '{registered_name}' is not registered."
+        if defn.approval_tier == "deny":
+            return f"Error: Tool '{registered_name}' is denied by policy."
+
+        if defn.approval_tier == "ask_once_per_host":
+            deny_error = await _check_tool_approval(registered_name, kwargs)
+            if deny_error:
+                return deny_error
+
+        return await defn.executor(**kwargs)
+
+    return registry_runner
+
+
 def build_deep_agent(
     model: ChatOpenAI,
     config: WorkerConfig,
@@ -145,17 +194,6 @@ def build_deep_agent(
         ),
     ]
 
-    def make_registry_runner(registered_name: str):
-        async def registry_runner(**kwargs: Any) -> str:
-            defn = default_registry.get(registered_name)
-            if not defn:
-                return f"Error: Tool '{registered_name}' is not registered."
-            if defn.approval_tier == "deny":
-                return f"Error: Tool '{registered_name}' is denied by policy."
-            return await defn.executor(**kwargs)
-
-        return registry_runner
-
     tools = []
     for reg_name, tool_name, desc, schema, caps, tier, fn in tool_specs:
         default_registry.register(
@@ -170,7 +208,7 @@ def build_deep_agent(
         )
         tools.append(
             StructuredTool.from_function(
-                coroutine=make_registry_runner(reg_name),
+                coroutine=_create_registry_runner(reg_name),
                 name=tool_name,
                 description=desc,
                 args_schema=schema,
@@ -203,6 +241,24 @@ def _extract_text_delta(chunk: Any) -> str:
     return ""
 
 
+def _should_skip_chunk(metadata: Any) -> bool:
+    if not isinstance(metadata, dict):
+        return False
+    return bool(
+        metadata.get("lc_internal_call") or metadata.get("lc_source") == "summarization"
+    )
+
+
+def _extract_chunk_call_id(chunk: Any, metadata: Any) -> str | None:
+    chunk_id = getattr(chunk, "id", None)
+    if chunk_id:
+        return str(chunk_id)
+    if isinstance(metadata, dict):
+        run_id = metadata.get("run_id")
+        return str(run_id) if run_id else None
+    return None
+
+
 class RealAgentRunner:
     def __init__(self, agent: Any) -> None:
         self._agent = agent
@@ -228,18 +284,43 @@ class RealAgentRunner:
             }
         }
 
+        previous_call_id: str | None = None
+        has_emitted_text = False
+
         async for chunk, _metadata in self._agent.astream(
             {"messages": [input_message]},
             stream_mode="messages",
             config=stream_config,
         ):
+            if _should_skip_chunk(_metadata):
+                continue
+
             delta = _extract_text_delta(chunk)
-            if delta:
+            if not delta:
+                continue
+
+            chunk_call_id = _extract_chunk_call_id(chunk, _metadata)
+            if (
+                has_emitted_text
+                and previous_call_id is not None
+                and chunk_call_id is not None
+                and chunk_call_id != previous_call_id
+            ):
                 yield TextDeltaEvent(
                     request_id=request.request_id,
                     message_id=msg_id,
-                    text=delta,
+                    text="\n\n",
                 )
+
+            if chunk_call_id is not None:
+                previous_call_id = chunk_call_id
+            has_emitted_text = True
+
+            yield TextDeltaEvent(
+                request_id=request.request_id,
+                message_id=msg_id,
+                text=delta,
+            )
 
         yield MessageFinishedEvent(
             request_id=request.request_id,
