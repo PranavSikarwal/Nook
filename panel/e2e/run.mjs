@@ -220,10 +220,13 @@ async function main() {
     if (mode === 'smoke') {
       testDaemonPath = path.join(appDir, 'nookd-delayed')
       const quotedDaemonPath = daemonPath.replaceAll("'", "'\\''")
-      await writeFile(testDaemonPath, String.raw`#!/bin/sh
-sleep 8
-exec '${quotedDaemonPath}'
-`)
+      const launcher = [
+        '#!/bin/sh',
+        'sleep 8',
+        `exec '${quotedDaemonPath}'`,
+        '',
+      ].join('\n')
+      await writeFile(testDaemonPath, launcher)
       await chmod(testDaemonPath, 0o755)
     }
 
