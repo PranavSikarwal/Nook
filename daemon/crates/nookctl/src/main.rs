@@ -1,9 +1,7 @@
-use std::path::PathBuf;
 use clap::{Parser, Subcommand};
 use nook_core::config::Config;
-use nook_core::protocol::{
-    Attachment, AttachmentKind, ClientMessage, DaemonMessage,
-};
+use nook_core::protocol::{Attachment, AttachmentKind, ClientMessage, DaemonMessage};
+use std::path::PathBuf;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
 use uuid::Uuid;
@@ -28,13 +26,9 @@ enum Commands {
     /// List all chats
     List,
     /// Show chat transcript
-    Show {
-        chat_id: Uuid,
-    },
+    Show { chat_id: Uuid },
     /// Delete a chat
-    Delete {
-        chat_id: Uuid,
-    },
+    Delete { chat_id: Uuid },
     /// Ping the daemon
     Ping,
 }
@@ -46,14 +40,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let socket_path = Config::default_socket_path();
 
     if !socket_path.exists() {
-        eprintln!("Daemon socket not found at {}. Is nookd running?", socket_path.display());
+        eprintln!(
+            "Daemon socket not found at {}. Is nookd running?",
+            socket_path.display()
+        );
         std::process::exit(1);
     }
 
     let stream = match UnixStream::connect(&socket_path).await {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("Failed to connect to daemon at {}: {e}", socket_path.display());
+            eprintln!(
+                "Failed to connect to daemon at {}: {e}",
+                socket_path.display()
+            );
             std::process::exit(1);
         }
     };
@@ -98,7 +98,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             println!("{:<36}  {:<30}  UPDATED AT", "CHAT ID", "TITLE");
                             println!("{}", "-".repeat(90));
                             for c in chats {
-                                println!("{:<36}  {:<30}  {}", c.chat_id, c.title, c.updated_at.to_rfc3339());
+                                println!(
+                                    "{:<36}  {:<30}  {}",
+                                    c.chat_id,
+                                    c.title,
+                                    c.updated_at.to_rfc3339()
+                                );
                             }
                         }
                     }
@@ -117,14 +122,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         Commands::Show { chat_id } => {
             let req_id = Uuid::new_v4();
-            let msg = ClientMessage::GetChat { id: req_id, chat_id };
+            let msg = ClientMessage::GetChat {
+                id: req_id,
+                chat_id,
+            };
             send_json(&mut writer, &msg).await?;
 
             let mut received = false;
             if let Some(line) = lines.next_line().await? {
                 received = true;
                 match serde_json::from_str::<DaemonMessage>(&line)? {
-                    DaemonMessage::Chat { title, messages, .. } => {
+                    DaemonMessage::Chat {
+                        title, messages, ..
+                    } => {
                         println!("=== {} ({chat_id}) ===", title);
                         for m in messages {
                             println!("\n[{:?}]:", m.role);
@@ -149,7 +159,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         Commands::Delete { chat_id } => {
             let req_id = Uuid::new_v4();
-            let msg = ClientMessage::DeleteChat { id: req_id, chat_id };
+            let msg = ClientMessage::DeleteChat {
+                id: req_id,
+                chat_id,
+            };
             send_json(&mut writer, &msg).await?;
 
             let mut received = false;
@@ -172,20 +185,35 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
-        Commands::Send { question, chat, attachments } => {
+        Commands::Send {
+            question,
+            chat,
+            attachments,
+        } => {
             let req_id = Uuid::new_v4();
             let chat_id = chat.unwrap_or_else(Uuid::new_v4);
 
-            let att_dir = nook_core::config::Config::default_attachments_dir().join(chat_id.to_string());
+            let att_dir =
+                nook_core::config::Config::default_attachments_dir().join(chat_id.to_string());
             if !attachments.is_empty() {
                 std::fs::create_dir_all(&att_dir)?;
             }
 
             let mut att_items = Vec::new();
             for src_path in attachments {
-                let name = src_path.file_name().unwrap_or_default().to_string_lossy().to_string();
-                let size_bytes = std::fs::metadata(&src_path).map(|m| m.len() as i64).unwrap_or(0);
-                let ext = src_path.extension().unwrap_or_default().to_string_lossy().to_lowercase();
+                let name = src_path
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string();
+                let size_bytes = std::fs::metadata(&src_path)
+                    .map(|m| m.len() as i64)
+                    .unwrap_or(0);
+                let ext = src_path
+                    .extension()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_lowercase();
                 let (kind, mime) = match ext.as_str() {
                     "png" => (AttachmentKind::Image, "image/png".to_string()),
                     "jpg" | "jpeg" => (AttachmentKind::Image, "image/jpeg".to_string()),

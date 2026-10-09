@@ -1,17 +1,14 @@
-use std::collections::HashMap;
 use chrono::{DateTime, Utc};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::{PgPool, Row};
+use std::collections::HashMap;
 use uuid::Uuid;
 
 use crate::protocol::{
-    Attachment, AttachmentKind, ChatMessage, ChatSummary, ErrorCode, ErrorInfo,
-    MessageStatus, Role,
+    Attachment, AttachmentKind, ChatMessage, ChatSummary, ErrorCode, ErrorInfo, MessageStatus, Role,
 };
 
-pub async fn create_pool(
-    database_url: &str,
-) -> Result<PgPool, sqlx::Error> {
+pub async fn create_pool(database_url: &str) -> Result<PgPool, sqlx::Error> {
     PgPoolOptions::new()
         .max_connections(10)
         .connect(database_url)
@@ -19,9 +16,7 @@ pub async fn create_pool(
 }
 
 pub async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::migrate::MigrateError> {
-    sqlx::migrate!("../../migrations")
-        .run(pool)
-        .await
+    sqlx::migrate!("../../migrations").run(pool).await
 }
 
 pub async fn repair_open_replies(pool: &PgPool) -> Result<u64, sqlx::Error> {
@@ -57,11 +52,7 @@ pub async fn repair_open_replies(pool: &PgPool) -> Result<u64, sqlx::Error> {
     Ok(count)
 }
 
-pub async fn ensure_chat(
-    pool: &PgPool,
-    chat_id: Uuid,
-    title: &str,
-) -> Result<(), sqlx::Error> {
+pub async fn ensure_chat(pool: &PgPool, chat_id: Uuid, title: &str) -> Result<(), sqlx::Error> {
     sqlx::query(
         r#"
         INSERT INTO app.chats (id, title, created_at, updated_at)
@@ -299,14 +290,17 @@ pub async fn get_chat(
         let size_bytes: i64 = a_row.try_get("size_bytes")?;
         let path: String = a_row.try_get("path")?;
 
-        attachments_by_msg.entry(message_id).or_default().push(Attachment {
-            id,
-            kind,
-            name,
-            mime,
-            size_bytes,
-            path,
-        });
+        attachments_by_msg
+            .entry(message_id)
+            .or_default()
+            .push(Attachment {
+                id,
+                kind,
+                name,
+                mime,
+                size_bytes,
+                path,
+            });
     }
 
     let mut messages = Vec::new();
