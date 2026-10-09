@@ -19,6 +19,8 @@ jobs:
     outputs:
       head_sha: ${{ steps.pr.outputs.head_sha }}
       head_ref: ${{ steps.pr.outputs.head_ref }}
+      head_repo: ${{ steps.pr.outputs.head_repo }}
+      head_user: ${{ steps.pr.outputs.head_user }}
     steps:
       - name: Validate pull request
         id: pr
@@ -41,6 +43,8 @@ jobs:
             }
             core.setOutput('head_sha', pr.head.sha);
             core.setOutput('head_ref', pr.head.ref);
+            core.setOutput('head_repo', pr.head.repo.full_name);
+            core.setOutput('head_user', pr.user.login);
 
       - name: Mark tested commit pending
         uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.8
@@ -117,15 +121,16 @@ jobs:
   live:
     name: Live news check
     needs: [resolve-pr, deterministic]
+    if: needs.resolve-pr.outputs.head_repo == github.repository && needs.resolve-pr.outputs.head_user == 'PranavSikarwal'
     runs-on: macos-14
     environment: native-e2e-live
     permissions:
       contents: read
     steps:
-      - name: Check out trusted live-test code
+      - name: Check out tested commit
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
-          ref: main
+          ref: ${{ needs.resolve-pr.outputs.head_sha }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v4

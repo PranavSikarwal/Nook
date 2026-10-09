@@ -24,6 +24,7 @@ pub struct PendingApprovalEntry {
     pub chat_id: Uuid,
     pub client_request_id: Uuid,
     pub worker_request_id: Uuid,
+    pub decision_in_flight: bool,
 }
 
 pub struct AppState {
@@ -426,45 +427,56 @@ async fn process_client_message(
             action,
         } => {
             let decision_target = {
-                let approvals = state.pending_approvals.lock().await;
-                if let Some(entry) = approvals.get(&call_id) {
-                    if entry.chat_id == chat_id {
-                        let sup_opt = state.supervisor.lock().await.clone();
-                        if let Some(sup) = sup_opt {
-                            Ok((sup, entry.worker_request_id))
-                        } else {
-                            Err("Worker supervisor is not available")
-                        }
-                    } else {
+                let mut approvals = state.pending_approvals.lock().await;
+                match approvals.get_mut(&call_id) {
+                    Some(entry) if entry.chat_id != chat_id => {
                         Err("Approval call ID does not belong to the specified chat")
                     }
-                } else {
-                    Err("Unknown or invalid approval call id")
+                    Some(entry) if entry.decision_in_flight => {
+                        Err("Approval decision is already being forwarded")
+                    }
+                    Some(entry) => {
+                        entry.decision_in_flight = true;
+                        Ok(entry.worker_request_id)
+                    }
+                    None => Err("Unknown or invalid approval call id"),
                 }
             };
 
             match decision_target {
-                Ok((sup, worker_req_id)) => {
-                    match sup
-                        .send_request(DaemonWorkerRequest::ApprovalDecision {
-                            request_id: worker_req_id,
-                            call_id: call_id.clone(),
-                            action,
-                        })
-                        .await
-                    {
-                        Ok(_) => {
+                Ok(worker_req_id) => {
+                    let supervisor = state.supervisor.lock().await.clone();
+                    let decision_result = match supervisor {
+                        Some(supervisor) => supervisor
+                            .send_request(DaemonWorkerRequest::ApprovalDecision {
+                                request_id: worker_req_id,
+                                call_id: call_id.clone(),
+                                action,
+                            })
+                            .await
+                            .map(|_| ())
+                            .map_err(|error| {
+                                format!("Failed to forward approval decision: {error}")
+                            }),
+                        None => Err("Worker supervisor is not available".to_string()),
+                    };
+
+                    match decision_result {
+                        Ok(()) => {
                             state.pending_approvals.lock().await.remove(&call_id);
                         }
-                        Err(error) => {
+                        Err(message) => {
+                            if let Some(entry) =
+                                state.pending_approvals.lock().await.get_mut(&call_id)
+                            {
+                                entry.decision_in_flight = false;
+                            }
                             let _ = tx_out
                                 .send(DaemonMessage::Error {
                                     id,
                                     error: ErrorInfo {
                                         code: ErrorCode::InvalidRequest,
-                                        message: format!(
-                                            "Failed to forward approval decision: {error}"
-                                        ),
+                                        message,
                                         retryable: true,
                                     },
                                 })
@@ -472,13 +484,13 @@ async fn process_client_message(
                         }
                     }
                 }
-                Err(err_msg) => {
+                Err(message) => {
                     let _ = tx_out
                         .send(DaemonMessage::Error {
                             id,
                             error: ErrorInfo {
                                 code: ErrorCode::InvalidRequest,
-                                message: err_msg.to_string(),
+                                message: message.to_string(),
                                 retryable: false,
                             },
                         })
@@ -763,6 +775,7 @@ async fn handle_send_message(
                             chat_id,
                             client_request_id: id,
                             worker_request_id: worker_req_id,
+                            decision_in_flight: false,
                         },
                     );
                 }
