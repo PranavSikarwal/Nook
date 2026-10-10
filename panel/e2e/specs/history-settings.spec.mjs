@@ -40,13 +40,18 @@ describe('native History, persistence, and settings', () => {
   it('restores chat history after reloading the Panel', async () => {
     const prompt = 'E2E_REPLY:persist across reload'
     await sendAndWait(prompt)
+    await $('[aria-label="Toggle history drawer"]').click()
+    const activeRow = await $('[data-chat-row][data-active="true"]')
+    const chatId = await activeRow.getAttribute('data-chat-row')
+    await $('[aria-label="Toggle history drawer"]').click()
     await browser.refresh()
     await browser.tauri.switchWindow('main')
     await browser.waitUntil(async () =>
       await browser.tauri.execute(({ core }) => core.invoke('ping_daemon')) === true,
     { timeout: 90_000, interval: 250 })
     await $('[aria-label="Toggle history drawer"]').click()
-    const row = await $('[data-chat-row]')
+    const row = await $(`[data-chat-row="${chatId}"]`)
+    await row.waitForDisplayed({ timeout: 15_000 })
     await row.$('button[data-chat-select]').click()
     await browser.waitUntil(async () => {
       const userMessages = await $$('[data-message-role="user"]')

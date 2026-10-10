@@ -100,11 +100,13 @@ jobs:
           brew services start postgresql@16
           "$(brew --prefix postgresql@16)/bin/pg_isready" -h 127.0.0.1 -p 5432
 
-      - name: Install Worker dependencies
+      - name: Install Worker package
         working-directory: worker
         run: |
           uv venv
           uv pip install --no-build --require-hashes -r requirements.txt
+          uv pip install --no-deps .
+          .venv/bin/python -c "import nook_worker"
 
       - name: Install Panel dependencies
         working-directory: panel
@@ -160,11 +162,13 @@ jobs:
           brew services start postgresql@16
           "$(brew --prefix postgresql@16)/bin/pg_isready" -h 127.0.0.1 -p 5432
 
-      - name: Install Worker dependencies
+      - name: Install Worker package
         working-directory: worker
         run: |
           uv venv
           uv pip install --no-build --require-hashes -r requirements.txt
+          uv pip install --no-deps .
+          .venv/bin/python -c "import nook_worker"
 
       - name: Install Panel dependencies
         working-directory: panel
