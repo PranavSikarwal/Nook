@@ -174,9 +174,9 @@ jobs:
         working-directory: panel
         env:
           NOOK_E2E_DATABASE_URL: postgresql://runner@127.0.0.1:5432/postgres
-          NOOK_BASE_URL: ${{ secrets.NOOK_BASE_URL }}
-          NOOK_MODEL: ${{ secrets.NOOK_MODEL }}
-          NOOK_API_KEY: ${{ secrets.NOOK_API_KEY }}
+          NOOK_BASE_URL: ${{ secrets.REVIEWER_BASE_URL }}
+          NOOK_MODEL: ${{ secrets.REVIEWER_MODEL }}
+          NOOK_API_KEY: ${{ secrets.REVIEWER_API_KEY }}
         run: npm run test:e2e:live
 
       - name: Upload live run artifacts

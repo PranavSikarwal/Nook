@@ -127,7 +127,8 @@ baseline as separate status checks.
    changes during the run.
 5. Check **Native Tauri Live Baseline** on the `main` commit recorded when the
    workflow starts. It runs one live India news query with secrets from the
-   `native-e2e-live` environment. GitHub may request environment approval.
+   `native-e2e-live` environment. That environment must define `REVIEWER_BASE_URL`,
+   `REVIEWER_MODEL`, and `REVIEWER_API_KEY`. GitHub may request approval.
 
 Only **Native Tauri E2E Gate** is a PR status. The live baseline checks trusted
 `main` code. It does not validate changes in the PR and does not block the PR
