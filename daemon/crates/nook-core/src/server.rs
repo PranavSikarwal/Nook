@@ -4,11 +4,21 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+#[cfg(windows)]
+use tokio::net::windows::named_pipe::{NamedPipeServer, ServerOptions};
 #[cfg(unix)]
-use tokio::net::{UnixListener, UnixStream};
+use tokio::net::UnixListener;
 use tokio::sync::{broadcast, mpsc, Mutex, RwLock};
 use tracing::{error, info, warn};
 use uuid::Uuid;
+#[cfg(windows)]
+use windows_sys::Win32::Foundation::LocalFree;
+#[cfg(windows)]
+use windows_sys::Win32::Security::Authorization::{
+    ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1,
+};
+#[cfg(windows)]
+use windows_sys::Win32::Security::SECURITY_ATTRIBUTES;
 
 use crate::config::Config;
 use crate::db;
@@ -62,8 +72,26 @@ pub struct Server {
     socket_path: PathBuf,
     #[cfg(unix)]
     listener: UnixListener,
+    #[cfg(windows)]
+    pipe_server: NamedPipeServer,
     shutdown_rx: broadcast::Receiver<()>,
     state: Arc<AppState>,
+}
+
+#[cfg(windows)]
+pub fn windows_pipe_name() -> String {
+    let user = std::env::var("USERNAME").unwrap_or_else(|_| "default".to_string());
+    let user = user
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || character == '-' || character == '_' {
+                character
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+    format!(r"\\.\pipe\Nook-daemon-{user}")
 }
 
 impl Server {
@@ -96,15 +124,16 @@ impl Server {
                 state,
             })
         }
-        #[cfg(not(unix))]
+        #[cfg(windows)]
         {
-            let _ = socket_path;
-            let _ = shutdown_rx;
-            let _ = state;
-            Err(
-                "Unix domain socket IPC is not supported on Windows. Run nookd on macOS or Linux."
-                    .into(),
-            )
+            let pipe_server = create_windows_pipe_server(true)?;
+            info!(pipe = %windows_pipe_name(), "Created Windows named-pipe server");
+            Ok(Self {
+                socket_path: socket_path.to_path_buf(),
+                pipe_server,
+                shutdown_rx,
+                state,
+            })
         }
     }
 
@@ -141,16 +170,76 @@ impl Server {
 
             Ok(())
         }
-        #[cfg(not(unix))]
+        #[cfg(windows)]
         {
+            let mut pipe_server = self.pipe_server;
+            loop {
+                tokio::select! {
+                    result = pipe_server.connect() => {
+                        match result {
+                            Ok(()) => {
+                                let state = self.state.clone();
+                                let connected = pipe_server;
+                                tokio::spawn(handle_connection(connected, state));
+                                pipe_server = create_windows_pipe_server(false)?;
+                            }
+                            Err(error) => warn!("Named-pipe connection failed: {error}"),
+                        }
+                    }
+                    _ = self.shutdown_rx.recv() => {
+                        info!("Server received shutdown signal");
+                        break;
+                    }
+                }
+            }
             Ok(())
         }
     }
 }
 
-#[cfg(unix)]
-async fn handle_connection(stream: UnixStream, state: Arc<AppState>) {
-    let (reader, mut writer) = stream.into_split();
+#[cfg(windows)]
+fn create_windows_pipe_server(first_instance: bool) -> std::io::Result<NamedPipeServer> {
+    use std::os::windows::ffi::OsStrExt;
+    use std::ptr::{null, null_mut};
+
+    let sddl: Vec<u16> = std::ffi::OsStr::new("D:P(A;;GA;;;OW)(A;;GA;;;SY)")
+        .encode_wide()
+        .chain(Some(0))
+        .collect();
+    let mut descriptor = null_mut();
+    let converted = unsafe {
+        ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            sddl.as_ptr(),
+            SDDL_REVISION_1,
+            &mut descriptor,
+            null_mut(),
+        )
+    };
+    if converted == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+
+    let mut attributes = SECURITY_ATTRIBUTES {
+        nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
+        lpSecurityDescriptor: descriptor,
+        bInheritHandle: 0,
+    };
+    let options = ServerOptions::new().first_pipe_instance(first_instance);
+    let result = unsafe {
+        options.create_with_security_attributes_raw(
+            windows_pipe_name(),
+            &mut attributes as *mut _ as _,
+        )
+    };
+    unsafe { LocalFree(descriptor) };
+    result
+}
+
+async fn handle_connection<S>(stream: S, state: Arc<AppState>)
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+{
+    let (reader, mut writer) = tokio::io::split(stream);
     let mut lines = BufReader::new(reader).lines();
 
     // Client writer channel to serialize event writes
