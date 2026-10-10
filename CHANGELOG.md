@@ -2,6 +2,20 @@
 
 This file records user-visible changes for each Nook release.
 
+## Unreleased
+
+### Changed
+
+- Package the Panel with `nookd` and a platform-built Worker runtime for macOS, Linux, and Windows release builds.
+- Keep PostgreSQL as an external prerequisite. The installer checks the configured database URL and does not install PostgreSQL.
+- Keep `nookctl` optional instead of downloading it during GUI installation.
+- Add package checks for bundled daemon and Worker files. Native clean-install checks remain required before claiming platform support.
+
+### Fixed
+
+- Fail installation when the selected package omits a required daemon or Worker runtime.
+- Use the actual PyInstaller one-folder executable path when building and smoke testing the Worker.
+
 ## v0.1.3
 
 ### Added

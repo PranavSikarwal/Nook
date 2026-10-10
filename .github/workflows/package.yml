@@ -1,9 +1,6 @@
 name: Package and Release
 
 on:
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
 
 permissions:
@@ -27,14 +24,14 @@ jobs:
             args: ''
 
     runs-on: ${{ matrix.platform.os }}
-    permissions:
-      contents: write
     steps:
       - name: Checkout code
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Set up Node.js
         uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a # v4.2.0
+        env:
+          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
         with:
           node-version: 22
 
@@ -49,31 +46,62 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libssl-dev
 
-      - name: Require a changelog entry for tagged releases
-        if: startsWith(github.ref, 'refs/tags/v')
-        shell: bash
-        env:
-          TAG_NAME: ${{ github.ref_name }}
+      - name: Install Windows package inspection tools
+        if: runner.os == 'Windows'
+        shell: pwsh
         run: |
-          awk -v heading="## ${TAG_NAME}" '$0 == heading { found=1; next } found && /^## / { exit } found { print }' CHANGELOG.md > release-notes.md
-          if [ ! -s release-notes.md ]; then
-            echo "CHANGELOG.md must contain a non-empty section for ${TAG_NAME}." >&2
-            exit 1
-          fi
-
-      - name: Sync version from tag
-        if: startsWith(github.ref, 'refs/tags/v')
-        shell: bash
-        env:
-          TAG_NAME: ${{ github.ref_name }}
-        run: |
-          node scripts/sync-version.js "$TAG_NAME"
+          choco install lessmsi -y --no-progress
+          choco install 7zip -y --no-progress
 
       - name: Build daemon binaries
-        if: matrix.platform.os != 'windows-latest'
+        run: cargo build --manifest-path daemon/Cargo.toml --release --locked -p nookd -p nookctl
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        with:
+          enable-cache: true
+          version: "0.11.25"
+
+      - name: Build Worker runtime
+        shell: bash
         run: |
-          cd daemon
-          cargo build --release --locked -p nookd -p nookctl
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            VENV_PYINSTALLER="worker/.venv/Scripts/pyinstaller.exe"
+            WORKER_DIST="dist/release_entry"
+            WORKER_EXE="dist/release_entry/release_entry.exe"
+            WORKER_RESOURCES="panel/src-tauri/resources/worker"
+            DAEMON_EXE="daemon/target/release/nookd.exe"
+          elif [ "${{ runner.os }}" = "macOS" ]; then
+            VENV_PYINSTALLER="worker/.venv/bin/pyinstaller"
+            WORKER_DIST="dist/release_entry"
+            WORKER_EXE="dist/release_entry/release_entry"
+            DAEMON_EXE="daemon/target/release/nookd"
+          else
+            VENV_PYINSTALLER="worker/.venv/bin/pyinstaller"
+            WORKER_DIST="dist/release_entry"
+            WORKER_EXE="dist/release_entry/release_entry"
+            DAEMON_EXE="daemon/target/release/nookd"
+          fi
+          uv sync --project worker --locked --no-build --no-install-project --group dev
+          if [ -x worker/.venv/bin/pyinstaller ]; then
+            VENV_PYINSTALLER="worker/.venv/bin/pyinstaller"
+          fi
+          if [ -x worker/.venv/Scripts/pyinstaller.exe ]; then
+            VENV_PYINSTALLER="worker/.venv/Scripts/pyinstaller.exe"
+          fi
+          test -x "$VENV_PYINSTALLER"
+          "$VENV_PYINSTALLER" --noconfirm --clean --onedir --name release_entry --paths worker/src --distpath dist worker/src/nook_worker/release_entry.py
+          test -f "$WORKER_EXE"
+          export NOOK_PACKAGE_SMOKE_TEST=1
+          mkdir -p "$WORKER_RESOURCES" panel/src-tauri/resources/daemon
+          cp -R "$WORKER_DIST/." "$WORKER_RESOURCES/"
+          cp "$DAEMON_EXE" panel/src-tauri/resources/daemon/
+          NOOK_SMOKE_EXECUTABLE="$WORKER_EXE" "$WORKER_EXE" --smoke-test
 
       - name: Build frontend
         run: |
@@ -81,59 +109,89 @@ jobs:
           npm ci --ignore-scripts
           npm run build
 
+      - name: Verify staged release runtimes
+        shell: bash
+        run: |
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            test -f panel/src-tauri/resources/daemon/nookd.exe
+            test -f panel/src-tauri/resources/worker/release_entry.exe
+          else
+            test -f panel/src-tauri/resources/daemon/nookd
+            test -x panel/src-tauri/resources/worker/release_entry
+          fi
+
       - name: Build and package Tauri app
         uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0.5.17
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           projectPath: panel
-          tagName: ${{ github.ref_name }}
-          releaseName: 'Nook ${{ github.ref_name }}'
-          releaseBody: 'Release notes are published from CHANGELOG.md after all platform builds finish.'
-          releaseDraft: false
-          prerelease: false
           args: ${{ matrix.platform.args }}
 
-      - name: Upload standalone daemon assets
-        if: matrix.platform.os != 'windows-latest' && startsWith(github.ref, 'refs/tags/v')
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG_NAME: ${{ github.ref_name }}
-        run: |
-          OS_NAME="${{ matrix.platform.name }}"
-          ARCH_NAME="$(uname -m)"
-          case "$ARCH_NAME" in
-            aarch64|arm64) ARCH_NORM="arm64" ;;
-            *) ARCH_NORM="x86_64" ;;
-          esac
-          cp daemon/target/release/nookd "nookd_${OS_NAME}_${ARCH_NORM}"
-          cp daemon/target/release/nookctl "nookctl_${OS_NAME}_${ARCH_NORM}"
-          gh release upload "$TAG_NAME" "nookd_${OS_NAME}_${ARCH_NORM}" "nookctl_${OS_NAME}_${ARCH_NORM}" --clobber
-
-  publish-release-notes:
-    name: Publish changelog entry
-    needs: build-and-release
-    if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - name: Checkout tagged changelog
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-
-      - name: Extract release notes
+      - name: Verify packaged release runtimes
         shell: bash
-        env:
-          TAG_NAME: ${{ github.ref_name }}
         run: |
-          awk -v heading="## ${TAG_NAME}" '$0 == heading { found=1; next } found && /^## / { exit } found { print }' CHANGELOG.md > release-notes.md
-          if [ ! -s release-notes.md ]; then
-            echo "No changelog notes found for ${TAG_NAME}." >&2
-            exit 1
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            APP_PATH="$(find panel/src-tauri/target/release/bundle -name Nook.app -type d -print -quit)"
+            test -n "$APP_PATH"
+            test -f "$APP_PATH/Contents/Resources/daemon/nookd"
+            test -x "$APP_PATH/Contents/Resources/worker/release_entry"
+          elif [ "${{ runner.os }}" = "Windows" ]; then
+            PACKAGE_ROOT="panel/src-tauri/target/release/bundle"
+            PACKAGE_PATH="$(find "$PACKAGE_ROOT" -type f \( -name '*.msi' -o -name '*-setup.exe' \) -print -quit)"
+            test -n "$PACKAGE_PATH"
+            MSI_PATH="$(find "$PACKAGE_ROOT" -type f -name '*.msi' -print -quit)"
+            if [ -n "$MSI_PATH" ]; then
+              MSI_DIR="$(mktemp -d)"
+              lessmsi x "$MSI_PATH" "$MSI_DIR"
+              test -n "$(find "$MSI_DIR" -type f -name 'nookd.exe' -print -quit)"
+              test -n "$(find "$MSI_DIR" -type f -name 'release_entry.exe' -print -quit)"
+            else
+              INSTALLER="$(find "$PACKAGE_ROOT" -type f -name '*-setup.exe' -print -quit)"
+              test -n "$INSTALLER"
+              if command -v 7z >/dev/null 2>&1; then
+                7z l "$INSTALLER" | grep -q 'nookd.exe'
+                7z l "$INSTALLER" | grep -q 'release_entry.exe'
+              else
+                echo "7z is required to inspect the NSIS installer." >&2
+                exit 1
+              fi
+            fi
+          else
+            PACKAGE_ROOT="panel/src-tauri/target/release/bundle"
+            DEB_PATH="$(find "$PACKAGE_ROOT" -type f -name '*.deb' -print -quit)"
+            test -n "$DEB_PATH"
+            EXTRACT_DIR="$(mktemp -d)"
+            dpkg-deb -x "$DEB_PATH" "$EXTRACT_DIR"
+            test -n "$(find "$EXTRACT_DIR" -type f -name nookd -print -quit)"
+            test -n "$(find "$EXTRACT_DIR" -type f -name release_entry -print -quit)"
           fi
 
-      - name: Update GitHub release notes
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG_NAME: ${{ github.ref_name }}
-        run: gh release edit "$TAG_NAME" --notes-file release-notes.md
+      - name: Stage standalone daemon assets
+        shell: bash
+        run: |
+          OS_NAME="${{ matrix.platform.name }}"
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            ARCH_NORM="x86_64"
+            cp daemon/target/release/nookd.exe "nookd_${OS_NAME}_${ARCH_NORM}.exe"
+            cp daemon/target/release/nookctl.exe "nookctl_${OS_NAME}_${ARCH_NORM}.exe"
+          else
+            ARCH_NAME="$(uname -m)"
+            case "$ARCH_NAME" in
+              aarch64|arm64) ARCH_NORM="arm64" ;;
+              *) ARCH_NORM="x86_64" ;;
+            esac
+            cp daemon/target/release/nookd "nookd_${OS_NAME}_${ARCH_NORM}"
+            cp daemon/target/release/nookctl "nookctl_${OS_NAME}_${ARCH_NORM}"
+          fi
+
+      - name: Upload verified package artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-${{ matrix.platform.name }}-${{ github.sha }}
+          path: |
+            panel/src-tauri/target/release/bundle/**
+            nookd_*
+            nookctl_*
+          if-no-files-found: error
+          retention-days: 7

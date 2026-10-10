@@ -41,6 +41,15 @@ install_macos_app() {
         target_dir="/Applications"
     fi
 
+    worker_path="$src_app/Contents/Resources/worker/release_entry/release_entry"
+    if [ ! -x "$worker_path" ]; then
+        worker_path="$src_app/Contents/Resources/worker/release_entry"
+    fi
+    if [ ! -f "$src_app/Contents/Resources/daemon/nookd" ] || [ ! -x "$worker_path" ]; then
+        echo "Error: Source application is missing the daemon or Worker runtime." >&2
+        exit 1
+    fi
+
     echo "Installing Nook.app to ${target_dir}/Nook.app..."
     rm -rf "${target_dir}/Nook.app"
     if cp -R "$src_app" "${target_dir}/Nook.app"; then
@@ -50,7 +59,20 @@ install_macos_app() {
         exit 1
     fi
 
-    # Also install panel and daemon binaries directly into ~/.local/bin
+    if [ ! -f "${target_dir}/Nook.app/Contents/Resources/daemon/nookd" ]; then
+        echo "Error: Nook.app does not contain the daemon runtime." >&2
+        exit 1
+    fi
+    worker_path="${target_dir}/Nook.app/Contents/Resources/worker/release_entry"
+    if [ ! -x "$worker_path" ] && [ -x "${worker_path}/release_entry" ]; then
+        worker_path="${worker_path}/release_entry"
+    fi
+    if [ ! -x "$worker_path" ]; then
+        echo "Error: Nook.app does not contain the Worker runtime." >&2
+        exit 1
+    fi
+
+    # Also install the panel launcher into ~/.local/bin.
     if [ -f "${target_dir}/Nook.app/Contents/MacOS/nook-panel" ]; then
         cp "${target_dir}/Nook.app/Contents/MacOS/nook-panel" "$BIN_DIR/nook-panel"
         chmod +x "$BIN_DIR/nook-panel"
@@ -60,11 +82,7 @@ install_macos_app() {
         chmod +x "$BIN_DIR/nook-panel"
         echo "Installed nook-panel to ${BIN_DIR}/nook-panel"
     fi
-    if [ -f "${target_dir}/Nook.app/Contents/MacOS/nookd" ]; then
-        cp "${target_dir}/Nook.app/Contents/MacOS/nookd" "$BIN_DIR/nookd"
-        chmod +x "$BIN_DIR/nookd"
-        echo "Installed nookd to ${BIN_DIR}/nookd"
-    fi
+
 }
 
 secure_curl() {
@@ -122,15 +140,15 @@ fi
     (cd "$ROOT_DIR/panel" && npm install --silent --ignore-scripts && npm run build)
     (cd "$ROOT_DIR/panel/src-tauri" && cargo build --release)
 
-    if [ ! -d "$ROOT_DIR/worker/.venv" ] && command -v uv >/dev/null 2>&1; then
-        echo "Setting up worker virtual environment..."
-        (cd "$ROOT_DIR/worker" && uv sync --no-build --quiet || true)
+    if ! command -v uv >/dev/null 2>&1; then
+        echo "Error: Install uv before installing from a source checkout." >&2
+        exit 1
     fi
+    echo "Setting up Worker virtual environment..."
+    (cd "$ROOT_DIR/worker" && uv sync --locked --no-build)
 
-    cp "$ROOT_DIR/daemon/target/release/nookd" "$BIN_DIR/nookd"
-    cp "$ROOT_DIR/daemon/target/release/nookctl" "$BIN_DIR/nookctl"
     cp "$ROOT_DIR/panel/src-tauri/target/release/nook-panel" "$BIN_DIR/nook-panel"
-    chmod +x "$BIN_DIR/nookd" "$BIN_DIR/nookctl" "$BIN_DIR/nook-panel"
+    chmod +x "$BIN_DIR/nook-panel"
 
     if [ "$PLATFORM" = "macos" ]; then
         "$ROOT_DIR/scripts/bundle.sh"
@@ -168,11 +186,11 @@ else
     DOWNLOAD_BASE="https://github.com/${GITHUB_REPO}/releases/download/${TAG_NAME}"
 
     if [ "$PLATFORM" = "macos" ]; then
-        if [ "$ARCH_NORM" = "arm64" ]; then
-            DMG_NAME="Nook_${VERSION}_aarch64.dmg"
-        else
-            DMG_NAME="Nook_${VERSION}_x64.dmg"
+        if [ "$ARCH_NORM" != "arm64" ]; then
+            echo "Error: macOS release installers are currently published for Apple Silicon only." >&2
+            exit 1
         fi
+        DMG_NAME="Nook_${VERSION}_aarch64.dmg"
         DMG_URL="${DOWNLOAD_BASE}/${DMG_NAME}"
 
         TMP_DMG=$(mktemp /tmp/nook-installer.XXXXXX.dmg)
@@ -192,31 +210,21 @@ else
         rm -rf "$MOUNT_DIR"
         MOUNT_DIR=""
 
-        # If nookd was not inside the DMG, fetch standalone daemon asset if available
-        if [ ! -f "$BIN_DIR/nookd" ]; then
-            NOOKD_URL="${DOWNLOAD_BASE}/nookd_macOS_${ARCH_NORM}"
-            if secure_curl -fSL "$NOOKD_URL" -o "$BIN_DIR/nookd" 2>/dev/null; then
-                chmod +x "$BIN_DIR/nookd"
-                echo "Downloaded nookd daemon to $BIN_DIR/nookd"
-            fi
-        fi
-        if [ ! -f "$BIN_DIR/nookctl" ]; then
+
+        if [ "${NOOK_INSTALL_CLI:-0}" = "1" ]; then
             NOOKCTL_URL="${DOWNLOAD_BASE}/nookctl_macOS_${ARCH_NORM}"
-            if secure_curl -fSL "$NOOKCTL_URL" -o "$BIN_DIR/nookctl" 2>/dev/null; then
-                chmod +x "$BIN_DIR/nookctl"
-                echo "Downloaded nookctl control tool to $BIN_DIR/nookctl"
-            fi
+            TMP_NOOKCTL=$(mktemp /tmp/nookctl-installer.XXXXXX)
+            TMP_FILES="$TMP_FILES $TMP_NOOKCTL"
+            secure_curl -fSL "$NOOKCTL_URL" -o "$TMP_NOOKCTL"
+            install -m 755 "$TMP_NOOKCTL" "$BIN_DIR/nookctl"
         fi
     elif [ "$PLATFORM" = "linux" ]; then
-        if [ "$ARCH_NORM" = "x86_64" ]; then
-            DEB_NAME="nook_${VERSION}_amd64.deb"
-            APPIMAGE_NAME="Nook_${VERSION}_amd64.AppImage"
-        else
-            DEB_NAME="nook_${VERSION}_arm64.deb"
-            APPIMAGE_NAME="Nook_${VERSION}_arm64.AppImage"
+        if [ "$ARCH_NORM" != "x86_64" ]; then
+            echo "Error: Linux release installers are currently published for x86_64 only." >&2
+            exit 1
         fi
+        DEB_NAME="nook_${VERSION}_amd64.deb"
         DEB_URL="${DOWNLOAD_BASE}/${DEB_NAME}"
-        APPIMAGE_URL="${DOWNLOAD_BASE}/${APPIMAGE_NAME}"
 
         TMP_DEB=$(mktemp /tmp/nook-installer.XXXXXX.deb)
         TMP_FILES="$TMP_FILES $TMP_DEB"
@@ -224,15 +232,18 @@ else
         echo "Downloading $DEB_URL..."
         if secure_curl -fSL "$DEB_URL" -o "$TMP_DEB" 2>/dev/null; then
             echo "Installing Debian package..."
-            sudo dpkg -i "$TMP_DEB" || sudo apt-get install -f -y
-        else
-            TMP_APPIMAGE="${BIN_DIR}/nook-panel"
-            echo "Downloading AppImage to $TMP_APPIMAGE..."
-            if ! secure_curl -fSL "$APPIMAGE_URL" -o "$TMP_APPIMAGE"; then
-                echo "Error: Failed to download Linux release asset (.deb or .AppImage)." >&2
+            if ! dpkg-deb -c "$TMP_DEB" | grep -q 'nookd'; then
+                echo "Error: Debian package is missing nookd." >&2
                 exit 1
             fi
-            chmod +x "$TMP_APPIMAGE"
+            if ! dpkg-deb -c "$TMP_DEB" | grep -q 'worker/release_entry'; then
+                echo "Error: Debian package is missing the Worker runtime." >&2
+                exit 1
+            fi
+            sudo dpkg -i "$TMP_DEB"
+        else
+            echo "Error: No Debian package was available. The AppImage path is not supported by this installer." >&2
+            exit 1
         fi
     fi
 fi
