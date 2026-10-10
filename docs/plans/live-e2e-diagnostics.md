@@ -24,8 +24,17 @@ headers, or model response bodies.
 6. Commit and push the diagnostic change.
 7. Dispatch the native E2E workflow for PR #24 and inspect the uploaded logs.
 
+## Worker installation
+
+The first diagnostic run showed that the workflow created `worker/.venv` and
+installed `requirements.txt`, but did not install the local `nook-worker`
+package. The Daemon starts `.venv/bin/python -m nook_worker`, so each workflow
+job must install the local package after the locked dependencies and verify the
+module import before starting the native suite.
+
 ## Completion criteria
 
 A failed live job uploads `daemon-stderr.log` and `worker-stderr.log` under its
 existing artifact. The logs identify the Worker failure while omitting the
-configured endpoint URL, model name, and API key.
+configured endpoint URL, model name, and API key. Both workflow jobs install
+and import `nook_worker` before running their tests.
