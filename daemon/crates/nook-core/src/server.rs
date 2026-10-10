@@ -254,8 +254,6 @@ fn create_windows_pipe_server(first_instance: bool) -> std::io::Result<NamedPipe
     use std::os::windows::ffi::OsStrExt;
     use std::ptr::null_mut;
 
-    use std::os::windows::ffi::OsStrExt;
-
     let sid = current_user_sid_string()?;
     let sddl = format!("D:P(A;;GA;;;{sid})(A;;GA;;;SY)");
     let sddl: Vec<u16> = std::ffi::OsStr::new(&sddl)
