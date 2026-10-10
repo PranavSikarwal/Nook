@@ -103,3 +103,32 @@ jobs:
         run: |
           cd panel/src-tauri
           cargo check
+
+  windows-ipc:
+    name: Windows named-pipe IPC
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # v1
+        with:
+          toolchain: stable
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Build Panel frontend
+        working-directory: panel
+        run: |
+          npm ci --ignore-scripts
+          npm run build
+
+      - name: Test daemon named-pipe transport
+        run: cargo test --manifest-path daemon/Cargo.toml -p nook-core --test server_windows_tests
+
+      - name: Check Tauri Panel Windows build
+        run: cargo check --manifest-path panel/src-tauri/Cargo.toml

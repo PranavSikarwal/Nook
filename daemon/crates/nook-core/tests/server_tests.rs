@@ -1,3 +1,5 @@
+#![cfg(unix)]
+
 use nook_core::config::Config;
 use nook_core::protocol::{ClientMessage, DaemonMessage};
 use nook_core::server::{AppState, PendingApprovalEntry, Server};

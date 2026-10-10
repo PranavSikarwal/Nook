@@ -2,6 +2,8 @@ use nook_core::config::Config;
 use nook_core::protocol::{
     Attachment, AttachmentKind, ChatMessage, ChatSummary, ClientMessage, DaemonMessage,
 };
+#[cfg(windows)]
+use nook_core::windows_pipe_name;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -9,6 +11,8 @@ use std::sync::Arc;
 use tauri::{AppHandle, Manager, Runtime};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+#[cfg(windows)]
+use tokio::net::windows::named_pipe::{ClientOptions, NamedPipeClient};
 #[cfg(unix)]
 use tokio::net::UnixStream;
 use tokio::sync::Mutex;
@@ -180,18 +184,25 @@ pub fn find_nookd_binary() -> Option<PathBuf> {
 
 /// Poll Unix socket with a timeout until it accepts connections
 pub async fn wait_for_daemon_ready(socket_path: &Path, timeout: std::time::Duration) -> bool {
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     {
         let start = std::time::Instant::now();
         while start.elapsed() < timeout {
-            if socket_path.exists() && UnixStream::connect(socket_path).await.is_ok() {
+            #[cfg(unix)]
+            let ready = socket_path.exists() && connect_local_daemon().await.is_ok();
+            #[cfg(windows)]
+            let ready = {
+                let _ = socket_path;
+                connect_local_daemon().await.is_ok()
+            };
+            if ready {
                 return true;
             }
             tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         }
         false
     }
-    #[cfg(not(unix))]
+    #[cfg(not(any(unix, windows)))]
     {
         let _ = (socket_path, timeout);
         false
@@ -200,12 +211,16 @@ pub async fn wait_for_daemon_ready(socket_path: &Path, timeout: std::time::Durat
 
 /// Ensure nookd is running; spawn it if not currently responding
 pub async fn ensure_daemon_started(state: &DaemonState) {
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     {
         let _lock = state.startup_lock.lock().await;
 
         let socket_path = Config::default_socket_path();
-        if socket_path.exists() && UnixStream::connect(&socket_path).await.is_ok() {
+        #[cfg(unix)]
+        let daemon_is_ready = socket_path.exists() && connect_local_daemon().await.is_ok();
+        #[cfg(windows)]
+        let daemon_is_ready = connect_local_daemon().await.is_ok();
+        if daemon_is_ready {
             return;
         }
 
@@ -316,12 +331,9 @@ pub async fn ensure_daemon_started(state: &DaemonState) {
             );
         }
     }
-    #[cfg(not(unix))]
+    #[cfg(not(any(unix, windows)))]
     {
         let _ = state;
-        eprintln!(
-            "Notice: Windows daemon supervision is not supported yet. Nook runs as a preview client on Windows."
-        );
     }
 }
 
@@ -347,19 +359,37 @@ fn configure_socket_safety(stream: &UnixStream) {
 }
 
 #[cfg(unix)]
-async fn connect_to_daemon<R: Runtime>(app: &AppHandle<R>) -> Result<UnixStream, String> {
-    let socket_path = Config::default_socket_path();
-    match UnixStream::connect(&socket_path).await {
+type LocalIpcStream = UnixStream;
+#[cfg(windows)]
+type LocalIpcStream = NamedPipeClient;
+
+#[cfg(unix)]
+async fn connect_local_daemon() -> std::io::Result<LocalIpcStream> {
+    UnixStream::connect(Config::default_socket_path()).await
+}
+
+#[cfg(windows)]
+async fn connect_local_daemon() -> std::io::Result<LocalIpcStream> {
+    let pipe_name = windows_pipe_name()
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error))?;
+    ClientOptions::new().open(pipe_name)
+}
+
+#[cfg(any(unix, windows))]
+async fn connect_to_daemon<R: Runtime>(app: &AppHandle<R>) -> Result<LocalIpcStream, String> {
+    match connect_local_daemon().await {
         Ok(stream) => {
+            #[cfg(unix)]
             configure_socket_safety(&stream);
             Ok(stream)
         }
         Err(_) => {
             let state = app.state::<DaemonState>();
             ensure_daemon_started(state.inner()).await;
-            let stream = UnixStream::connect(&socket_path)
+            let stream = connect_local_daemon()
                 .await
                 .map_err(|e| format!("Failed to connect to daemon: {e}"))?;
+            #[cfg(unix)]
             configure_socket_safety(&stream);
             Ok(stream)
         }
@@ -378,156 +408,126 @@ pub fn sanitize_attachment_name(name: &str) -> String {
 #[tauri::command]
 async fn ping_daemon() -> Result<bool, String> {
     #[cfg(unix)]
-    {
-        let socket_path = Config::default_socket_path();
-        if !socket_path.exists() {
-            return Ok(false);
-        }
-        match UnixStream::connect(&socket_path).await {
-            Ok(stream) => {
-                configure_socket_safety(&stream);
-                let (reader, mut writer) = stream.into_split();
-                let mut lines = BufReader::new(reader).lines();
-                let msg = ClientMessage::Ping { id: Uuid::new_v4() };
-                let mut payload = serde_json::to_string(&msg).map_err(|e| e.to_string())?;
-                payload.push('\n');
-                writer
-                    .write_all(payload.as_bytes())
-                    .await
-                    .map_err(|e| e.to_string())?;
-                writer.flush().await.map_err(|e| e.to_string())?;
-                if let Ok(Some(line)) = lines.next_line().await {
-                    if let Ok(DaemonMessage::Pong { .. }) = serde_json::from_str(&line) {
-                        return Ok(true);
-                    }
-                }
-                Ok(false)
-            }
-            Err(_) => Ok(false),
+    if !Config::default_socket_path().exists() {
+        return Ok(false);
+    }
+    let stream = match connect_local_daemon().await {
+        Ok(stream) => stream,
+        Err(_) => return Ok(false),
+    };
+    #[cfg(unix)]
+    configure_socket_safety(&stream);
+    let (reader, mut writer) = tokio::io::split(stream);
+    let mut lines = BufReader::new(reader).lines();
+    let msg = ClientMessage::Ping { id: Uuid::new_v4() };
+    let mut payload = serde_json::to_string(&msg).map_err(|e| e.to_string())?;
+    payload.push('\n');
+    writer
+        .write_all(payload.as_bytes())
+        .await
+        .map_err(|e| e.to_string())?;
+    writer.flush().await.map_err(|e| e.to_string())?;
+    if let Ok(Some(line)) = lines.next_line().await {
+        if let Ok(DaemonMessage::Pong { .. }) = serde_json::from_str(&line) {
+            return Ok(true);
         }
     }
-    #[cfg(not(unix))]
-    {
-        Ok(false)
-    }
+    Ok(false)
 }
 
 #[tauri::command]
 async fn list_chats<R: Runtime>(app: AppHandle<R>) -> Result<Vec<ChatSummary>, String> {
-    #[cfg(unix)]
-    {
-        let stream = connect_to_daemon(&app).await?;
-        let (reader, mut writer) = stream.into_split();
-        let mut lines = BufReader::new(reader).lines();
+    let stream = connect_to_daemon(&app).await?;
+    let (reader, mut writer) = tokio::io::split(stream);
+    let mut lines = BufReader::new(reader).lines();
 
-        let msg = ClientMessage::ListChats { id: Uuid::new_v4() };
-        let mut payload = serde_json::to_string(&msg).map_err(|e| e.to_string())?;
-        payload.push('\n');
-        writer
-            .write_all(payload.as_bytes())
-            .await
-            .map_err(|e| e.to_string())?;
-        writer.flush().await.map_err(|e| e.to_string())?;
+    let msg = ClientMessage::ListChats { id: Uuid::new_v4() };
+    let mut payload = serde_json::to_string(&msg).map_err(|e| e.to_string())?;
+    payload.push('\n');
+    writer
+        .write_all(payload.as_bytes())
+        .await
+        .map_err(|e| e.to_string())?;
+    writer.flush().await.map_err(|e| e.to_string())?;
 
-        if let Some(line) = lines.next_line().await.map_err(|e| e.to_string())? {
-            match serde_json::from_str::<DaemonMessage>(&line).map_err(|e| e.to_string())? {
-                DaemonMessage::Chats { chats, .. } => Ok(chats),
-                DaemonMessage::Error { error, .. } => {
-                    Err(format!("{:?}: {}", error.code, error.message))
-                }
-                _ => Err("Unexpected response from daemon".to_string()),
+    if let Some(line) = lines.next_line().await.map_err(|e| e.to_string())? {
+        match serde_json::from_str::<DaemonMessage>(&line).map_err(|e| e.to_string())? {
+            DaemonMessage::Chats { chats, .. } => Ok(chats),
+            DaemonMessage::Error { error, .. } => {
+                Err(format!("{:?}: {}", error.code, error.message))
             }
-        } else {
-            Err("Daemon closed connection unexpectedly".to_string())
+            _ => Err("Unexpected response from daemon".to_string()),
         }
-    }
-    #[cfg(not(unix))]
-    {
-        Err("Windows preview: local Unix domain socket daemon IPC is not supported on Windows. Run nookd on macOS or Linux.".to_string())
+    } else {
+        Err("Daemon closed connection unexpectedly".to_string())
     }
 }
 
 #[tauri::command]
 async fn get_chat<R: Runtime>(app: AppHandle<R>, chat_id: Uuid) -> Result<ChatTranscript, String> {
-    #[cfg(unix)]
-    {
-        let stream = connect_to_daemon(&app).await?;
-        let (reader, mut writer) = stream.into_split();
-        let mut lines = BufReader::new(reader).lines();
+    let stream = connect_to_daemon(&app).await?;
+    let (reader, mut writer) = tokio::io::split(stream);
+    let mut lines = BufReader::new(reader).lines();
 
-        let msg = ClientMessage::GetChat {
-            id: Uuid::new_v4(),
-            chat_id,
-        };
-        let mut payload = serde_json::to_string(&msg).map_err(|e| e.to_string())?;
-        payload.push('\n');
-        writer
-            .write_all(payload.as_bytes())
-            .await
-            .map_err(|e| e.to_string())?;
-        writer.flush().await.map_err(|e| e.to_string())?;
+    let msg = ClientMessage::GetChat {
+        id: Uuid::new_v4(),
+        chat_id,
+    };
+    let mut payload = serde_json::to_string(&msg).map_err(|e| e.to_string())?;
+    payload.push('\n');
+    writer
+        .write_all(payload.as_bytes())
+        .await
+        .map_err(|e| e.to_string())?;
+    writer.flush().await.map_err(|e| e.to_string())?;
 
-        if let Some(line) = lines.next_line().await.map_err(|e| e.to_string())? {
-            match serde_json::from_str::<DaemonMessage>(&line).map_err(|e| e.to_string())? {
-                DaemonMessage::Chat {
-                    title, messages, ..
-                } => Ok(ChatTranscript {
-                    chat_id,
-                    title,
-                    messages,
-                }),
-                DaemonMessage::Error { error, .. } => {
-                    Err(format!("{:?}: {}", error.code, error.message))
-                }
-                _ => Err("Unexpected response from daemon".to_string()),
+    if let Some(line) = lines.next_line().await.map_err(|e| e.to_string())? {
+        match serde_json::from_str::<DaemonMessage>(&line).map_err(|e| e.to_string())? {
+            DaemonMessage::Chat {
+                title, messages, ..
+            } => Ok(ChatTranscript {
+                chat_id,
+                title,
+                messages,
+            }),
+            DaemonMessage::Error { error, .. } => {
+                Err(format!("{:?}: {}", error.code, error.message))
             }
-        } else {
-            Err("Daemon closed connection unexpectedly".to_string())
+            _ => Err("Unexpected response from daemon".to_string()),
         }
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = chat_id;
-        Err("Windows preview: local Unix domain socket daemon IPC is not supported on Windows. Run nookd on macOS or Linux.".to_string())
+    } else {
+        Err("Daemon closed connection unexpectedly".to_string())
     }
 }
 
 #[tauri::command]
 async fn delete_chat<R: Runtime>(app: AppHandle<R>, chat_id: Uuid) -> Result<bool, String> {
-    #[cfg(unix)]
-    {
-        let stream = connect_to_daemon(&app).await?;
-        let (reader, mut writer) = stream.into_split();
-        let mut lines = BufReader::new(reader).lines();
+    let stream = connect_to_daemon(&app).await?;
+    let (reader, mut writer) = tokio::io::split(stream);
+    let mut lines = BufReader::new(reader).lines();
 
-        let msg = ClientMessage::DeleteChat {
-            id: Uuid::new_v4(),
-            chat_id,
-        };
-        let mut payload = serde_json::to_string(&msg).map_err(|e| e.to_string())?;
-        payload.push('\n');
-        writer
-            .write_all(payload.as_bytes())
-            .await
-            .map_err(|e| e.to_string())?;
-        writer.flush().await.map_err(|e| e.to_string())?;
+    let msg = ClientMessage::DeleteChat {
+        id: Uuid::new_v4(),
+        chat_id,
+    };
+    let mut payload = serde_json::to_string(&msg).map_err(|e| e.to_string())?;
+    payload.push('\n');
+    writer
+        .write_all(payload.as_bytes())
+        .await
+        .map_err(|e| e.to_string())?;
+    writer.flush().await.map_err(|e| e.to_string())?;
 
-        if let Some(line) = lines.next_line().await.map_err(|e| e.to_string())? {
-            match serde_json::from_str::<DaemonMessage>(&line).map_err(|e| e.to_string())? {
-                DaemonMessage::Deleted { .. } => Ok(true),
-                DaemonMessage::Error { error, .. } => {
-                    Err(format!("{:?}: {}", error.code, error.message))
-                }
-                _ => Err("Unexpected response from daemon".to_string()),
+    if let Some(line) = lines.next_line().await.map_err(|e| e.to_string())? {
+        match serde_json::from_str::<DaemonMessage>(&line).map_err(|e| e.to_string())? {
+            DaemonMessage::Deleted { .. } => Ok(true),
+            DaemonMessage::Error { error, .. } => {
+                Err(format!("{:?}: {}", error.code, error.message))
             }
-        } else {
-            Err("Daemon closed connection unexpectedly".to_string())
+            _ => Err("Unexpected response from daemon".to_string()),
         }
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = (app, chat_id);
-        Err("Windows preview: local Unix domain socket daemon IPC is not supported on Windows. Run nookd on macOS or Linux.".to_string())
+    } else {
+        Err("Daemon closed connection unexpectedly".to_string())
     }
 }
 
@@ -539,140 +539,129 @@ async fn send_message<R: Runtime>(
     attachments: Vec<AttachmentInput>,
     on_event: tauri::ipc::Channel<DaemonMessage>,
 ) -> Result<String, String> {
-    #[cfg(unix)]
-    {
-        if attachments.len() > 5 {
-            return Err("Maximum 5 attachments allowed per message".to_string());
-        }
+    if attachments.len() > 5 {
+        return Err("Maximum 5 attachments allowed per message".to_string());
+    }
 
-        let stream = connect_to_daemon(&app).await?;
-        let (reader, mut writer) = stream.into_split();
-        let mut lines = BufReader::new(reader).lines();
+    let stream = connect_to_daemon(&app).await?;
+    let (reader, mut writer) = tokio::io::split(stream);
+    let mut lines = BufReader::new(reader).lines();
 
-        let att_dir = Config::default_attachments_dir().join(chat_id.to_string());
-        if !attachments.is_empty() {
-            let _ = std::fs::create_dir_all(&att_dir);
-        }
+    let att_dir = Config::default_attachments_dir().join(chat_id.to_string());
+    if !attachments.is_empty() {
+        let _ = std::fs::create_dir_all(&att_dir);
+    }
 
-        let mut processed_attachments = Vec::new();
-        for att in attachments {
-            let safe_name = sanitize_attachment_name(&att.name);
-            let att_id = Uuid::new_v4();
-            let dest_path = att_dir.join(format!("{att_id}-{safe_name}"));
+    let mut processed_attachments = Vec::new();
+    for att in attachments {
+        let safe_name = sanitize_attachment_name(&att.name);
+        let att_id = Uuid::new_v4();
+        let dest_path = att_dir.join(format!("{att_id}-{safe_name}"));
 
-            let size_bytes: i64;
-            if let Some(ref path_str) = att.file_path {
-                let src = Path::new(path_str);
-                if !src.exists() {
-                    return Err(format!("File does not exist: {path_str}"));
-                }
-                let meta = std::fs::metadata(src).map_err(|e| e.to_string())?;
-                size_bytes = meta.len() as i64;
-                if size_bytes > 10 * 1024 * 1024 {
-                    return Err(format!("Attachment exceeds 10MB limit: {safe_name}"));
-                }
-                std::fs::copy(src, &dest_path).map_err(|e| e.to_string())?;
-            } else if let Some(ref b64) = att.data_base64 {
-                use base64::Engine;
-                let bytes = base64::engine::general_purpose::STANDARD
-                    .decode(b64)
-                    .map_err(|e| format!("Invalid base64 attachment data: {e}"))?;
-                size_bytes = bytes.len() as i64;
-                if size_bytes > 10 * 1024 * 1024 {
-                    return Err(format!("Attachment exceeds 10MB limit: {safe_name}"));
-                }
-                std::fs::write(&dest_path, bytes).map_err(|e| e.to_string())?;
-            } else {
-                return Err("Attachment must provide either file_path or data_base64".to_string());
+        let size_bytes: i64;
+        if let Some(ref path_str) = att.file_path {
+            let src = Path::new(path_str);
+            if !src.exists() {
+                return Err(format!("File does not exist: {path_str}"));
             }
-
-            let kind = if att.mime.starts_with("image/") {
-                match att.mime.as_str() {
-                    "image/png" | "image/jpeg" | "image/webp" | "image/gif" => {
-                        AttachmentKind::Image
-                    }
-                    _ => return Err(format!("Unsupported image format: {}", att.mime)),
-                }
-            } else if att.mime == "application/pdf" {
-                AttachmentKind::Pdf
-            } else if att.mime.starts_with("text/")
-                || att.mime == "application/json"
-                || att.mime == "application/javascript"
-            {
-                AttachmentKind::Text
-            } else {
-                return Err(format!("Unsupported attachment MIME type: {}", att.mime));
-            };
-
-            processed_attachments.push(Attachment {
-                id: att_id,
-                kind,
-                name: safe_name,
-                mime: att.mime,
-                size_bytes,
-                path: dest_path.to_string_lossy().to_string(),
-            });
+            let meta = std::fs::metadata(src).map_err(|e| e.to_string())?;
+            size_bytes = meta.len() as i64;
+            if size_bytes > 10 * 1024 * 1024 {
+                return Err(format!("Attachment exceeds 10MB limit: {safe_name}"));
+            }
+            std::fs::copy(src, &dest_path).map_err(|e| e.to_string())?;
+        } else if let Some(ref b64) = att.data_base64 {
+            use base64::Engine;
+            let bytes = base64::engine::general_purpose::STANDARD
+                .decode(b64)
+                .map_err(|e| format!("Invalid base64 attachment data: {e}"))?;
+            size_bytes = bytes.len() as i64;
+            if size_bytes > 10 * 1024 * 1024 {
+                return Err(format!("Attachment exceeds 10MB limit: {safe_name}"));
+            }
+            std::fs::write(&dest_path, bytes).map_err(|e| e.to_string())?;
+        } else {
+            return Err("Attachment must provide either file_path or data_base64".to_string());
         }
 
-        let req_id = Uuid::new_v4();
-        let state = app.state::<DaemonState>();
+        let kind = if att.mime.starts_with("image/") {
+            match att.mime.as_str() {
+                "image/png" | "image/jpeg" | "image/webp" | "image/gif" => AttachmentKind::Image,
+                _ => return Err(format!("Unsupported image format: {}", att.mime)),
+            }
+        } else if att.mime == "application/pdf" {
+            AttachmentKind::Pdf
+        } else if att.mime.starts_with("text/")
+            || att.mime == "application/json"
+            || att.mime == "application/javascript"
         {
-            let mut active = state.active_request_id.lock().await;
-            *active = Some(req_id);
-        }
-
-        let msg = ClientMessage::SendMessage {
-            id: req_id,
-            chat_id,
-            text,
-            attachments: processed_attachments,
+            AttachmentKind::Text
+        } else {
+            return Err(format!("Unsupported attachment MIME type: {}", att.mime));
         };
-        let mut payload = serde_json::to_string(&msg).map_err(|e| e.to_string())?;
-        payload.push('\n');
-        writer
-            .write_all(payload.as_bytes())
-            .await
-            .map_err(|e| e.to_string())?;
-        writer.flush().await.map_err(|e| e.to_string())?;
 
-        let state_for_cleanup = state.inner().active_request_id.clone();
-        tauri::async_runtime::spawn(async move {
-            let _keep_writer_alive = writer;
-            while let Ok(Some(line)) = lines.next_line().await {
-                if let Ok(event) = serde_json::from_str::<DaemonMessage>(&line) {
-                    let is_terminal = matches!(event, DaemonMessage::MessageFinished { .. });
-                    let _ = on_event.send(event);
-                    if is_terminal {
-                        let mut active = state_for_cleanup.lock().await;
-                        if *active == Some(req_id) {
-                            *active = None;
-                        }
-                        break;
+        processed_attachments.push(Attachment {
+            id: att_id,
+            kind,
+            name: safe_name,
+            mime: att.mime,
+            size_bytes,
+            path: dest_path.to_string_lossy().to_string(),
+        });
+    }
+
+    let req_id = Uuid::new_v4();
+    let state = app.state::<DaemonState>();
+    {
+        let mut active = state.active_request_id.lock().await;
+        *active = Some(req_id);
+    }
+
+    let msg = ClientMessage::SendMessage {
+        id: req_id,
+        chat_id,
+        text,
+        attachments: processed_attachments,
+    };
+    let mut payload = serde_json::to_string(&msg).map_err(|e| e.to_string())?;
+    payload.push('\n');
+    writer
+        .write_all(payload.as_bytes())
+        .await
+        .map_err(|e| e.to_string())?;
+    writer.flush().await.map_err(|e| e.to_string())?;
+
+    let state_for_cleanup = state.inner().active_request_id.clone();
+    tauri::async_runtime::spawn(async move {
+        let _keep_writer_alive = writer;
+        while let Ok(Some(line)) = lines.next_line().await {
+            if let Ok(event) = serde_json::from_str::<DaemonMessage>(&line) {
+                let is_terminal = matches!(event, DaemonMessage::MessageFinished { .. });
+                let _ = on_event.send(event);
+                if is_terminal {
+                    let mut active = state_for_cleanup.lock().await;
+                    if *active == Some(req_id) {
+                        *active = None;
                     }
+                    break;
                 }
             }
-            let mut active = state_for_cleanup.lock().await;
-            if *active == Some(req_id) {
-                *active = None;
-            }
-        });
+        }
+        let mut active = state_for_cleanup.lock().await;
+        if *active == Some(req_id) {
+            *active = None;
+        }
+    });
 
-        Ok(req_id.to_string())
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = (app, chat_id, text, attachments, on_event);
-        Err("Windows preview: local Unix domain socket daemon IPC is not supported on Windows. Run nookd on macOS or Linux.".to_string())
-    }
+    Ok(req_id.to_string())
 }
 
-#[cfg(unix)]
 async fn send_fire_and_forget_msg<R: Runtime>(
     app: &AppHandle<R>,
     msg: ClientMessage,
 ) -> Result<(), String> {
     let stream = connect_to_daemon(app).await?;
-    let (_, mut writer) = stream.into_split();
+    let (_, mut writer) = tokio::io::split(stream);
     let mut payload = serde_json::to_string(&msg).map_err(|e| e.to_string())?;
     payload.push('\n');
     writer
@@ -690,24 +679,16 @@ async fn send_approval_decision<R: Runtime>(
     call_id: String,
     action: String,
 ) -> Result<(), String> {
-    #[cfg(unix)]
-    {
-        send_fire_and_forget_msg(
-            &app,
-            ClientMessage::ApprovalDecision {
-                id: Uuid::new_v4(),
-                chat_id,
-                call_id,
-                action,
-            },
-        )
-        .await
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = (app, chat_id, call_id, action);
-        Err("Windows preview: local Unix domain socket daemon IPC is not supported on Windows. Run nookd on macOS or Linux.".to_string())
-    }
+    send_fire_and_forget_msg(
+        &app,
+        ClientMessage::ApprovalDecision {
+            id: Uuid::new_v4(),
+            chat_id,
+            call_id,
+            action,
+        },
+    )
+    .await
 }
 
 #[tauri::command]
@@ -715,76 +696,61 @@ async fn cancel_message<R: Runtime>(
     app: AppHandle<R>,
     target_id: Option<Uuid>,
 ) -> Result<(), String> {
-    #[cfg(unix)]
-    {
-        let req_to_cancel = if let Some(id) = target_id {
-            id
-        } else {
-            let state = app.state::<DaemonState>();
-            let active = state.active_request_id.lock().await;
-            match *active {
-                Some(id) => id,
-                None => return Ok(()),
-            }
-        };
+    let req_to_cancel = if let Some(id) = target_id {
+        id
+    } else {
+        let state = app.state::<DaemonState>();
+        let active = state.active_request_id.lock().await;
+        match *active {
+            Some(id) => id,
+            None => return Ok(()),
+        }
+    };
 
-        send_fire_and_forget_msg(
-            &app,
-            ClientMessage::Cancel {
-                id: Uuid::new_v4(),
-                target_id: req_to_cancel,
-            },
-        )
-        .await
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = (app, target_id);
-        Err("Windows preview: local Unix domain socket daemon IPC is not supported on Windows. Run nookd on macOS or Linux.".to_string())
-    }
+    send_fire_and_forget_msg(
+        &app,
+        ClientMessage::Cancel {
+            id: Uuid::new_v4(),
+            target_id: req_to_cancel,
+        },
+    )
+    .await
 }
 
 #[tauri::command]
 async fn get_settings<R: Runtime>(app: AppHandle<R>) -> Result<SettingsInfo, String> {
-    #[cfg(unix)]
-    {
-        let stream = connect_to_daemon(&app).await?;
-        let (reader, mut writer) = stream.into_split();
-        let mut lines = BufReader::new(reader).lines();
+    let stream = connect_to_daemon(&app).await?;
+    let (reader, mut writer) = tokio::io::split(stream);
+    let mut lines = BufReader::new(reader).lines();
 
-        let msg = ClientMessage::GetSettings { id: Uuid::new_v4() };
-        let mut payload = serde_json::to_string(&msg).map_err(|e| e.to_string())?;
-        payload.push('\n');
-        writer
-            .write_all(payload.as_bytes())
-            .await
-            .map_err(|e| e.to_string())?;
-        writer.flush().await.map_err(|e| e.to_string())?;
+    let msg = ClientMessage::GetSettings { id: Uuid::new_v4() };
+    let mut payload = serde_json::to_string(&msg).map_err(|e| e.to_string())?;
+    payload.push('\n');
+    writer
+        .write_all(payload.as_bytes())
+        .await
+        .map_err(|e| e.to_string())?;
+    writer.flush().await.map_err(|e| e.to_string())?;
 
-        if let Some(line) = lines.next_line().await.map_err(|e| e.to_string())? {
-            match serde_json::from_str::<DaemonMessage>(&line).map_err(|e| e.to_string())? {
-                DaemonMessage::Settings {
-                    base_url,
-                    model,
-                    has_api_key,
-                    ..
-                } => Ok(SettingsInfo {
-                    base_url,
-                    model,
-                    has_api_key,
-                }),
-                DaemonMessage::Error { error, .. } => {
-                    Err(format!("{:?}: {}", error.code, error.message))
-                }
-                _ => Err("Unexpected response from daemon".to_string()),
+    if let Some(line) = lines.next_line().await.map_err(|e| e.to_string())? {
+        match serde_json::from_str::<DaemonMessage>(&line).map_err(|e| e.to_string())? {
+            DaemonMessage::Settings {
+                base_url,
+                model,
+                has_api_key,
+                ..
+            } => Ok(SettingsInfo {
+                base_url,
+                model,
+                has_api_key,
+            }),
+            DaemonMessage::Error { error, .. } => {
+                Err(format!("{:?}: {}", error.code, error.message))
             }
-        } else {
-            Err("Daemon closed connection unexpectedly".to_string())
+            _ => Err("Unexpected response from daemon".to_string()),
         }
-    }
-    #[cfg(not(unix))]
-    {
-        Err("Windows preview: local Unix domain socket daemon IPC is not supported on Windows. Run nookd on macOS or Linux.".to_string())
+    } else {
+        Err("Daemon closed connection unexpectedly".to_string())
     }
 }
 
@@ -793,51 +759,43 @@ async fn set_settings<R: Runtime>(
     app: AppHandle<R>,
     payload: SettingsPayload,
 ) -> Result<SettingsInfo, String> {
-    #[cfg(unix)]
-    {
-        let stream = connect_to_daemon(&app).await?;
-        let (reader, mut writer) = stream.into_split();
-        let mut lines = BufReader::new(reader).lines();
+    let stream = connect_to_daemon(&app).await?;
+    let (reader, mut writer) = tokio::io::split(stream);
+    let mut lines = BufReader::new(reader).lines();
 
-        let msg = ClientMessage::SetSettings {
-            id: Uuid::new_v4(),
-            base_url: payload.base_url,
-            model: payload.model,
-            api_key: payload.api_key,
-        };
-        let mut p = serde_json::to_string(&msg).map_err(|e| e.to_string())?;
-        p.push('\n');
-        writer
-            .write_all(p.as_bytes())
-            .await
-            .map_err(|e| e.to_string())?;
-        writer.flush().await.map_err(|e| e.to_string())?;
+    let msg = ClientMessage::SetSettings {
+        id: Uuid::new_v4(),
+        base_url: payload.base_url,
+        model: payload.model,
+        api_key: payload.api_key,
+    };
+    let mut p = serde_json::to_string(&msg).map_err(|e| e.to_string())?;
+    p.push('\n');
+    writer
+        .write_all(p.as_bytes())
+        .await
+        .map_err(|e| e.to_string())?;
+    writer.flush().await.map_err(|e| e.to_string())?;
 
-        if let Some(line) = lines.next_line().await.map_err(|e| e.to_string())? {
-            match serde_json::from_str::<DaemonMessage>(&line).map_err(|e| e.to_string())? {
-                DaemonMessage::Settings {
-                    base_url,
-                    model,
-                    has_api_key,
-                    ..
-                } => Ok(SettingsInfo {
-                    base_url,
-                    model,
-                    has_api_key,
-                }),
-                DaemonMessage::Error { error, .. } => {
-                    Err(format!("{:?}: {}", error.code, error.message))
-                }
-                _ => Err("Unexpected response from daemon".to_string()),
+    if let Some(line) = lines.next_line().await.map_err(|e| e.to_string())? {
+        match serde_json::from_str::<DaemonMessage>(&line).map_err(|e| e.to_string())? {
+            DaemonMessage::Settings {
+                base_url,
+                model,
+                has_api_key,
+                ..
+            } => Ok(SettingsInfo {
+                base_url,
+                model,
+                has_api_key,
+            }),
+            DaemonMessage::Error { error, .. } => {
+                Err(format!("{:?}: {}", error.code, error.message))
             }
-        } else {
-            Err("Daemon closed connection unexpectedly".to_string())
+            _ => Err("Unexpected response from daemon".to_string()),
         }
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = (app, payload);
-        Err("Windows preview: local Unix domain socket daemon IPC is not supported on Windows. Run nookd on macOS or Linux.".to_string())
+    } else {
+        Err("Daemon closed connection unexpectedly".to_string())
     }
 }
 
