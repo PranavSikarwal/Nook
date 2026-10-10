@@ -169,7 +169,8 @@ export function InputBar({
             type="button"
             title="New chat"
             aria-label="Start new chat"
-            className="text-zinc-400 hover:text-white transition-colors p-1.5 rounded-lg hover:bg-white/5"
+            disabled={isStreaming}
+            className="text-zinc-400 hover:text-white transition-colors p-1.5 rounded-lg hover:bg-white/5 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <Plus className="size-4" />
           </button>

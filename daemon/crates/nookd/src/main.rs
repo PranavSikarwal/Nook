@@ -52,7 +52,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     }
 
     // 6. Start Worker supervisor
-    let supervisor = match WorkerSupervisor::new(&config, api_key, None).await {
+    let supervisor = match WorkerSupervisor::new(&config, api_key, e2e_worker_command()).await {
         Ok(sup) => {
             info!("Worker supervisor initialized");
             Some(sup)
@@ -68,6 +68,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         config_path,
         pool,
         supervisor: Mutex::new(supervisor),
+        preserve_worker_on_settings_update: deterministic_worker_enabled(),
         open_requests: Mutex::new(HashMap::new()),
         pending_approvals: Mutex::new(HashMap::new()),
         cancelled_requests: Mutex::new(std::collections::HashSet::new()),
@@ -111,6 +112,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     server.run().await?;
     Ok(())
+}
+
+#[cfg(feature = "e2e")]
+fn e2e_worker_command() -> Option<Vec<String>> {
+    let command = std::env::var("NOOK_E2E_WORKER_COMMAND").ok()?;
+    Some(command.split_whitespace().map(str::to_owned).collect())
+}
+
+#[cfg(not(feature = "e2e"))]
+fn e2e_worker_command() -> Option<Vec<String>> {
+    None
+}
+
+#[cfg(feature = "e2e")]
+fn deterministic_worker_enabled() -> bool {
+    std::env::var("NOOK_E2E_WORKER_COMMAND").is_ok()
+}
+
+#[cfg(not(feature = "e2e"))]
+fn deterministic_worker_enabled() -> bool {
+    false
 }
 
 async fn connect_db_with_retry(db_url: &str, timeout_dur: Duration) -> Option<sqlx::PgPool> {

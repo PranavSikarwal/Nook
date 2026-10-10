@@ -32,3 +32,6 @@ scripts/gh
 
 # Worktrees
 .worktrees/
+
+# MCP artifacts
+.playwright-mcp/

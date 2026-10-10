@@ -24,6 +24,27 @@ pub struct PendingApprovalEntry {
     pub chat_id: Uuid,
     pub client_request_id: Uuid,
     pub worker_request_id: Uuid,
+    pub decision_in_flight: bool,
+}
+
+pub fn claim_pending_approval(
+    approvals: &mut HashMap<String, PendingApprovalEntry>,
+    call_id: &str,
+    chat_id: Uuid,
+) -> Result<Uuid, &'static str> {
+    match approvals.get_mut(call_id) {
+        Some(entry) if entry.chat_id != chat_id => {
+            Err("Approval call ID does not belong to the specified chat")
+        }
+        Some(entry) if entry.decision_in_flight => {
+            Err("Approval decision is already being forwarded")
+        }
+        Some(entry) => {
+            entry.decision_in_flight = true;
+            Ok(entry.worker_request_id)
+        }
+        None => Err("Unknown or invalid approval call id"),
+    }
 }
 
 pub struct AppState {
@@ -31,6 +52,7 @@ pub struct AppState {
     pub config_path: PathBuf,
     pub pool: Option<PgPool>,
     pub supervisor: Mutex<Option<WorkerSupervisor>>,
+    pub preserve_worker_on_settings_update: bool,
     pub open_requests: Mutex<HashMap<Uuid, Uuid>>, // maps client id -> worker request_id
     pub pending_approvals: Mutex<HashMap<String, PendingApprovalEntry>>, // maps call_id -> entry
     pub cancelled_requests: Mutex<HashSet<Uuid>>,
@@ -229,22 +251,26 @@ async fn process_client_message(
             }
 
             // Restart supervisor with updated settings without holding mutex across shutdown
-            let old_sup_to_shutdown = {
-                let cfg = state.config.read().await;
-                let key = keychain::get_api_key();
-                match WorkerSupervisor::new(&cfg, key, None).await {
-                    Ok(new_sup) => {
-                        let mut sup_guard = state.supervisor.lock().await;
-                        sup_guard.replace(new_sup)
+            if !state.preserve_worker_on_settings_update {
+                let old_sup_to_shutdown = {
+                    let cfg = state.config.read().await;
+                    let key = keychain::get_api_key();
+                    match WorkerSupervisor::new(&cfg, key, None).await {
+                        Ok(new_sup) => {
+                            let mut sup_guard = state.supervisor.lock().await;
+                            sup_guard.replace(new_sup)
+                        }
+                        Err(e) => {
+                            error!(
+                                "Failed to restart worker supervisor with updated settings: {e}"
+                            );
+                            None
+                        }
                     }
-                    Err(e) => {
-                        error!("Failed to restart worker supervisor with updated settings: {e}");
-                        None
-                    }
+                };
+                if let Some(old_sup) = old_sup_to_shutdown {
+                    old_sup.shutdown().await;
                 }
-            };
-            if let Some(old_sup) = old_sup_to_shutdown {
-                old_sup.shutdown().await;
             }
 
             let has_key = keychain::get_api_key().is_some();
@@ -422,40 +448,57 @@ async fn process_client_message(
         } => {
             let decision_target = {
                 let mut approvals = state.pending_approvals.lock().await;
-                if let Some(entry) = approvals.get(&call_id) {
-                    if entry.chat_id == chat_id {
-                        let sup_opt = state.supervisor.lock().await.clone();
-                        if let Some(sup) = sup_opt {
-                            let entry_removed = approvals.remove(&call_id).unwrap();
-                            Ok((sup, entry_removed.worker_request_id))
-                        } else {
-                            Err("Worker supervisor is not available")
-                        }
-                    } else {
-                        Err("Approval call ID does not belong to the specified chat")
-                    }
-                } else {
-                    Err("Unknown or invalid approval call id")
-                }
+                claim_pending_approval(&mut approvals, &call_id, chat_id)
             };
 
             match decision_target {
-                Ok((sup, worker_req_id)) => {
-                    let _ = sup
-                        .send_request(DaemonWorkerRequest::ApprovalDecision {
-                            request_id: worker_req_id,
-                            call_id,
-                            action,
-                        })
-                        .await;
+                Ok(worker_req_id) => {
+                    let supervisor = state.supervisor.lock().await.clone();
+                    let decision_result = match supervisor {
+                        Some(supervisor) => supervisor
+                            .send_request(DaemonWorkerRequest::ApprovalDecision {
+                                request_id: worker_req_id,
+                                call_id: call_id.clone(),
+                                action,
+                            })
+                            .await
+                            .map(|_| ())
+                            .map_err(|error| {
+                                format!("Failed to forward approval decision: {error}")
+                            }),
+                        None => Err("Worker supervisor is not available".to_string()),
+                    };
+
+                    match decision_result {
+                        Ok(()) => {
+                            state.pending_approvals.lock().await.remove(&call_id);
+                        }
+                        Err(message) => {
+                            if let Some(entry) =
+                                state.pending_approvals.lock().await.get_mut(&call_id)
+                            {
+                                entry.decision_in_flight = false;
+                            }
+                            let _ = tx_out
+                                .send(DaemonMessage::Error {
+                                    id,
+                                    error: ErrorInfo {
+                                        code: ErrorCode::InvalidRequest,
+                                        message,
+                                        retryable: true,
+                                    },
+                                })
+                                .await;
+                        }
+                    }
                 }
-                Err(err_msg) => {
+                Err(message) => {
                     let _ = tx_out
                         .send(DaemonMessage::Error {
                             id,
                             error: ErrorInfo {
                                 code: ErrorCode::InvalidRequest,
-                                message: err_msg.to_string(),
+                                message: message.to_string(),
                                 retryable: false,
                             },
                         })
@@ -740,6 +783,7 @@ async fn handle_send_message(
                             chat_id,
                             client_request_id: id,
                             worker_request_id: worker_req_id,
+                            decision_in_flight: false,
                         },
                     );
                 }
@@ -762,6 +806,7 @@ async fn handle_send_message(
                 let msg_status = match status {
                     FinishStatus::Complete => MessageStatus::Complete,
                     FinishStatus::Cancelled => MessageStatus::Cancelled,
+                    FinishStatus::Error => MessageStatus::Error,
                 };
                 let _ = db::save_assistant_message(
                     &pool,
@@ -819,6 +864,14 @@ async fn handle_send_message(
                 .await;
 
                 let _ = tx_out.send(DaemonMessage::Error { id, error }).await;
+                let _ = tx_out
+                    .send(DaemonMessage::MessageFinished {
+                        id,
+                        chat_id,
+                        message_id: asst_message_id,
+                        status: FinishStatus::Error,
+                    })
+                    .await;
                 break;
             }
 

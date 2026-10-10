@@ -1,0 +1,16 @@
+{
+  "productName": "Nook E2E",
+  "identifier": "tech.nook.desktop.e2e",
+  "build": {
+    "beforeBuildCommand": "npm run build:e2e"
+  },
+  "bundle": {
+    "active": false
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "security": {
+      "capabilities": ["default", "e2e"]
+    }
+  }
+}

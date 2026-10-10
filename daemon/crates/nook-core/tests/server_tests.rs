@@ -1,6 +1,7 @@
 use nook_core::config::Config;
 use nook_core::protocol::{ClientMessage, DaemonMessage};
-use nook_core::server::{AppState, Server};
+use nook_core::server::{AppState, PendingApprovalEntry, Server};
+use nook_core::supervisor::WorkerSupervisor;
 use std::collections::HashMap;
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
@@ -26,6 +27,7 @@ async fn test_server_ping_pong_and_permissions() {
         config_path,
         pool: None,
         supervisor: Mutex::new(None),
+        preserve_worker_on_settings_update: false,
         open_requests: Mutex::new(HashMap::new()),
         pending_approvals: Mutex::new(HashMap::new()),
         cancelled_requests: Mutex::new(std::collections::HashSet::new()),
@@ -92,6 +94,7 @@ async fn test_server_returns_error_for_unknown_type_with_id() {
         config_path,
         pool: None,
         supervisor: Mutex::new(None),
+        preserve_worker_on_settings_update: false,
         open_requests: Mutex::new(HashMap::new()),
         pending_approvals: Mutex::new(HashMap::new()),
         cancelled_requests: Mutex::new(std::collections::HashSet::new()),
@@ -203,6 +206,7 @@ async fn test_server_approval_decision_rejects_unknown_call_id() {
         config_path,
         pool: None,
         supervisor: Mutex::new(None),
+        preserve_worker_on_settings_update: false,
         open_requests: Mutex::new(HashMap::new()),
         pending_approvals: Mutex::new(HashMap::new()),
         cancelled_requests: Mutex::new(std::collections::HashSet::new()),
@@ -249,6 +253,143 @@ async fn test_server_approval_decision_rejects_unknown_call_id() {
 }
 
 #[tokio::test]
+async fn test_server_approval_forward_failure_keeps_pending_entry() {
+    let socket_path = PathBuf::from(format!(
+        "/tmp/nk_f_{}.sock",
+        &Uuid::new_v4().to_string()[..8]
+    ));
+    let temp_dir = tempfile::tempdir().unwrap();
+    let config_path = temp_dir.path().join("config.toml");
+    let (shutdown_tx, shutdown_rx) = broadcast::channel(1);
+    let fake_worker = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fake_worker.py");
+    let supervisor = WorkerSupervisor::new(
+        &Config::default(),
+        None,
+        Some(vec![
+            "python3".into(),
+            fake_worker.to_string_lossy().into_owned(),
+        ]),
+    )
+    .await
+    .unwrap();
+    supervisor.shutdown().await;
+
+    let state = Arc::new(AppState {
+        config: RwLock::new(Config::default()),
+        config_path,
+        pool: None,
+        supervisor: Mutex::new(Some(supervisor)),
+        preserve_worker_on_settings_update: false,
+        open_requests: Mutex::new(HashMap::new()),
+        pending_approvals: Mutex::new(HashMap::new()),
+        cancelled_requests: Mutex::new(std::collections::HashSet::new()),
+    });
+    let chat_id = Uuid::new_v4();
+    let call_id = "call_forward_failure".to_string();
+    state.pending_approvals.lock().await.insert(
+        call_id.clone(),
+        PendingApprovalEntry {
+            chat_id,
+            client_request_id: Uuid::new_v4(),
+            worker_request_id: Uuid::new_v4(),
+            decision_in_flight: false,
+        },
+    );
+
+    let server = Server::bind(&socket_path, shutdown_rx, state.clone())
+        .await
+        .unwrap();
+    let server_task = tokio::spawn(server.run());
+    let mut stream = UnixStream::connect(&socket_path).await.unwrap();
+    let decision_id = Uuid::new_v4();
+    let decision = ClientMessage::ApprovalDecision {
+        id: decision_id,
+        chat_id,
+        call_id: call_id.clone(),
+        action: "allow_once".to_string(),
+    };
+    let mut payload = serde_json::to_string(&decision).unwrap();
+    payload.push('\n');
+    stream.write_all(payload.as_bytes()).await.unwrap();
+
+    let (reader, _client_writer) = stream.into_split();
+    let mut lines = BufReader::new(reader).lines();
+    let reply_line = tokio::time::timeout(Duration::from_secs(2), lines.next_line())
+        .await
+        .expect("Timeout waiting for reply")
+        .unwrap()
+        .expect("Expected a Worker forwarding error");
+    let reply: DaemonMessage = serde_json::from_str(&reply_line).unwrap();
+    match reply {
+        DaemonMessage::Error { id, error } => {
+            assert_eq!(id, decision_id);
+            assert!(error.retryable);
+            assert!(error.message.contains("Failed to forward"));
+        }
+        other => panic!("Expected Error response, got {other:?}"),
+    }
+
+    assert!(state.pending_approvals.lock().await.contains_key(&call_id));
+    shutdown_tx.send(()).unwrap();
+    server_task.await.unwrap().unwrap();
+}
+
+#[tokio::test]
+async fn test_server_approval_decision_rejects_in_flight_duplicate() {
+    let chat_id = Uuid::new_v4();
+    let call_id = "call_in_flight".to_string();
+    let worker_request_id = Uuid::new_v4();
+    let mut pending_approvals = HashMap::new();
+    pending_approvals.insert(
+        call_id.clone(),
+        PendingApprovalEntry {
+            chat_id,
+            client_request_id: Uuid::new_v4(),
+            worker_request_id,
+            decision_in_flight: false,
+        },
+    );
+    let approvals = Arc::new(Mutex::new(pending_approvals));
+    let claim_barrier = Arc::new(tokio::sync::Barrier::new(3));
+
+    let first_approvals = approvals.clone();
+    let first_barrier = claim_barrier.clone();
+    let first_call_id = call_id.clone();
+    let first_claim = async move {
+        first_barrier.wait().await;
+        let mut approvals = first_approvals.lock().await;
+        nook_core::server::claim_pending_approval(&mut approvals, &first_call_id, chat_id)
+    };
+
+    let second_approvals = approvals.clone();
+    let second_barrier = claim_barrier.clone();
+    let second_call_id = call_id.clone();
+    let second_claim = async move {
+        second_barrier.wait().await;
+        let mut approvals = second_approvals.lock().await;
+        nook_core::server::claim_pending_approval(&mut approvals, &second_call_id, chat_id)
+    };
+
+    let claims = tokio::join!(first_claim, second_claim, claim_barrier.wait());
+
+    let results = [claims.0, claims.1];
+    assert_eq!(results.iter().filter(|claim| claim.is_ok()).count(), 1);
+    assert_eq!(results.iter().filter(|claim| claim.is_err()).count(), 1);
+    assert!(
+        approvals
+            .lock()
+            .await
+            .get(&call_id)
+            .unwrap()
+            .decision_in_flight
+    );
+    assert!(results.contains(&Ok(worker_request_id)));
+    assert!(results.contains(&Err("Approval decision is already being forwarded")));
+}
+
+#[tokio::test]
 async fn test_server_approval_decision_mismatched_chat_is_nondestructive() {
     let socket_path = PathBuf::from(format!(
         "/tmp/nk_m_{}.sock",
@@ -263,6 +404,7 @@ async fn test_server_approval_decision_mismatched_chat_is_nondestructive() {
         config_path,
         pool: None,
         supervisor: Mutex::new(None),
+        preserve_worker_on_settings_update: false,
         open_requests: Mutex::new(HashMap::new()),
         pending_approvals: Mutex::new(HashMap::new()),
         cancelled_requests: Mutex::new(std::collections::HashSet::new()),
@@ -281,6 +423,7 @@ async fn test_server_approval_decision_mismatched_chat_is_nondestructive() {
                 chat_id: legitimate_chat_id,
                 client_request_id: client_req_id,
                 worker_request_id: worker_req_id,
+                decision_in_flight: false,
             },
         );
     }

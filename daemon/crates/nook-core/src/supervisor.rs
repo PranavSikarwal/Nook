@@ -108,6 +108,10 @@ fn find_uv_binary() -> String {
     "uv".to_string()
 }
 
+fn uses_uv_project(command_args: &[String]) -> bool {
+    command_args.iter().any(|arg| arg == "run") && command_args.iter().any(|arg| arg == "--project")
+}
+
 fn resolve_worker_command(config: &Config, custom_command: Option<Vec<String>>) -> Vec<String> {
     if let Some(cmd) = custom_command {
         return cmd;
@@ -287,6 +291,9 @@ impl WorkerSupervisor {
             cmd.args(&command_args[1..]);
         }
         cmd.envs(env_vars);
+        if uses_uv_project(command_args) {
+            cmd.env_remove("VIRTUAL_ENV");
+        }
         cmd.stdin(Stdio::piped());
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::inherit());
@@ -523,5 +530,24 @@ impl WorkerSupervisor {
         if let Some(ref stdin) = stdin_tx {
             let _ = stdin.send(payload).await;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::uses_uv_project;
+
+    #[test]
+    fn uv_project_launch_ignores_active_virtual_environment() {
+        let uv_project_command = vec![
+            "uv".to_string(),
+            "run".to_string(),
+            "--project".to_string(),
+            "worker".to_string(),
+        ];
+        let custom_command = vec!["python".to_string(), "worker.py".to_string()];
+
+        assert!(uses_uv_project(&uv_project_command));
+        assert!(!uses_uv_project(&custom_command));
     }
 }

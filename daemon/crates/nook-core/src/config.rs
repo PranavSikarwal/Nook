@@ -42,9 +42,29 @@ impl Default for Config {
 
 impl Config {
     pub fn app_dir() -> PathBuf {
+        Self::app_dir_from(
+            std::env::var_os("NOOK_APP_DIR").as_deref(),
+            std::env::var_os("HOME").as_deref(),
+            std::env::var_os("APPDATA").as_deref(),
+            std::env::var_os("USERPROFILE").as_deref(),
+            std::env::var_os("XDG_CONFIG_HOME").as_deref(),
+        )
+    }
+
+    fn app_dir_from(
+        app_dir: Option<&std::ffi::OsStr>,
+        home: Option<&std::ffi::OsStr>,
+        _appdata: Option<&std::ffi::OsStr>,
+        _userprofile: Option<&std::ffi::OsStr>,
+        _xdg_config_home: Option<&std::ffi::OsStr>,
+    ) -> PathBuf {
+        if let Some(path) = app_dir.filter(|path| !path.is_empty()) {
+            return PathBuf::from(path);
+        }
+
         #[cfg(target_os = "macos")]
         {
-            if let Some(home) = std::env::var_os("HOME") {
+            if let Some(home) = home {
                 PathBuf::from(home)
                     .join("Library")
                     .join("Application Support")
@@ -55,9 +75,9 @@ impl Config {
         }
         #[cfg(target_os = "windows")]
         {
-            if let Some(appdata) = std::env::var_os("APPDATA") {
+            if let Some(appdata) = _appdata {
                 PathBuf::from(appdata).join("Nook")
-            } else if let Some(userprofile) = std::env::var_os("USERPROFILE") {
+            } else if let Some(userprofile) = _userprofile {
                 PathBuf::from(userprofile)
                     .join("AppData")
                     .join("Roaming")
@@ -68,9 +88,9 @@ impl Config {
         }
         #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
         {
-            if let Some(xdg) = std::env::var_os("XDG_CONFIG_HOME") {
+            if let Some(xdg) = _xdg_config_home {
                 PathBuf::from(xdg).join("nook")
-            } else if let Some(home) = std::env::var_os("HOME") {
+            } else if let Some(home) = home {
                 PathBuf::from(home).join(".config").join("nook")
             } else {
                 PathBuf::from("nook_data")
@@ -174,6 +194,43 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn app_dir_uses_override() {
+        let path = Config::app_dir_from(
+            Some(std::ffi::OsStr::new("/tmp/nook-e2e")),
+            None,
+            None,
+            None,
+            None,
+        );
+
+        assert_eq!(path, PathBuf::from("/tmp/nook-e2e"));
+    }
+
+    #[test]
+    fn blank_app_dir_uses_platform_default() {
+        let path = Config::app_dir_from(
+            Some(std::ffi::OsStr::new("")),
+            Some(std::ffi::OsStr::new("/tmp/home")),
+            Some(std::ffi::OsStr::new("/tmp/appdata")),
+            Some(std::ffi::OsStr::new("/tmp/profile")),
+            Some(std::ffi::OsStr::new("/tmp/xdg")),
+        );
+
+        #[cfg(target_os = "macos")]
+        assert_eq!(
+            path,
+            PathBuf::from("/tmp/home")
+                .join("Library")
+                .join("Application Support")
+                .join("Nook")
+        );
+        #[cfg(target_os = "windows")]
+        assert_eq!(path, PathBuf::from("/tmp/appdata").join("Nook"));
+        #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+        assert_eq!(path, PathBuf::from("/tmp/xdg").join("nook"));
+    }
 
     #[test]
     fn test_default_config() {

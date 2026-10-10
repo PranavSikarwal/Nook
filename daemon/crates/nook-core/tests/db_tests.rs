@@ -1,16 +1,16 @@
-use std::str::FromStr;
 use nook_core::db::{
     create_pool, delete_chat, ensure_chat, get_chat, list_chats, repair_open_replies,
     run_migrations, save_assistant_message, save_user_message,
 };
 use nook_core::protocol::{Attachment, AttachmentKind, MessageStatus};
 use sqlx::postgres::PgConnectOptions;
+use std::str::FromStr;
 use uuid::Uuid;
 
 #[tokio::test]
 async fn test_database_crud_and_cascade_delete() {
-    let base_db_url = std::env::var("NOOK_DATABASE_URL")
-        .unwrap_or_else(|_| "postgresql:///nook".to_string());
+    let base_db_url =
+        std::env::var("NOOK_DATABASE_URL").unwrap_or_else(|_| "postgresql:///nook".to_string());
 
     let admin_pool = match create_pool(&base_db_url).await {
         Ok(p) => p,
@@ -20,12 +20,17 @@ async fn test_database_crud_and_cascade_delete() {
         }
     };
 
-    let test_db_name = format!("nook_test_{}", &Uuid::new_v4().to_string().replace('-', "")[..12]);
+    let test_db_name = format!(
+        "nook_test_{}",
+        &Uuid::new_v4().to_string().replace('-', "")[..12]
+    );
     if let Err(e) = sqlx::query(&format!("CREATE DATABASE {test_db_name}"))
         .execute(&admin_pool)
         .await
     {
-        eprintln!("Skipping database test: Failed to create temporary test database {test_db_name}: {e}");
+        eprintln!(
+            "Skipping database test: Failed to create temporary test database {test_db_name}: {e}"
+        );
         return;
     }
 
@@ -33,9 +38,11 @@ async fn test_database_crud_and_cascade_delete() {
         Ok(opts) => opts.database(&test_db_name),
         Err(e) => {
             eprintln!("Failed to parse connection options: {e}");
-            let _ = sqlx::query(&format!("DROP DATABASE IF EXISTS {test_db_name} WITH (FORCE)"))
-                .execute(&admin_pool)
-                .await;
+            let _ = sqlx::query(&format!(
+                "DROP DATABASE IF EXISTS {test_db_name} WITH (FORCE)"
+            ))
+            .execute(&admin_pool)
+            .await;
             return;
         }
     };
@@ -44,14 +51,18 @@ async fn test_database_crud_and_cascade_delete() {
         Ok(p) => p,
         Err(e) => {
             eprintln!("Failed to connect to temporary database: {e}");
-            let _ = sqlx::query(&format!("DROP DATABASE IF EXISTS {test_db_name} WITH (FORCE)"))
-                .execute(&admin_pool)
-                .await;
+            let _ = sqlx::query(&format!(
+                "DROP DATABASE IF EXISTS {test_db_name} WITH (FORCE)"
+            ))
+            .execute(&admin_pool)
+            .await;
             return;
         }
     };
 
-    run_migrations(&pool).await.expect("Failed to run migrations");
+    run_migrations(&pool)
+        .await
+        .expect("Failed to run migrations");
 
     let chat_id = Uuid::new_v4();
     ensure_chat(&pool, chat_id, "Test Chat Title")
@@ -69,15 +80,9 @@ async fn test_database_crud_and_cascade_delete() {
         path: "/path/to/test.txt".to_string(),
     };
 
-    save_user_message(
-        &pool,
-        user_msg_id,
-        chat_id,
-        "What is 2+2?",
-        &[attachment],
-    )
-    .await
-    .expect("Failed to save user message");
+    save_user_message(&pool, user_msg_id, chat_id, "What is 2+2?", &[attachment])
+        .await
+        .expect("Failed to save user message");
 
     let asst_msg_id = Uuid::new_v4();
     save_assistant_message(
@@ -124,11 +129,12 @@ async fn test_database_crud_and_cascade_delete() {
         .unwrap();
     assert_eq!(msg_count.0, 0);
 
-    let att_count: (i64,) = sqlx::query_as("SELECT count(*) FROM app.attachments WHERE message_id = $1")
-        .bind(user_msg_id)
-        .fetch_one(&pool)
-        .await
-        .unwrap();
+    let att_count: (i64,) =
+        sqlx::query_as("SELECT count(*) FROM app.attachments WHERE message_id = $1")
+            .bind(user_msg_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(att_count.0, 0);
 
     // Test repair_open_replies
@@ -137,15 +143,9 @@ async fn test_database_crud_and_cascade_delete() {
         .await
         .unwrap();
     let unreplied_msg_id = Uuid::new_v4();
-    save_user_message(
-        &pool,
-        unreplied_msg_id,
-        open_chat_id,
-        "Pending prompt",
-        &[],
-    )
-    .await
-    .unwrap();
+    save_user_message(&pool, unreplied_msg_id, open_chat_id, "Pending prompt", &[])
+        .await
+        .unwrap();
 
     let repaired = repair_open_replies(&pool).await.unwrap();
     assert!(repaired >= 1);
@@ -164,7 +164,9 @@ async fn test_database_crud_and_cascade_delete() {
 
     // Clean up temporary database
     pool.close().await;
-    let _ = sqlx::query(&format!("DROP DATABASE IF EXISTS {test_db_name} WITH (FORCE)"))
-        .execute(&admin_pool)
-        .await;
+    let _ = sqlx::query(&format!(
+        "DROP DATABASE IF EXISTS {test_db_name} WITH (FORCE)"
+    ))
+    .execute(&admin_pool)
+    .await;
 }
