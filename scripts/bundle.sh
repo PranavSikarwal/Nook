@@ -18,7 +18,8 @@ VERSION=$(node -p "require('$PANEL_DIR/src-tauri/tauri.conf.json').version || '0
 echo "Creating bundle structure at $BUNDLE_DIR (version $VERSION)..."
 rm -rf "$BUNDLE_DIR"
 mkdir -p "$BUNDLE_DIR/Contents/MacOS"
-mkdir -p "$BUNDLE_DIR/Contents/Resources"
+mkdir -p "$BUNDLE_DIR/Contents/Resources/daemon"
+mkdir -p "$BUNDLE_DIR/Contents/Resources/worker"
 
 cp "$PANEL_DIR/src-tauri/target/release/nook-panel" "$BUNDLE_DIR/Contents/MacOS/Nook"
 chmod +x "$BUNDLE_DIR/Contents/MacOS/Nook"
@@ -29,10 +30,19 @@ if [ ! -f "$NOOKD_SRC" ]; then
     NOOKD_SRC="$ROOT_DIR/daemon/target/debug/nookd"
 fi
 if [ -f "$NOOKD_SRC" ]; then
-    cp "$NOOKD_SRC" "$BUNDLE_DIR/Contents/MacOS/nookd"
-    chmod +x "$BUNDLE_DIR/Contents/MacOS/nookd"
-    echo "Embedded nookd into app bundle at Contents/MacOS/nookd"
+    cp "$NOOKD_SRC" "$BUNDLE_DIR/Contents/Resources/daemon/nookd"
+    chmod +x "$BUNDLE_DIR/Contents/Resources/daemon/nookd"
+    echo "Embedded nookd into app bundle at Contents/Resources/daemon/nookd"
 fi
+
+WORKER_VENV_PYINSTALLER="$ROOT_DIR/worker/.venv/bin/pyinstaller"
+if [ ! -x "$WORKER_VENV_PYINSTALLER" ]; then
+    echo "Error: Worker PyInstaller executable is missing at $WORKER_VENV_PYINSTALLER" >&2
+    exit 1
+fi
+"$WORKER_VENV_PYINSTALLER" --noconfirm --clean --onedir --name release_entry --paths "$ROOT_DIR/worker/src" --distpath "$BUILD_DIR/worker-dist" "$ROOT_DIR/worker/src/nook_worker/release_entry.py"
+cp -R "$BUILD_DIR/worker-dist/release_entry/." "$BUNDLE_DIR/Contents/Resources/worker/"
+"$BUNDLE_DIR/Contents/Resources/worker/release_entry" --smoke-test
 
 if [ -f "$PANEL_DIR/src-tauri/icons/icon.icns" ]; then
     cp "$PANEL_DIR/src-tauri/icons/icon.icns" "$BUNDLE_DIR/Contents/Resources/icon.icns"
