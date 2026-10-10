@@ -112,6 +112,34 @@ Run the contract pytest suite whenever message schemas, contracts, or examples a
 uv run --with pytest --with jsonschema pytest tests/contracts
 ```
 
+## Native macOS end-to-end tests
+
+Run the manual native workflow from GitHub Actions to check a pull request's
+Tauri app on macOS. The workflow reports the PR test and the trusted live
+baseline as separate status checks.
+
+1. Open the repository's **Actions** tab.
+2. Select **Native Tauri E2E Gate** and click **Run workflow**.
+3. Select the branch that contains the workflow and enter the open pull request
+   number.
+4. Check **Native Tauri E2E Gate** on the PR head. This status covers the
+   deterministic native suite for that exact commit. It fails if the PR head
+   changes during the run.
+5. Check **Native Tauri Live Baseline** on the `main` commit recorded when the
+   workflow starts. It runs one live India news query with the repository action
+   secrets `REVIEWER_BASE_URL`, `REVIEWER_MODEL`, and `REVIEWER_API_KEY`. GitHub
+   may request approval for the `native-e2e-live` environment.
+
+Only **Native Tauri E2E Gate** is a PR status. The live baseline checks trusted
+`main` code. It does not validate changes in the PR and does not block the PR
+status. If either job fails, inspect its workflow log. Rerun the workflow after
+pushing a new PR commit.
+
+GitHub requires the workflow file to exist on `main` before it can dispatch the
+workflow. The first PR that adds the workflow cannot run it before merge. After
+that PR merges, maintainers can require **Native Tauri E2E Gate** in the `main`
+branch ruleset.
+
 ## Commit message format
 
 Commit messages follow conventional formatting:

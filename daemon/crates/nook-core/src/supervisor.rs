@@ -4,7 +4,7 @@ use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::process::Command;
+use tokio::process::{ChildStderr, Command};
 use tokio::sync::{broadcast, mpsc, Mutex};
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -110,6 +110,33 @@ fn find_uv_binary() -> String {
 
 fn uses_uv_project(command_args: &[String]) -> bool {
     command_args.iter().any(|arg| arg == "run") && command_args.iter().any(|arg| arg == "--project")
+}
+
+fn e2e_log_path(name: &str) -> Option<PathBuf> {
+    std::env::var_os("NOOK_E2E_RUN_DIR").map(|dir| PathBuf::from(dir).join(name))
+}
+
+fn redact(line: &str, values: &[String]) -> String {
+    values.iter().fold(line.to_owned(), |line, value| {
+        if value.trim().is_empty() {
+            line
+        } else {
+            line.replace(value, "***")
+        }
+    })
+}
+
+async fn capture_stderr(stderr: ChildStderr, path: PathBuf, redactions: Vec<String>) {
+    let Ok(mut file) = tokio::fs::File::create(path).await else {
+        return;
+    };
+    let mut lines = BufReader::new(stderr).lines();
+    while let Ok(Some(line)) = lines.next_line().await {
+        let line = redact(&line, &redactions);
+        if file.write_all(line.as_bytes()).await.is_err() || file.write_all(b"\n").await.is_err() {
+            return;
+        }
+    }
 }
 
 fn resolve_worker_command(config: &Config, custom_command: Option<Vec<String>>) -> Vec<String> {
@@ -296,9 +323,21 @@ impl WorkerSupervisor {
         }
         cmd.stdin(Stdio::piped());
         cmd.stdout(Stdio::piped());
-        cmd.stderr(Stdio::inherit());
+        let worker_log_path = e2e_log_path("worker-stderr.log");
+        if worker_log_path.is_some() {
+            cmd.stderr(Stdio::piped());
+        } else {
+            cmd.stderr(Stdio::inherit());
+        }
 
         let mut child = cmd.spawn()?;
+        let worker_stderr_task = match (child.stderr.take(), worker_log_path) {
+            (Some(stderr), Some(path)) => {
+                let redactions = env_vars.values().cloned().collect();
+                Some(tokio::spawn(capture_stderr(stderr, path, redactions)))
+            }
+            _ => None,
+        };
         let mut child_stdin = child.stdin.take().expect("Child stdin not piped");
         let child_stdout = child.stdout.take().expect("Child stdout not piped");
 
@@ -406,6 +445,9 @@ impl WorkerSupervisor {
         }
 
         stdin_task.abort();
+        if let Some(task) = worker_stderr_task {
+            let _ = task.await;
+        }
         Ok(())
     }
 
