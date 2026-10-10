@@ -35,3 +35,6 @@ scripts/gh
 
 # MCP artifacts
 .playwright-mcp/
+
+# macOS Finder metadata
+.DS_Store
