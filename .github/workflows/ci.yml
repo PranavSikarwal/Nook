@@ -116,6 +116,17 @@ jobs:
         with:
           toolchain: stable
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Build Panel frontend
+        working-directory: panel
+        run: |
+          npm ci --ignore-scripts
+          npm run build
+
       - name: Test daemon named-pipe transport
         run: cargo test --manifest-path daemon/Cargo.toml -p nook-core --test server_windows_tests
 
