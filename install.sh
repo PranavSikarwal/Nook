@@ -145,7 +145,7 @@ fi
         exit 1
     fi
     echo "Setting up Worker virtual environment..."
-    (cd "$ROOT_DIR/worker" && uv sync --locked)
+    (cd "$ROOT_DIR/worker" && uv sync --locked --no-build)
 
     cp "$ROOT_DIR/panel/src-tauri/target/release/nook-panel" "$BIN_DIR/nook-panel"
     chmod +x "$BIN_DIR/nook-panel"
