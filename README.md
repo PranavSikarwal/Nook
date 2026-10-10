@@ -37,7 +37,7 @@ Or from a cloned repository:
 ./install.sh
 ```
 
-The installer downloads the macOS app or Debian package and creates the `nook` launcher in `~/.local/bin`. It does not install PostgreSQL. Install and start PostgreSQL, then set `database_url` in the platform config file. Windows installation uses the release installer.
+The installer downloads the macOS app or Debian package and creates the `nook` launcher in `~/.local/bin`. It does not install PostgreSQL. You can install the app before PostgreSQL is running. Nook needs a reachable PostgreSQL service when you launch it. Set `database_url` in the platform config file. Windows installation uses the release installer.
 
 ---
 

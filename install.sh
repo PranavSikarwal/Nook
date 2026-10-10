@@ -240,7 +240,7 @@ else
                 echo "Error: Debian package is missing the Worker runtime." >&2
                 exit 1
             fi
-            sudo dpkg -i "$TMP_DEB" || sudo apt-get install -f -y
+            sudo dpkg -i "$TMP_DEB"
         else
             echo "Error: No Debian package was available. The AppImage path is not supported by this installer." >&2
             exit 1
@@ -293,16 +293,6 @@ database_url = "postgres://localhost/nook"
 max_input_tokens = 1000000
 summarize_at_tokens = 750000
 EOF
-fi
-
-if ! command -v pg_isready >/dev/null 2>&1; then
-    echo "PostgreSQL is required. Install PostgreSQL and ensure pg_isready is on PATH." >&2
-    exit 1
-fi
-if ! pg_isready -d "$(sed -n 's/^database_url = \"\(.*\)\"$/\1/p' "$CONFIG_FILE")" >/dev/null 2>&1; then
-    echo "PostgreSQL is not reachable at the configured database URL in $CONFIG_FILE." >&2
-    echo "Start PostgreSQL or update database_url before launching Nook." >&2
-    exit 1
 fi
 
 INSTALLED_SUCCESS=1

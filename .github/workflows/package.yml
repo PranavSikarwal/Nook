@@ -30,6 +30,8 @@ jobs:
 
       - name: Set up Node.js
         uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a # v4.2.0
+        env:
+          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
         with:
           node-version: 22
 
@@ -44,6 +46,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libssl-dev
 
+      - name: Install Windows package inspection tools
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco install lessmsi -y --no-progress
+          choco install 7zip -y --no-progress
 
       - name: Build daemon binaries
         run: cargo build --manifest-path daemon/Cargo.toml --release --locked -p nookd -p nookctl
@@ -53,40 +61,47 @@ jobs:
         with:
           python-version: "3.13"
 
-      - name: Install Worker build tools
-        run: python -m pip install uv
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        with:
+          enable-cache: true
+          version: "0.11.25"
 
       - name: Build Worker runtime
         shell: bash
         run: |
           if [ "${{ runner.os }}" = "Windows" ]; then
-            VENV_PYTHON="worker/.venv/Scripts/python.exe"
             VENV_PYINSTALLER="worker/.venv/Scripts/pyinstaller.exe"
             WORKER_DIST="dist/release_entry"
             WORKER_EXE="dist/release_entry/release_entry.exe"
             WORKER_RESOURCES="panel/src-tauri/resources/worker"
             DAEMON_EXE="daemon/target/release/nookd.exe"
           elif [ "${{ runner.os }}" = "macOS" ]; then
-            VENV_PYTHON="worker/.venv/bin/python"
             VENV_PYINSTALLER="worker/.venv/bin/pyinstaller"
             WORKER_DIST="dist/release_entry"
             WORKER_EXE="dist/release_entry/release_entry"
             DAEMON_EXE="daemon/target/release/nookd"
           else
-            VENV_PYTHON="worker/.venv/bin/python"
             VENV_PYINSTALLER="worker/.venv/bin/pyinstaller"
             WORKER_DIST="dist/release_entry"
             WORKER_EXE="dist/release_entry/release_entry"
             DAEMON_EXE="daemon/target/release/nookd"
           fi
-          uv sync --project worker --locked --no-dev
-          uv pip install --python "$VENV_PYTHON" "pyinstaller>=6.18.0"
+          uv sync --project worker --locked --no-build --no-install-project --group dev
+          if [ -x worker/.venv/bin/pyinstaller ]; then
+            VENV_PYINSTALLER="worker/.venv/bin/pyinstaller"
+          fi
+          if [ -x worker/.venv/Scripts/pyinstaller.exe ]; then
+            VENV_PYINSTALLER="worker/.venv/Scripts/pyinstaller.exe"
+          fi
+          test -x "$VENV_PYINSTALLER"
           "$VENV_PYINSTALLER" --noconfirm --clean --onedir --name release_entry --paths worker/src --distpath dist worker/src/nook_worker/release_entry.py
           test -f "$WORKER_EXE"
+          export NOOK_PACKAGE_SMOKE_TEST=1
           mkdir -p "$WORKER_RESOURCES" panel/src-tauri/resources/daemon
           cp -R "$WORKER_DIST/." "$WORKER_RESOURCES/"
           cp "$DAEMON_EXE" panel/src-tauri/resources/daemon/
-          "$WORKER_EXE" --smoke-test
+          NOOK_SMOKE_EXECUTABLE="$WORKER_EXE" "$WORKER_EXE" --smoke-test
 
       - name: Build frontend
         run: |
@@ -125,8 +140,23 @@ jobs:
             PACKAGE_ROOT="panel/src-tauri/target/release/bundle"
             PACKAGE_PATH="$(find "$PACKAGE_ROOT" -type f \( -name '*.msi' -o -name '*-setup.exe' \) -print -quit)"
             test -n "$PACKAGE_PATH"
-            test -n "$(find "$PACKAGE_ROOT" -type f -name 'nookd.exe' -print -quit)"
-            test -n "$(find "$PACKAGE_ROOT" -type f -name 'release_entry.exe' -print -quit)"
+            MSI_PATH="$(find "$PACKAGE_ROOT" -type f -name '*.msi' -print -quit)"
+            if [ -n "$MSI_PATH" ]; then
+              MSI_DIR="$(mktemp -d)"
+              lessmsi x "$MSI_PATH" "$MSI_DIR"
+              test -n "$(find "$MSI_DIR" -type f -name 'nookd.exe' -print -quit)"
+              test -n "$(find "$MSI_DIR" -type f -name 'release_entry.exe' -print -quit)"
+            else
+              INSTALLER="$(find "$PACKAGE_ROOT" -type f -name '*-setup.exe' -print -quit)"
+              test -n "$INSTALLER"
+              if command -v 7z >/dev/null 2>&1; then
+                7z l "$INSTALLER" | grep -q 'nookd.exe'
+                7z l "$INSTALLER" | grep -q 'release_entry.exe'
+              else
+                echo "7z is required to inspect the NSIS installer." >&2
+                exit 1
+              fi
+            fi
           else
             PACKAGE_ROOT="panel/src-tauri/target/release/bundle"
             DEB_PATH="$(find "$PACKAGE_ROOT" -type f -name '*.deb' -print -quit)"

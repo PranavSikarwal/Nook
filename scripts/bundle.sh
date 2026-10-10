@@ -42,7 +42,7 @@ if [ ! -x "$WORKER_VENV_PYINSTALLER" ]; then
 fi
 "$WORKER_VENV_PYINSTALLER" --noconfirm --clean --onedir --name release_entry --paths "$ROOT_DIR/worker/src" --distpath "$BUILD_DIR/worker-dist" "$ROOT_DIR/worker/src/nook_worker/release_entry.py"
 cp -R "$BUILD_DIR/worker-dist/release_entry/." "$BUNDLE_DIR/Contents/Resources/worker/"
-"$BUNDLE_DIR/Contents/Resources/worker/release_entry" --smoke-test
+NOOK_SMOKE_EXECUTABLE="$BUNDLE_DIR/Contents/Resources/worker/release_entry" "$BUNDLE_DIR/Contents/Resources/worker/release_entry" --smoke-test
 
 if [ -f "$PANEL_DIR/src-tauri/icons/icon.icns" ]; then
     cp "$PANEL_DIR/src-tauri/icons/icon.icns" "$BUNDLE_DIR/Contents/Resources/icon.icns"

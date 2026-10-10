@@ -1,11 +1,22 @@
 import json
+import os
 import subprocess
 import sys
 
 
 def run_smoke_test() -> int:
+    executable = os.environ.get("NOOK_SMOKE_EXECUTABLE")
+    if executable:
+        arguments = [executable, "--smoke-worker"]
+    else:
+        arguments = [
+            sys.executable,
+            "-m",
+            "nook_worker.release_entry",
+            "--smoke-worker",
+        ]
     process = subprocess.Popen(
-        [sys.argv[0], "--smoke-worker"],
+        arguments,
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
