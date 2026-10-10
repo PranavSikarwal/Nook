@@ -132,7 +132,8 @@ baseline as separate status checks.
 
 Only **Native Tauri E2E Gate** is a PR status. The live baseline checks trusted
 `main` code. It does not validate changes in the PR and does not block the PR
-status. If either job fails, inspect its workflow log. Rerun the workflow after
+status. If the live job fails, download its `native-e2e-live-<run-id>` artifact
+and inspect `daemon-stderr.log` and `worker-stderr.log`. Rerun the workflow after
 pushing a new PR commit.
 
 GitHub requires the workflow file to exist on `main` before it can dispatch the
