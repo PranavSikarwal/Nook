@@ -12,13 +12,17 @@ use tokio::sync::{broadcast, mpsc, Mutex, RwLock};
 use tracing::{error, info, warn};
 use uuid::Uuid;
 #[cfg(windows)]
-use windows_sys::Win32::Foundation::LocalFree;
+use windows_sys::Win32::Foundation::{CloseHandle, LocalFree};
 #[cfg(windows)]
 use windows_sys::Win32::Security::Authorization::{
-    ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1,
+    ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1,
 };
 #[cfg(windows)]
-use windows_sys::Win32::Security::SECURITY_ATTRIBUTES;
+use windows_sys::Win32::Security::{
+    GetTokenInformation, OpenProcessToken, TokenUser, SECURITY_ATTRIBUTES, TOKEN_QUERY, TOKEN_USER,
+};
+#[cfg(windows)]
+use windows_sys::Win32::System::Threading::GetCurrentProcess;
 
 use crate::config::Config;
 use crate::db;
@@ -79,19 +83,55 @@ pub struct Server {
 }
 
 #[cfg(windows)]
-pub fn windows_pipe_name() -> String {
-    let user = std::env::var("USERNAME").unwrap_or_else(|_| "default".to_string());
-    let user = user
-        .chars()
-        .map(|character| {
-            if character.is_ascii_alphanumeric() || character == '-' || character == '_' {
-                character
-            } else {
-                '_'
-            }
-        })
-        .collect::<String>();
-    format!(r"\\.\pipe\Nook-daemon-{user}")
+pub fn windows_pipe_name() -> std::io::Result<String> {
+    use std::ffi::OsString;
+    use std::os::windows::ffi::OsStringExt;
+    use std::ptr::null_mut;
+
+    let mut token = 0;
+    if unsafe { OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) } == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+
+    let mut required = 0;
+    unsafe {
+        GetTokenInformation(token, TokenUser, null_mut(), 0, &mut required);
+    }
+    if required == 0 {
+        unsafe { CloseHandle(token) };
+        return Err(std::io::Error::last_os_error());
+    }
+
+    let mut token_user = vec![0u8; required as usize];
+    let result = unsafe {
+        GetTokenInformation(
+            token,
+            TokenUser,
+            token_user.as_mut_ptr().cast(),
+            required,
+            &mut required,
+        )
+    };
+    unsafe { CloseHandle(token) };
+    if result == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+
+    let user = unsafe { &*(token_user.as_ptr().cast::<TOKEN_USER>()) };
+    let mut sid_string = null_mut();
+    if unsafe { ConvertSidToStringSidW(user.User.Sid, &mut sid_string) } == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    let sid_len = unsafe {
+        (0..)
+            .take_while(|offset| *sid_string.add(*offset) != 0)
+            .count()
+    };
+    let sid = OsString::from_wide(unsafe { std::slice::from_raw_parts(sid_string, sid_len) })
+        .to_string_lossy()
+        .into_owned();
+    unsafe { LocalFree(sid_string.cast()) };
+    Ok(format!(r"\\.\pipe\Nook-daemon-{sid}"))
 }
 
 impl Server {
@@ -127,7 +167,7 @@ impl Server {
         #[cfg(windows)]
         {
             let pipe_server = create_windows_pipe_server(true)?;
-            info!(pipe = %windows_pipe_name(), "Created Windows named-pipe server");
+            info!(pipe = %windows_pipe_name()?, "Created Windows named-pipe server");
             Ok(Self {
                 socket_path: socket_path.to_path_buf(),
                 pipe_server,
@@ -183,7 +223,11 @@ impl Server {
                                 tokio::spawn(handle_connection(connected, state));
                                 pipe_server = create_windows_pipe_server(false)?;
                             }
-                            Err(error) => warn!("Named-pipe connection failed: {error}"),
+                            Err(error) => {
+                                warn!("Named-pipe connection failed: {error}");
+                                pipe_server = create_windows_pipe_server(false)?;
+                                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                            }
                         }
                     }
                     _ = self.shutdown_rx.recv() => {
@@ -228,7 +272,7 @@ fn create_windows_pipe_server(first_instance: bool) -> std::io::Result<NamedPipe
     options.first_pipe_instance(first_instance);
     let result = unsafe {
         options.create_with_security_attributes_raw(
-            windows_pipe_name(),
+            windows_pipe_name()?,
             &mut attributes as *mut _ as _,
         )
     };

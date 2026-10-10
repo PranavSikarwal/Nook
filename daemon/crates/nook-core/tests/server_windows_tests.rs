@@ -32,7 +32,7 @@ async fn windows_named_pipe_round_trips_json_ping() {
 
     let mut client = tokio::time::timeout(Duration::from_secs(5), async {
         loop {
-            match ClientOptions::new().open(windows_pipe_name()) {
+            match ClientOptions::new().open(windows_pipe_name().unwrap()) {
                 Ok(client) => break client,
                 Err(_) => tokio::time::sleep(Duration::from_millis(50)).await,
             }

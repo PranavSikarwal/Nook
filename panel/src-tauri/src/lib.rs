@@ -370,7 +370,9 @@ async fn connect_local_daemon() -> std::io::Result<LocalIpcStream> {
 
 #[cfg(windows)]
 async fn connect_local_daemon() -> std::io::Result<LocalIpcStream> {
-    ClientOptions::new().open(windows_pipe_name())
+    let pipe_name = windows_pipe_name()
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error))?;
+    ClientOptions::new().open(pipe_name)
 }
 
 #[cfg(any(unix, windows))]
