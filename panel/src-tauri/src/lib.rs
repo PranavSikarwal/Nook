@@ -4,6 +4,7 @@ use nook_core::protocol::{
 };
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+use std::process::Stdio;
 use std::sync::Arc;
 use tauri::{AppHandle, Manager, Runtime};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
@@ -23,6 +24,29 @@ pub struct DaemonState {
 
 pub struct DaemonConnection {
     pub socket_path: PathBuf,
+}
+
+async fn capture_daemon_stderr(
+    stderr: tokio::process::ChildStderr,
+    path: PathBuf,
+    redactions: Vec<String>,
+) {
+    let Ok(mut file) = tokio::fs::File::create(path).await else {
+        return;
+    };
+    let mut lines = BufReader::new(stderr).lines();
+    while let Ok(Some(line)) = lines.next_line().await {
+        let line = redactions.iter().fold(line, |line, value| {
+            if value.trim().is_empty() {
+                line
+            } else {
+                line.replace(value, "***")
+            }
+        });
+        if file.write_all(line.as_bytes()).await.is_err() || file.write_all(b"\n").await.is_err() {
+            return;
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -241,6 +265,7 @@ pub async fn ensure_daemon_started(state: &DaemonState) {
                 "NOOK_DATABASE_URL",
                 "NOOK_API_KEY",
                 "NOOK_DISABLE_KEYCHAIN",
+                "NOOK_E2E_RUN_DIR",
                 "NOOK_WORKER_DIR",
             ] {
                 if let Some(value) = std::env::var_os(env_key) {
@@ -252,8 +277,23 @@ pub async fn ensure_daemon_started(state: &DaemonState) {
                 cmd.env("NOOK_E2E_WORKER_COMMAND", value);
             }
 
+            let daemon_log_path = std::env::var_os("NOOK_E2E_RUN_DIR")
+                .map(|dir| PathBuf::from(dir).join("daemon-stderr.log"));
+            if daemon_log_path.is_some() {
+                cmd.stderr(Stdio::piped());
+            }
+
             match cmd.spawn() {
-                Ok(child) => {
+                Ok(mut child) => {
+                    if let (Some(stderr), Some(path)) = (child.stderr.take(), daemon_log_path) {
+                        let redactions = ["NOOK_BASE_URL", "NOOK_MODEL", "NOOK_API_KEY"]
+                            .into_iter()
+                            .filter_map(|name| std::env::var(name).ok())
+                            .collect();
+                        tauri::async_runtime::spawn(capture_daemon_stderr(
+                            stderr, path, redactions,
+                        ));
+                    }
                     {
                         let mut proc_guard = state.spawned_process.lock().await;
                         *proc_guard = Some(child);
