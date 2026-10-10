@@ -336,10 +336,9 @@ async fn test_server_approval_forward_failure_keeps_pending_entry() {
     server_task.await.unwrap().unwrap();
 }
 
-#[test]
-fn test_server_approval_decision_rejects_in_flight_duplicate() {
+#[tokio::test]
+async fn test_server_approval_decision_rejects_in_flight_duplicate() {
     let chat_id = Uuid::new_v4();
-
     let call_id = "call_in_flight".to_string();
     let worker_request_id = Uuid::new_v4();
     let mut pending_approvals = HashMap::new();
@@ -352,17 +351,42 @@ fn test_server_approval_decision_rejects_in_flight_duplicate() {
             decision_in_flight: false,
         },
     );
+    let approvals = Arc::new(Mutex::new(pending_approvals));
+    let claim_barrier = Arc::new(tokio::sync::Barrier::new(3));
 
-    let first_claim =
-        nook_core::server::claim_pending_approval(&mut pending_approvals, &call_id, chat_id);
-    let duplicate_claim =
-        nook_core::server::claim_pending_approval(&mut pending_approvals, &call_id, chat_id);
-    assert_eq!(first_claim, Ok(worker_request_id));
-    assert_eq!(
-        duplicate_claim,
-        Err("Approval decision is already being forwarded")
+    let first_approvals = approvals.clone();
+    let first_barrier = claim_barrier.clone();
+    let first_call_id = call_id.clone();
+    let first_claim = async move {
+        first_barrier.wait().await;
+        let mut approvals = first_approvals.lock().await;
+        nook_core::server::claim_pending_approval(&mut approvals, &first_call_id, chat_id)
+    };
+
+    let second_approvals = approvals.clone();
+    let second_barrier = claim_barrier.clone();
+    let second_call_id = call_id.clone();
+    let second_claim = async move {
+        second_barrier.wait().await;
+        let mut approvals = second_approvals.lock().await;
+        nook_core::server::claim_pending_approval(&mut approvals, &second_call_id, chat_id)
+    };
+
+    let claims = tokio::join!(first_claim, second_claim, claim_barrier.wait());
+
+    let results = [claims.0, claims.1];
+    assert_eq!(results.iter().filter(|claim| claim.is_ok()).count(), 1);
+    assert_eq!(results.iter().filter(|claim| claim.is_err()).count(), 1);
+    assert!(
+        approvals
+            .lock()
+            .await
+            .get(&call_id)
+            .unwrap()
+            .decision_in_flight
     );
-    assert!(pending_approvals.get(&call_id).unwrap().decision_in_flight);
+    assert!(results.contains(&Ok(worker_request_id)));
+    assert!(results.contains(&Err("Approval decision is already being forwarded")));
 }
 
 #[tokio::test]
