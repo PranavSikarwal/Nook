@@ -17,13 +17,14 @@ describe('native History, persistence, and settings', () => {
     }, { timeout: 20_000, interval: 100 })
   }
 
+
   it('separates History select/delete controls and deletes only the selected test chat', async () => {
     await sendAndWait('E2E_REPLY:history target')
     await $('[aria-label="Toggle history drawer"]').click()
     await $('[aria-label="Close history"]').waitForDisplayed({ timeout: 10_000 })
     if ((await browser.$$('button button')).length !== 0) throw new Error('History contains nested buttons.')
 
-    const row = await $('[data-chat-row]')
+    const row = await $('[data-chat-row][data-active="true"]')
     const chatId = await row.getAttribute('data-chat-row')
     await row.$('button[data-chat-select]').click()
     await browser.waitUntil(async () => await browser.execute(() =>
