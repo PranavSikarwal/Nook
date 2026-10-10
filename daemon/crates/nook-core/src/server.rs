@@ -200,7 +200,7 @@ impl Server {
 #[cfg(windows)]
 fn create_windows_pipe_server(first_instance: bool) -> std::io::Result<NamedPipeServer> {
     use std::os::windows::ffi::OsStrExt;
-    use std::ptr::{null, null_mut};
+    use std::ptr::null_mut;
 
     let sddl: Vec<u16> = std::ffi::OsStr::new("D:P(A;;GA;;;OW)(A;;GA;;;SY)")
         .encode_wide()
@@ -224,7 +224,8 @@ fn create_windows_pipe_server(first_instance: bool) -> std::io::Result<NamedPipe
         lpSecurityDescriptor: descriptor,
         bInheritHandle: 0,
     };
-    let options = ServerOptions::new().first_pipe_instance(first_instance);
+    let mut options = ServerOptions::new();
+    options.first_pipe_instance(first_instance);
     let result = unsafe {
         options.create_with_security_attributes_raw(
             windows_pipe_name(),
