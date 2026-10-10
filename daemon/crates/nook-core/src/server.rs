@@ -19,10 +19,10 @@ use windows_sys::Win32::Security::Authorization::{
 };
 #[cfg(windows)]
 use windows_sys::Win32::Security::{
-    GetTokenInformation, OpenProcessToken, TokenUser, SECURITY_ATTRIBUTES, TOKEN_QUERY, TOKEN_USER,
+    GetTokenInformation, TokenUser, SECURITY_ATTRIBUTES, TOKEN_QUERY, TOKEN_USER,
 };
 #[cfg(windows)]
-use windows_sys::Win32::System::Threading::GetCurrentProcess;
+use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 
 use crate::config::Config;
 use crate::db;
@@ -83,12 +83,12 @@ pub struct Server {
 }
 
 #[cfg(windows)]
-pub fn windows_pipe_name() -> std::io::Result<String> {
+fn current_user_sid_string() -> std::io::Result<String> {
     use std::ffi::OsString;
     use std::os::windows::ffi::OsStringExt;
     use std::ptr::null_mut;
 
-    let mut token = 0;
+    let mut token = null_mut();
     if unsafe { OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) } == 0 {
         return Err(std::io::Error::last_os_error());
     }
@@ -131,7 +131,15 @@ pub fn windows_pipe_name() -> std::io::Result<String> {
         .to_string_lossy()
         .into_owned();
     unsafe { LocalFree(sid_string.cast()) };
-    Ok(format!(r"\\.\pipe\Nook-daemon-{sid}"))
+    Ok(sid)
+}
+
+#[cfg(windows)]
+pub fn windows_pipe_name() -> std::io::Result<String> {
+    Ok(format!(
+        r"\\.\pipe\Nook-daemon-{}",
+        current_user_sid_string()?
+    ))
 }
 
 impl Server {
@@ -246,7 +254,11 @@ fn create_windows_pipe_server(first_instance: bool) -> std::io::Result<NamedPipe
     use std::os::windows::ffi::OsStrExt;
     use std::ptr::null_mut;
 
-    let sddl: Vec<u16> = std::ffi::OsStr::new("D:P(A;;GA;;;OW)(A;;GA;;;SY)")
+    use std::os::windows::ffi::OsStrExt;
+
+    let sid = current_user_sid_string()?;
+    let sddl = format!("D:P(A;;GA;;;{sid})(A;;GA;;;SY)");
+    let sddl: Vec<u16> = std::ffi::OsStr::new(&sddl)
         .encode_wide()
         .chain(Some(0))
         .collect();
