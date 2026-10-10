@@ -47,6 +47,18 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libssl-dev
 
+      - name: Require a changelog entry for tagged releases
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          awk -v heading="## ${TAG_NAME}" '$0 == heading { found=1; next } found && /^## / { exit } found { print }' CHANGELOG.md > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            echo "CHANGELOG.md must contain a non-empty section for ${TAG_NAME}." >&2
+            exit 1
+          fi
+
       - name: Sync version from tag
         if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
@@ -75,7 +87,7 @@ jobs:
           projectPath: panel
           tagName: ${{ github.ref_name }}
           releaseName: 'Nook ${{ github.ref_name }}'
-          releaseBody: 'Nook cross-platform overlay assistant for macOS, Ubuntu Linux, and Windows.'
+          releaseBody: 'Release notes are published from CHANGELOG.md after all platform builds finish.'
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.platform.args }}
@@ -95,3 +107,31 @@ jobs:
           cp daemon/target/release/nookd "nookd_${OS_NAME}_${ARCH_NORM}"
           cp daemon/target/release/nookctl "nookctl_${OS_NAME}_${ARCH_NORM}"
           gh release upload "$TAG_NAME" "nookd_${OS_NAME}_${ARCH_NORM}" "nookctl_${OS_NAME}_${ARCH_NORM}" --clobber
+
+  publish-release-notes:
+    name: Publish changelog entry
+    needs: build-and-release
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout tagged changelog
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Extract release notes
+        shell: bash
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          awk -v heading="## ${TAG_NAME}" '$0 == heading { found=1; next } found && /^## / { exit } found { print }' CHANGELOG.md > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            echo "No changelog notes found for ${TAG_NAME}." >&2
+            exit 1
+          fi
+
+      - name: Update GitHub release notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: gh release edit "$TAG_NAME" --notes-file release-notes.md
