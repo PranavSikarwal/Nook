@@ -6,15 +6,17 @@ This file records user-visible changes for each Nook release.
 
 ### Changed
 
-- Package the Panel with `nookd` and a platform-built Worker runtime for macOS, Linux, and Windows release builds.
-- Keep PostgreSQL as an external prerequisite. The installer checks the configured database URL and does not install PostgreSQL.
-- Keep `nookctl` optional instead of downloading it during GUI installation.
-- Add package checks for bundled daemon and Worker files. Native clean-install checks remain required before claiming platform support.
+- Stage `nookd` and a native PyInstaller Worker runtime in macOS, Linux, and Windows package builds.
+- Keep PostgreSQL as an external prerequisite. Installers no longer require PostgreSQL to be running.
+- Keep `nookctl` as an optional standalone download. GUI installers do not install it.
+- Make package CI inspect the Linux Debian package and Windows installer for the daemon and Worker runtime. Native package and clean-install validation must pass before platform support claims change.
+- Require the `Native Tauri E2E Gate` status on `main`. Dispatch the gate for each PR head to run deterministic native tests before merge.
 
 ### Fixed
 
-- Fail installation when the selected package omits a required daemon or Worker runtime.
-- Use the actual PyInstaller one-folder executable path when building and smoke testing the Worker.
+- Reject macOS and Linux architectures that do not have published installers.
+- Preserve existing configuration and allow application installation before PostgreSQL is available.
+- Use the packaged Worker executable for its protocol smoke test without reading `.env` settings or launching a shell command.
 
 ## v0.1.3
 
