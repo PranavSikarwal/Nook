@@ -150,10 +150,8 @@ jobs:
             test -n "$PACKAGE_PATH"
             MSI_PATH="$(find "$PACKAGE_ROOT" -type f -name '*.msi' -print -quit)"
             if [ -n "$MSI_PATH" ]; then
-              MSI_DIR="$(mktemp -d)"
-              7z x "$MSI_PATH" "-o$MSI_DIR" -y
-              test -n "$(find "$MSI_DIR" -type f -name 'nookd.exe' -print -quit)"
-              test -n "$(find "$MSI_DIR" -type f -name 'release_entry.exe' -print -quit)"
+              7z l "$MSI_PATH" | grep -q 'nookd.exe'
+              7z l "$MSI_PATH" | grep -q 'release_entry.exe'
             else
               INSTALLER="$(find "$PACKAGE_ROOT" -type f -name '*-setup.exe' -print -quit)"
               test -n "$INSTALLER"
