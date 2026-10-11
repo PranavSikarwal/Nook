@@ -150,10 +150,13 @@ jobs:
             test -n "$PACKAGE_PATH"
             MSI_PATH="$(find "$PACKAGE_ROOT" -type f -name '*.msi' -print -quit)"
             if [ -n "$MSI_PATH" ]; then
-              MSI_LIST="$(mktemp)"
-              7z l "$MSI_PATH" > "$MSI_LIST"
-              grep -q 'nookd.exe' "$MSI_LIST"
-              grep -q 'release_entry.exe' "$MSI_LIST"
+              MSI_DIR="$(mktemp -d)"
+              7z e "$MSI_PATH" app.cab "-o$MSI_DIR" -y
+              CAB_PATH="$MSI_DIR/app.cab"
+              test -f "$CAB_PATH"
+              7z l "$CAB_PATH" > "$MSI_DIR/cab-list.txt"
+              grep -q 'nookd.exe' "$MSI_DIR/cab-list.txt"
+              grep -q 'release_entry.exe' "$MSI_DIR/cab-list.txt"
             else
               INSTALLER="$(find "$PACKAGE_ROOT" -type f -name '*-setup.exe' -print -quit)"
               test -n "$INSTALLER"
