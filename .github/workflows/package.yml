@@ -69,22 +69,26 @@ jobs:
 
       - name: Build Worker runtime
         shell: bash
+        env:
+          RUNNER_OS: ${{ runner.os }}
         run: |
-          if [ "${{ runner.os }}" = "Windows" ]; then
+          if [ "$RUNNER_OS" = "Windows" ]; then
             VENV_PYINSTALLER="worker/.venv/Scripts/pyinstaller.exe"
             WORKER_DIST="dist/release_entry"
-            WORKER_EXE="dist/release_entry/release_entry.exe"
+            WORKER_EXE="dist/release_entry/release_entry"
             WORKER_RESOURCES="panel/src-tauri/resources/worker"
-            DAEMON_EXE="daemon/target/release/nookd.exe"
-          elif [ "${{ runner.os }}" = "macOS" ]; then
+            DAEMON_EXE="daemon/target/release/nookd"
+          elif [ "$RUNNER_OS" = "macOS" ]; then
             VENV_PYINSTALLER="worker/.venv/bin/pyinstaller"
             WORKER_DIST="dist/release_entry"
             WORKER_EXE="dist/release_entry/release_entry"
+            WORKER_RESOURCES="panel/src-tauri/resources/worker"
             DAEMON_EXE="daemon/target/release/nookd"
           else
             VENV_PYINSTALLER="worker/.venv/bin/pyinstaller"
             WORKER_DIST="dist/release_entry"
             WORKER_EXE="dist/release_entry/release_entry"
+            WORKER_RESOURCES="panel/src-tauri/resources/worker"
             DAEMON_EXE="daemon/target/release/nookd"
           fi
           uv sync --project worker --locked --no-build --no-install-project --group dev
@@ -97,7 +101,7 @@ jobs:
           test -x "$VENV_PYINSTALLER"
           "$VENV_PYINSTALLER" --noconfirm --clean --onedir --name release_entry --paths worker/src --distpath dist worker/src/nook_worker/release_entry.py
           test -f "$WORKER_EXE"
-          export NOOK_PACKAGE_SMOKE_TEST=1
+
           mkdir -p "$WORKER_RESOURCES" panel/src-tauri/resources/daemon
           cp -R "$WORKER_DIST/." "$WORKER_RESOURCES/"
           cp "$DAEMON_EXE" panel/src-tauri/resources/daemon/
@@ -111,8 +115,10 @@ jobs:
 
       - name: Verify staged release runtimes
         shell: bash
+        env:
+          RUNNER_OS: ${{ runner.os }}
         run: |
-          if [ "${{ runner.os }}" = "Windows" ]; then
+          if [ "$RUNNER_OS" = "Windows" ]; then
             test -f panel/src-tauri/resources/daemon/nookd.exe
             test -f panel/src-tauri/resources/worker/release_entry.exe
           else
@@ -130,13 +136,15 @@ jobs:
 
       - name: Verify packaged release runtimes
         shell: bash
+        env:
+          RUNNER_OS: ${{ runner.os }}
         run: |
-          if [ "${{ runner.os }}" = "macOS" ]; then
+          if [ "$RUNNER_OS" = "macOS" ]; then
             APP_PATH="$(find panel/src-tauri/target/release/bundle -name Nook.app -type d -print -quit)"
             test -n "$APP_PATH"
             test -f "$APP_PATH/Contents/Resources/daemon/nookd"
             test -x "$APP_PATH/Contents/Resources/worker/release_entry"
-          elif [ "${{ runner.os }}" = "Windows" ]; then
+          elif [ "$RUNNER_OS" = "Windows" ]; then
             PACKAGE_ROOT="panel/src-tauri/target/release/bundle"
             PACKAGE_PATH="$(find "$PACKAGE_ROOT" -type f \( -name '*.msi' -o -name '*-setup.exe' \) -print -quit)"
             test -n "$PACKAGE_PATH"
@@ -171,7 +179,8 @@ jobs:
         shell: bash
         run: |
           OS_NAME="${{ matrix.platform.name }}"
-          if [ "${{ runner.os }}" = "Windows" ]; then
+          RUNNER_OS="${{ runner.os }}"
+          if [ "$RUNNER_OS" = "Windows" ]; then
             ARCH_NORM="x86_64"
             cp daemon/target/release/nookd.exe "nookd_${OS_NAME}_${ARCH_NORM}.exe"
             cp daemon/target/release/nookctl.exe "nookctl_${OS_NAME}_${ARCH_NORM}.exe"
