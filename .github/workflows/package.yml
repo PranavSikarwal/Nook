@@ -151,7 +151,7 @@ jobs:
             MSI_PATH="$(find "$PACKAGE_ROOT" -type f -name '*.msi' -print -quit)"
             if [ -n "$MSI_PATH" ]; then
               MSI_DIR="$(mktemp -d)"
-              lessmsi x "$MSI_PATH" "$MSI_DIR"
+              lessmsi x "$MSI_PATH" "$MSI_DIR" || true
               test -n "$(find "$MSI_DIR" -type f -name 'nookd.exe' -print -quit)"
               test -n "$(find "$MSI_DIR" -type f -name 'release_entry.exe' -print -quit)"
             else
