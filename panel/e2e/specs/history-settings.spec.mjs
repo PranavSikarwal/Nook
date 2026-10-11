@@ -27,12 +27,15 @@ describe('native History, persistence, and settings', () => {
     const row = await $('[data-chat-row][data-active="true"]')
     const chatId = await row.getAttribute('data-chat-row')
     await row.$('button[data-chat-select]').click()
-    await browser.waitUntil(async () => await browser.execute(() =>
-      document.querySelector('[data-chat-row][data-active="true"]')?.getAttribute('data-chat-row')) === chatId,
+    await browser.waitUntil(async () =>
+      !(await $('[aria-label="Close history"]').isDisplayed().catch(() => false)),
     { timeout: 10_000 })
 
     await $('[aria-label="Toggle history drawer"]').click()
     await $('[aria-label="Close history"]').waitForDisplayed({ timeout: 10_000 })
+    await browser.waitUntil(async () => await browser.execute(() =>
+      document.querySelector('[data-chat-row][data-active="true"]')?.getAttribute('data-chat-row')) === chatId,
+    { timeout: 10_000 })
     await $(`[data-chat-row="${chatId}"] button[data-chat-delete]`).click()
     await browser.waitUntil(async () => (await $$(`[data-chat-row="${chatId}"]`)).length === 0, { timeout: 10_000 })
   })

@@ -61,6 +61,29 @@ Follow these steps for every change:
    git push -u origin feat/phase-w-worker
    ```
 6. Open a pull request on GitHub (one pull request per phase).
+7. For a release PR, include the version bump, changelog, and release validation in the same PR as the feature. Do not merge the feature first and open a separate version-only PR.
+
+## Release checklist
+
+Every release PR must keep the application version consistent across all package metadata, include the release notes, and pass the platform package checks before merge. Use the next version after the latest published GitHub release.
+
+Update these files to the same `MAJOR.MINOR.PATCH` version:
+
+- `panel/package.json`
+- `panel/package-lock.json`, both the root package and lockfile package entries
+- `panel/src-tauri/tauri.conf.json`
+- `panel/src-tauri/Cargo.toml`
+- `panel/src-tauri/Cargo.lock`, the `nook-panel` package entry
+
+Before requesting merge, complete these steps in the same PR:
+
+1. Move the release entries from `Unreleased` into a dated version section in `CHANGELOG.md`.
+2. Confirm every version file listed above contains the same version.
+3. Run CI, SonarCloud, Windows named-pipe checks, and the Native Tauri E2E Gate against the PR head.
+4. Run `Package and Release` on the PR head and verify the macOS DMG, Ubuntu `.deb`, and Windows installer checks and artifacts pass.
+5. Merge only after all required checks pass. Create the matching `vMAJOR.MINOR.PATCH` tag and GitHub release after merge. Do not overwrite an existing tag or release.
+
+The package workflow uploads verified artifacts. Confirm whether the release process publishes those artifacts before claiming the GitHub release is complete.
 
 ## Code quality and linting rules
 
