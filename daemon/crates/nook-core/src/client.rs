@@ -1,5 +1,6 @@
 use crate::config::Config;
 use std::io;
+use std::path::Path;
 use tokio::io::{AsyncRead, AsyncWrite};
 
 #[cfg(windows)]
@@ -13,15 +14,17 @@ pub type LocalIpcStream = UnixStream;
 pub type LocalIpcStream = NamedPipeClient;
 
 pub async fn connect() -> io::Result<LocalIpcStream> {
-    #[cfg(unix)]
-    {
-        tokio::net::UnixStream::connect(Config::default_socket_path()).await
-    }
+    connect_to(&Config::default_socket_path()).await
+}
 
-    #[cfg(windows)]
-    {
-        tokio::net::windows::named_pipe::ClientOptions::new().open(Config::default_socket_path())
-    }
+#[cfg(unix)]
+async fn connect_to(path: &Path) -> io::Result<LocalIpcStream> {
+    tokio::net::UnixStream::connect(path).await
+}
+
+#[cfg(windows)]
+async fn connect_to(path: &Path) -> io::Result<LocalIpcStream> {
+    tokio::net::windows::named_pipe::ClientOptions::new().open(path)
 }
 
 pub fn split<S>(stream: S) -> (tokio::io::ReadHalf<S>, tokio::io::WriteHalf<S>)
@@ -34,12 +37,15 @@ where
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
+    use tempfile::tempdir;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::UnixListener;
 
     #[tokio::test]
     async fn client_stream_splits_for_bidirectional_io() {
-        let listener = UnixListener::bind(Config::default_socket_path()).unwrap();
+        let temp_dir = tempdir().unwrap();
+        let socket_path = temp_dir.path().join("nook.sock");
+        let listener = UnixListener::bind(&socket_path).unwrap();
         let server = tokio::spawn(async move {
             let (mut stream, _) = listener.accept().await.unwrap();
             let mut request = [0; 4];
@@ -48,7 +54,7 @@ mod tests {
             stream.write_all(b"pong").await.unwrap();
         });
 
-        let stream = connect().await.unwrap();
+        let stream = connect_to(&socket_path).await.unwrap();
         let (mut reader, mut writer) = split(stream);
         writer.write_all(b"ping").await.unwrap();
         let mut response = [0; 4];
@@ -56,6 +62,5 @@ mod tests {
         assert_eq!(&response, b"pong");
 
         server.await.unwrap();
-        let _ = std::fs::remove_file(Config::default_socket_path());
     }
 }
