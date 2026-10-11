@@ -134,7 +134,34 @@ jobs:
           projectPath: panel
           args: ${{ matrix.platform.args }}
 
+      - name: Verify Windows MSI release runtimes
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $packageRoot = 'panel/src-tauri/target/release/bundle'
+          $msi = Get-ChildItem -Path $packageRoot -Recurse -Filter '*.msi' |
+            Select-Object -First 1
+          if ($null -eq $msi) {
+            throw 'The Tauri build did not create an MSI package.'
+          }
+
+          $extractDir = Join-Path $env:RUNNER_TEMP 'nook-msi-extract'
+          New-Item -ItemType Directory -Force -Path $extractDir | Out-Null
+          $process = Start-Process -FilePath msiexec.exe -Wait -PassThru -ArgumentList @('/a', $msi.FullName, '/qn', "TARGETDIR=$extractDir")
+          if ($process.ExitCode -ne 0) {
+            throw "MSI administrative extraction failed with exit code $($process.ExitCode)."
+          }
+
+          $requiredFiles = @('nookd.exe', 'release_entry.exe')
+          foreach ($requiredFile in $requiredFiles) {
+            if ($null -eq (Get-ChildItem -Path $extractDir -Recurse -File -Filter $requiredFile |
+              Select-Object -First 1)) {
+              throw "The MSI does not contain $requiredFile."
+            }
+          }
+
       - name: Verify packaged release runtimes
+        if: runner.os != 'Windows'
         shell: bash
         env:
           RUNNER_OS: ${{ runner.os }}
@@ -144,29 +171,6 @@ jobs:
             test -n "$APP_PATH"
             test -f "$APP_PATH/Contents/Resources/daemon/nookd"
             test -x "$APP_PATH/Contents/Resources/worker/release_entry"
-          elif [ "$RUNNER_OS" = "Windows" ]; then
-            PACKAGE_ROOT="panel/src-tauri/target/release/bundle"
-            PACKAGE_PATH="$(find "$PACKAGE_ROOT" -type f \( -name '*.msi' -o -name '*-setup.exe' \) -print -quit)"
-            test -n "$PACKAGE_PATH"
-            MSI_PATH="$(find "$PACKAGE_ROOT" -type f -name '*.msi' -print -quit)"
-            if [ -n "$MSI_PATH" ]; then
-              MSI_DIR="$(mktemp -d)"
-              7z x "$MSI_PATH" "-o$MSI_DIR" -y
-              test -n "$(find "$MSI_DIR" -type f -name 'nookd.exe' -print -quit)"
-              test -n "$(find "$MSI_DIR" -type f -name 'release_entry.exe' -print -quit)"
-            else
-              INSTALLER="$(find "$PACKAGE_ROOT" -type f -name '*-setup.exe' -print -quit)"
-              test -n "$INSTALLER"
-              if command -v 7z >/dev/null 2>&1; then
-                INSTALLER_LIST="$(mktemp)"
-                7z l "$INSTALLER" > "$INSTALLER_LIST"
-                grep -q 'nookd.exe' "$INSTALLER_LIST"
-                grep -q 'release_entry.exe' "$INSTALLER_LIST"
-              else
-                echo "7z is required to inspect the NSIS installer." >&2
-                exit 1
-              fi
-            fi
           else
             PACKAGE_ROOT="panel/src-tauri/target/release/bundle"
             DEB_PATH="$(find "$PACKAGE_ROOT" -type f -name '*.deb' -print -quit)"
