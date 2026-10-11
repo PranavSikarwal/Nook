@@ -150,14 +150,18 @@ jobs:
             test -n "$PACKAGE_PATH"
             MSI_PATH="$(find "$PACKAGE_ROOT" -type f -name '*.msi' -print -quit)"
             if [ -n "$MSI_PATH" ]; then
-              7z l "$MSI_PATH" | grep -q 'nookd.exe'
-              7z l "$MSI_PATH" | grep -q 'release_entry.exe'
+              MSI_LIST="$(mktemp)"
+              7z l "$MSI_PATH" > "$MSI_LIST"
+              grep -q 'nookd.exe' "$MSI_LIST"
+              grep -q 'release_entry.exe' "$MSI_LIST"
             else
               INSTALLER="$(find "$PACKAGE_ROOT" -type f -name '*-setup.exe' -print -quit)"
               test -n "$INSTALLER"
               if command -v 7z >/dev/null 2>&1; then
-                7z l "$INSTALLER" | grep -q 'nookd.exe'
-                7z l "$INSTALLER" | grep -q 'release_entry.exe'
+                INSTALLER_LIST="$(mktemp)"
+                7z l "$INSTALLER" > "$INSTALLER_LIST"
+                grep -q 'nookd.exe' "$INSTALLER_LIST"
+                grep -q 'release_entry.exe' "$INSTALLER_LIST"
               else
                 echo "7z is required to inspect the NSIS installer." >&2
                 exit 1
