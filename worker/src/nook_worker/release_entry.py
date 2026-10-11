@@ -23,18 +23,13 @@ def main() -> int:
 async def _run_smoke_worker(runner: AgentRunner) -> None:
     import asyncio
 
-    is_tty = sys.stdin.isatty()
     reader = asyncio.StreamReader()
-    if not is_tty:
-        loop = asyncio.get_running_loop()
-        protocol = asyncio.StreamReaderProtocol(reader)
-        await loop.connect_read_pipe(lambda: protocol, sys.stdin)
 
     async def write_line(line: str) -> None:
         await asyncio.to_thread(print, line, flush=True)
 
     await run_worker(
-        stdin_reader=_StdinReader(is_tty, reader),
+        stdin_reader=_StdinReader(True, reader),
         write_line=write_line,
         runner=runner,
     )
