@@ -127,12 +127,27 @@ jobs:
           fi
 
       - name: Build and package Tauri app
+        id: package
+        continue-on-error: true
         uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0.5.17
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           projectPath: panel
           args: ${{ matrix.platform.args }}
+
+      - name: Retry macOS DMG packaging
+        if: runner.os == 'macOS' && steps.package.outcome == 'failure'
+        shell: bash
+        run: |
+          rm -rf panel/src-tauri/target/release/bundle/dmg
+          cd panel
+          npm run tauri build
+
+      - name: Fail an unrecovered package build
+        if: runner.os != 'macOS' && steps.package.outcome == 'failure'
+        shell: bash
+        run: exit 1
 
       - name: Verify Windows MSI release runtimes
         if: runner.os == 'Windows'
