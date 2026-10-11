@@ -1,9 +1,10 @@
 use clap::{Parser, Subcommand};
+use nook_core::client;
 use nook_core::config::Config;
 use nook_core::protocol::{Attachment, AttachmentKind, ClientMessage, DaemonMessage};
 use std::path::PathBuf;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::net::UnixStream;
+
 use uuid::Uuid;
 
 #[derive(Parser)]
@@ -38,7 +39,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     nook_core::config::Config::load_env_file();
     let cli = Cli::parse();
     let socket_path = Config::default_socket_path();
-
+    #[cfg(unix)]
     if !socket_path.exists() {
         eprintln!(
             "Daemon socket not found at {}. Is nookd running?",
@@ -47,7 +48,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::process::exit(1);
     }
 
-    let stream = match UnixStream::connect(&socket_path).await {
+    let stream = match client::connect().await {
         Ok(s) => s,
         Err(e) => {
             eprintln!(
@@ -58,7 +59,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    let (reader, mut writer) = stream.into_split();
+    let (reader, mut writer) = client::split(stream);
     let mut lines = BufReader::new(reader).lines();
 
     match cli.command {

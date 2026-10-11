@@ -18,16 +18,16 @@ All processes share a local PostgreSQL database named `nook`.
 Download native pre-built packages from [GitHub Releases](https://github.com/PranavSikarwal/Nook/releases):
 
 - **macOS (Apple Silicon)**: `Nook_<version>_aarch64.dmg`
-- **Ubuntu / Debian**: `nook_<version>_amd64.deb` or `Nook_<version>_amd64.AppImage`
-- **Windows (x64)**: `Nook_<version>_x64-setup.exe` or `Nook_<version>_x64.msi` (preview overlay client; local daemon IPC in development)
+- **Ubuntu / Debian**: `nook_<version>_amd64.deb`
+- **Windows (x64)**: `Nook_<version>_x64-setup.exe` or `Nook_<version>_x64.msi` (preview until native packaged runtime tests pass)
 
 ---
 
 ## Quick installation
 
-### One-command install (macOS & Linux)
+### One-command install (macOS and Debian-based Linux)
 
-Install Nook directly with a single command:
+Install Nook with this command on macOS or Debian-based Linux:
 ```sh
 curl -fsSL https://raw.githubusercontent.com/PranavSikarwal/Nook/main/install.sh | sh
 ```
@@ -37,9 +37,17 @@ Or from a cloned repository:
 ./install.sh
 ```
 
-This installs `Nook.app` to `/Applications` on macOS (or Debian package on Linux) and sets up the global `nook` command in `~/.local/bin`.
+The installer downloads the macOS app or Debian package and creates the `nook` launcher in `~/.local/bin`. It does not install PostgreSQL. You can install the app before PostgreSQL is running. Nook needs a reachable PostgreSQL service when you launch it. Set `database_url` in the platform config file. Windows installation uses the release installer.
 
 ---
+
+## Install or upgrade
+
+On macOS, quit Nook, run the installer again, and launch Nook. The installer replaces `Nook.app` and keeps the configuration in `~/Library/Application Support/Nook/config.toml`. Do not delete that directory when upgrading.
+
+On Debian or Ubuntu, install the new `.deb` package with your package manager. The package must include `nookd` and the Worker runtime. `install.sh` does not support AppImage installation.
+
+Windows remains a preview. Use the release installer only for preview testing. Packaged daemon and Worker startup have not passed native Windows release validation.
 
 ## How Nook starts
 

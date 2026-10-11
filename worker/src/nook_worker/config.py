@@ -1,17 +1,11 @@
-from pathlib import Path
-
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
-_ROOT_DIR = Path(__file__).resolve().parents[3]
-_ENV_FILE = _ROOT_DIR / ".env"
 
 
 class WorkerConfig(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="NOOK_",
-        env_file=_ENV_FILE if _ENV_FILE.is_file() else None,
-        env_file_encoding="utf-8",
+        env_file=None,
         extra="ignore",
     )
 

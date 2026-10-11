@@ -114,14 +114,11 @@ pub fn find_nookd_binary() -> Option<PathBuf> {
                 return Some(candidate);
             }
 
-            // In macOS app bundle (Contents/MacOS -> Contents/Helpers/nookd)
-            let helper_candidate = exe_dir
-                .parent()
-                .unwrap_or(exe_dir)
-                .join("Helpers")
-                .join(bin_name);
-            if helper_candidate.is_file() {
-                return Some(helper_candidate);
+            for relative in ["resources/daemon", "../Resources/daemon"] {
+                let bundled_candidate = exe_dir.join(relative).join(bin_name);
+                if bundled_candidate.is_file() {
+                    return Some(bundled_candidate);
+                }
             }
         }
     }

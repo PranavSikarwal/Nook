@@ -9,7 +9,7 @@ describe('live Worker through the native Panel', () => {
       timeoutMsg: 'nookd did not become ready before the live query.',
     })
 
-    const question = 'What are the top news headlines in India today? Include links to your sources.'
+    const question = 'What are the top news headlines in India today? Use web search only. Do not fetch web pages or URLs. Include links to your sources.'
     const input = await $('[aria-label="Ask anything"]')
     await browser.waitUntil(async () => await input.isDisplayed() && await input.isEnabled(), {
       timeout: 10_000,
@@ -29,7 +29,6 @@ describe('live Worker through the native Panel', () => {
     const assistant = assistants[assistants.length - 1]
 
     const deadline = Date.now() + 240_000
-    let approvalCount = 0
     while (Date.now() < deadline) {
       const status = await assistant.getAttribute('data-message-status')
       if (status === 'complete') break
@@ -39,21 +38,9 @@ describe('live Worker through the native Panel', () => {
 
       const approval = await assistant.$('[data-testid="approval-card"]')
       if (await approval.isDisplayed().catch(() => false)) {
-        await (await approval.$('button=Allow once')).click()
-        approvalCount += 1
-        await browser.waitUntil(async () => {
-          const currentStatus = await assistant.getAttribute('data-message-status')
-          const currentApproval = await assistant.$('[data-testid="approval-card"]')
-          return ['complete', 'error', 'cancelled'].includes(currentStatus)
-            || !(await currentApproval.isDisplayed().catch(() => false))
-        }, {
-          timeout: 30_000,
-          interval: 250,
-          timeoutMsg: `Live approval ${approvalCount} did not clear after Allow once.`,
-        })
-      } else {
-        await browser.pause(250)
+        throw new Error('The current-news query requested page-fetch approval instead of using web search.')
       }
+      await browser.pause(250)
     }
 
     const status = await assistant.getAttribute('data-message-status')
@@ -67,7 +54,7 @@ describe('live Worker through the native Panel', () => {
     if ((await assistant.$$('a[href^="http"]')).length === 0) {
       throw new Error(`The completed assistant answer has no source links: ${answer}`)
     }
-    if (approvalCount === 0) throw new Error('The live query completed without requesting web approval.')
+
     if (!(await userMessage.getText()).includes(question)) {
       throw new Error('The submitted question is missing from the transcript.')
     }

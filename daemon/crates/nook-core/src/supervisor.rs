@@ -52,9 +52,13 @@ fn find_worker_directory() -> Option<PathBuf> {
 
     if let Ok(current_exe) = std::env::current_exe() {
         if let Some(exe_dir) = current_exe.parent() {
-            let bundle_worker = exe_dir.parent().unwrap_or(exe_dir).join("Resources/worker");
+            let bundle_worker = exe_dir.join("resources/worker");
             if bundle_worker.is_dir() {
                 return Some(bundle_worker);
+            }
+            let macos_worker = exe_dir.join("../Resources/worker");
+            if macos_worker.is_dir() {
+                return Some(macos_worker);
             }
             for relative in &["../../worker", "../../../worker", "../worker"] {
                 let candidate = exe_dir.join(relative);
@@ -139,6 +143,25 @@ async fn capture_stderr(stderr: ChildStderr, path: PathBuf, redactions: Vec<Stri
     }
 }
 
+fn bundled_worker_command() -> Option<Vec<String>> {
+    let current_exe = std::env::current_exe().ok()?;
+    let exe_dir = current_exe.parent()?;
+    let worker_exe = if cfg!(windows) {
+        "release_entry.exe"
+    } else {
+        "release_entry"
+    };
+    let candidates = [
+        exe_dir.join("worker").join(worker_exe),
+        exe_dir.join("resources/worker").join(worker_exe),
+        exe_dir.join("../Resources/worker").join(worker_exe),
+    ];
+    candidates
+        .into_iter()
+        .find(|path| path.is_file())
+        .map(|path| vec![path.to_string_lossy().into_owned()])
+}
+
 fn resolve_worker_command(config: &Config, custom_command: Option<Vec<String>>) -> Vec<String> {
     if let Some(cmd) = custom_command {
         return cmd;
@@ -151,6 +174,9 @@ fn resolve_worker_command(config: &Config, custom_command: Option<Vec<String>>) 
             .split_whitespace()
             .map(|s| s.to_string())
             .collect();
+    }
+    if let Some(command) = bundled_worker_command() {
+        return command;
     }
 
     let worker_dir = find_worker_directory().unwrap_or_else(|| PathBuf::from("worker"));
