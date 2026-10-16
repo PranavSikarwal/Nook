@@ -45,6 +45,7 @@ class AuthorizationManager:
 
     def __init__(self, authorization_timeout: float = 300.0) -> None:
         self._waiting: dict[CallKey, asyncio.Future[AuthorizationDecision]] = {}
+        self._denied: set[UUID] = set()
         self._authorization_timeout = authorization_timeout
 
     def set_context(
@@ -66,6 +67,7 @@ class AuthorizationManager:
     def clear_context(self, request_id: UUID | None = None) -> None:
         if request_id:
             self.cancel_for_request(request_id)
+            self._denied.discard(request_id)
         _current_run_context.set(None)
 
     async def authorize(self, tool_name: str, arguments: str) -> AuthorizationDecision:
@@ -90,10 +92,13 @@ class AuthorizationManager:
         try:
             await ctx.write_line(format_event(event))
             decision = await asyncio.wait_for(future, self._authorization_timeout)
+            if not decision.allowed:
+                self.mark_denied(ctx.request_id)
             return AuthorizationDecision(
                 allowed=decision.allowed, reason=decision.reason, call_id=call_id
             )
         except TimeoutError:
+            self.mark_denied(ctx.request_id)
             return AuthorizationDecision(
                 allowed=False, reason="authorization timed out"
             )
@@ -146,6 +151,12 @@ class AuthorizationManager:
             AuthorizationDecision(allowed=decision == "allow", reason=reason)
         )
         return True
+
+    def mark_denied(self, request_id: UUID) -> None:
+        self._denied.add(request_id)
+
+    def was_denied(self, request_id: UUID) -> bool:
+        return request_id in self._denied
 
     def cancel_for_request(self, request_id: UUID) -> None:
         for (waiting_request_id, _), future in list(self._waiting.items()):

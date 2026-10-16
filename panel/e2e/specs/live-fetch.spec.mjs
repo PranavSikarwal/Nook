@@ -58,7 +58,9 @@ describe('live web fetch approval through the native Panel', () => {
     const card = await waitForApproval()
     await card.$('button=Deny').click()
     const assistant = await waitForStatus('complete')
-    if ((await assistant.getText()).trim().length === 0) throw new Error('The reply after Deny is empty.')
+    if (!(await assistant.getText()).includes('Request denied')) {
+      throw new Error('The reply did not end with the denial notice after Deny.')
+    }
   })
 
   it('fetches the page after Allow once', async () => {

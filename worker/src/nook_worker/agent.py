@@ -135,6 +135,9 @@ def _format_validation_error(error: ValidationError) -> str:
     return f"Error: invalid arguments. {details}"
 
 
+DENIAL_NOTICE = "Request denied. I stopped here."
+
+
 def _format_denial(decision: AuthorizationDecision) -> str:
     if decision.reason:
         return f"Error: request denied: {decision.reason}"
@@ -301,12 +304,17 @@ class RealAgentRunner:
 
         previous_call_id: str | None = None
         has_emitted_text = False
+        denied = False
 
         async for chunk, _metadata in self._agent.astream(
             {"messages": [input_message]},
             stream_mode="messages",
             config=stream_config,
         ):
+            if default_authorization_manager.was_denied(request.request_id):
+                denied = True
+                break
+
             if _should_skip_chunk(_metadata):
                 continue
 
@@ -335,6 +343,14 @@ class RealAgentRunner:
                 request_id=request.request_id,
                 message_id=msg_id,
                 text=delta,
+            )
+
+        if denied or default_authorization_manager.was_denied(request.request_id):
+            default_authorization_manager.cancel_for_request(request.request_id)
+            yield TextDeltaEvent(
+                request_id=request.request_id,
+                message_id=msg_id,
+                text=("\n\n" if has_emitted_text else "") + DENIAL_NOTICE,
             )
 
         yield MessageFinishedEvent(

@@ -96,12 +96,21 @@ the user cancelled. The Panel shows a line such as "Running web fetch" and then
 "Finished web fetch" under the reply. A reply that ends before the tool
 finishes shows "Stopped web fetch".
 
+## Denial ends the reply
+
+A denial ends the reply. This covers a Deny click, a policy denial, and a
+timeout. The Worker returns the denial to the model for that one call, then
+stops the run at the next chunk. It adds the text "Request denied. I stopped
+here." and ends the reply as complete. The model does not continue.
+
 ## Work still open
 
-A denied call returns `Error: request denied` to the model, and the model keeps
-going. Whether a denial should end the reply is not decided. The fetcher still
-checks private addresses after approval, because it must check them again when
-it connects. TP6 tests those checks and adds a start check on a built package.
+After a cancel, the Daemon still forwards `text_delta` events to the Panel, and
+the Panel ignores them. The Daemon also uses the same stream to save the partial
+reply, so the filter must apply only to the forwarded copy. TP6 handles this.
+The fetcher still checks private addresses after approval, because it must check
+them again when it connects. TP6 tests those checks and adds a start check on a
+built package.
 
 The plan in `plans/tool-platform-closeout-and-next-phase.md` blocks new
 privileged tools until TP6 passes.

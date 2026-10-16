@@ -52,7 +52,6 @@ export function ApprovalCard({ request, onDecide, disabled = false }: ApprovalCa
             key={act.id}
             type="button"
             disabled={disabled}
-            title={act.description}
             onClick={() => onDecide(act.id)}
             className={`px-2.5 py-1 rounded-md text-xs font-medium border transition-colors disabled:opacity-50 ${getActionColor(
               act.id
