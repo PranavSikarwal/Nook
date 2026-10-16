@@ -1,5 +1,6 @@
 #![cfg(unix)]
 
+use nook_core::authorization::AuthorizationRequest;
 use nook_core::config::Config;
 use nook_core::policy_assets::PolicyAssets;
 use nook_core::protocol::{ClientMessage, DaemonMessage};
@@ -18,6 +19,30 @@ use uuid::Uuid;
 fn test_policy() -> Arc<PolicyAssets> {
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../policy");
     Arc::new(PolicyAssets::load(&dir).unwrap())
+}
+
+fn pending_entry(
+    chat_id: Uuid,
+    client_request_id: Uuid,
+    worker_request_id: Uuid,
+    call_id: &str,
+) -> PendingApprovalEntry {
+    let request = AuthorizationRequest::normalize(
+        &test_policy().catalog,
+        chat_id,
+        call_id,
+        "nook:web_fetch",
+        r#"{"url":"https://example.com/"}"#,
+    )
+    .unwrap();
+    PendingApprovalEntry {
+        chat_id,
+        client_request_id,
+        worker_request_id,
+        decision_in_flight: false,
+        request,
+        offered_actions: vec!["allow_once".to_string(), "deny".to_string()],
+    }
 }
 
 #[tokio::test]
@@ -302,12 +327,7 @@ async fn test_server_approval_forward_failure_keeps_pending_entry() {
     let call_id = "call_forward_failure".to_string();
     state.pending_approvals.lock().await.insert(
         call_id.clone(),
-        PendingApprovalEntry {
-            chat_id,
-            client_request_id: Uuid::new_v4(),
-            worker_request_id: Uuid::new_v4(),
-            decision_in_flight: false,
-        },
+        pending_entry(chat_id, Uuid::new_v4(), Uuid::new_v4(), &call_id),
     );
 
     let server = Server::bind(&socket_path, shutdown_rx, state.clone())
@@ -338,7 +358,7 @@ async fn test_server_approval_forward_failure_keeps_pending_entry() {
         DaemonMessage::Error { id, error } => {
             assert_eq!(id, decision_id);
             assert!(error.retryable);
-            assert!(error.message.contains("Failed to forward"));
+            assert!(error.message.contains("Failed to deliver"));
         }
         other => panic!("Expected Error response, got {other:?}"),
     }
@@ -356,12 +376,7 @@ async fn test_server_approval_decision_rejects_in_flight_duplicate() {
     let mut pending_approvals = HashMap::new();
     pending_approvals.insert(
         call_id.clone(),
-        PendingApprovalEntry {
-            chat_id,
-            client_request_id: Uuid::new_v4(),
-            worker_request_id,
-            decision_in_flight: false,
-        },
+        pending_entry(chat_id, Uuid::new_v4(), worker_request_id, &call_id),
     );
     let approvals = Arc::new(Mutex::new(pending_approvals));
     let claim_barrier = Arc::new(tokio::sync::Barrier::new(3));
@@ -372,7 +387,13 @@ async fn test_server_approval_decision_rejects_in_flight_duplicate() {
     let first_claim = async move {
         first_barrier.wait().await;
         let mut approvals = first_approvals.lock().await;
-        nook_core::server::claim_pending_approval(&mut approvals, &first_call_id, chat_id)
+        nook_core::server::claim_pending_approval(
+            &mut approvals,
+            &first_call_id,
+            chat_id,
+            "allow_once",
+        )
+        .map(|entry| entry.worker_request_id)
     };
 
     let second_approvals = approvals.clone();
@@ -381,7 +402,13 @@ async fn test_server_approval_decision_rejects_in_flight_duplicate() {
     let second_claim = async move {
         second_barrier.wait().await;
         let mut approvals = second_approvals.lock().await;
-        nook_core::server::claim_pending_approval(&mut approvals, &second_call_id, chat_id)
+        nook_core::server::claim_pending_approval(
+            &mut approvals,
+            &second_call_id,
+            chat_id,
+            "allow_once",
+        )
+        .map(|entry| entry.worker_request_id)
     };
 
     let claims = tokio::join!(first_claim, second_claim, claim_barrier.wait());
@@ -432,12 +459,12 @@ async fn test_server_approval_decision_mismatched_chat_is_nondestructive() {
         let mut approvals = state.pending_approvals.lock().await;
         approvals.insert(
             test_call_id.clone(),
-            nook_core::server::PendingApprovalEntry {
-                chat_id: legitimate_chat_id,
-                client_request_id: client_req_id,
-                worker_request_id: worker_req_id,
-                decision_in_flight: false,
-            },
+            pending_entry(
+                legitimate_chat_id,
+                client_req_id,
+                worker_req_id,
+                &test_call_id,
+            ),
         );
     }
 

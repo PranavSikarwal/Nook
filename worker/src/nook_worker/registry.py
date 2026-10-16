@@ -22,7 +22,6 @@ class ToolDefinition:
     description: str
     argument_schema: type[BaseModel]
     capabilities: dict[str, Any]
-    approval_tier: str
     executor: Callable[..., Awaitable[str]]
 
 

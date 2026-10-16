@@ -72,6 +72,16 @@ impl AuthorizationRequest {
     pub fn url(&self) -> Option<&str> {
         self.arguments.get("url").and_then(Value::as_str)
     }
+
+    pub fn resource_summary(&self) -> String {
+        if let (Some(url), Some(host)) = (self.url(), self.target_host.as_deref()) {
+            return format!("{url} ({host})");
+        }
+        if let Some(query) = self.arguments.get("query").and_then(Value::as_str) {
+            return query.to_string();
+        }
+        self.arguments.to_string()
+    }
 }
 
 fn fetch_target_host(arguments: &Value) -> Result<String, AuthorizationError> {
@@ -324,5 +334,40 @@ mod tests {
             req.argument_digest,
             "5dc5c505a79bfc2eb22d0e45eff415c6ecf0c965c3d53d6e3e02c1bda74b0927"
         );
+    }
+
+    #[test]
+    fn fetch_resource_summary_shows_url_and_host() {
+        let req = fetch(r#"{"url":"https://Docs.Example.com/a?b=1"}"#).unwrap();
+        assert_eq!(
+            req.resource_summary(),
+            "https://Docs.Example.com/a?b=1 (docs.example.com)"
+        );
+    }
+
+    #[test]
+    fn search_resource_summary_is_the_query() {
+        let req = AuthorizationRequest::normalize(
+            &catalog(),
+            Uuid::new_v4(),
+            "c",
+            "nook:web_search",
+            r#"{"query":"rust cedar"}"#,
+        )
+        .unwrap();
+        assert_eq!(req.resource_summary(), "rust cedar");
+    }
+
+    #[test]
+    fn search_without_query_summarizes_the_arguments() {
+        let req = AuthorizationRequest::normalize(
+            &catalog(),
+            Uuid::new_v4(),
+            "c",
+            "nook:web_search",
+            r#"{"q":1}"#,
+        )
+        .unwrap();
+        assert_eq!(req.resource_summary(), r#"{"q":1}"#);
     }
 }

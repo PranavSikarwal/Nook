@@ -23,7 +23,6 @@ def test_tool_registry():
         description="Search web",
         argument_schema=DummyArgs,
         capabilities={"network": True, "read_only": True},
-        approval_tier="allow",
         executor=dummy_executor,
     )
     registry.register(tool)
@@ -31,25 +30,6 @@ def test_tool_registry():
     assert registry.get("nook:web_search") == tool
     assert registry.get("nonexistent") is None
     assert len(registry.list_tools()) == 1
-
-
-@pytest.mark.asyncio
-async def test_tool_registry_denied_tier():
-    registry = ToolRegistry()
-    tool = ToolDefinition(
-        name="nook:blocked_tool",
-        description="Blocked tool",
-        argument_schema=DummyArgs,
-        capabilities={},
-        approval_tier="deny",
-        executor=dummy_executor,
-    )
-    registry.register(tool)
-
-    # When runner inspects approval_tier == "deny", execution is blocked
-    defn = registry.get("nook:blocked_tool")
-    assert defn is not None
-    assert defn.approval_tier == "deny"
 
 
 def _registry_with_real_schemas() -> ToolRegistry:
@@ -60,7 +40,6 @@ def _registry_with_real_schemas() -> ToolRegistry:
             description="Search",
             argument_schema=StrictWebSearchInput,
             capabilities={},
-            approval_tier="allow",
             executor=dummy_executor,
         )
     )
@@ -70,7 +49,6 @@ def _registry_with_real_schemas() -> ToolRegistry:
             description="Fetch",
             argument_schema=StrictWebFetchInput,
             capabilities={},
-            approval_tier="ask_once_per_host",
             executor=dummy_executor,
         )
     )

@@ -19,41 +19,43 @@ for line in sys.stdin:
 
     if req_type == "shutdown":
         sys.exit(0)
-    elif req_type == "run" and req.get("text") == "needs approval":
+    elif req_type == "run" and req.get("text", "").startswith("authorize:"):
         msg_id = "44444444-4444-4444-4444-444444444444"
+        call_id, tool_name, arguments = req["text"][len("authorize:"):].split("|", 2)
         for event in (
             {"type": "message_started", "request_id": req_id, "message_id": msg_id},
             {
-                "type": "approval_requested",
+                "type": "authorize_tool",
                 "request_id": req_id,
                 "message_id": msg_id,
-                "call_id": "call_fake",
-                "tool_name": "nook:web_fetch",
-                "arguments": "{}",
-                "explanation": "Fake approval",
-                "resource_summary": "https://example.com",
-                "actions": ["allow_once", "deny"],
+                "call_id": call_id,
+                "chat_id": req.get("chat_id"),
+                "tool_name": tool_name,
+                "arguments": arguments,
             },
         ):
             sys.stdout.write(json.dumps(event) + "\n")
         sys.stdout.flush()
-    elif req_type == "approval_decision":
+    elif req_type == "run" and req.get("text") == "crash":
+        sys.exit(1)
+    elif req_type == "authorization_result":
         msg_id = "44444444-4444-4444-4444-444444444444"
-        for event in (
-            {
-                "type": "text_delta",
-                "request_id": req_id,
-                "message_id": msg_id,
-                "text": f"Decision: {req.get('action')}",
-            },
-            {
-                "type": "message_finished",
-                "request_id": req_id,
-                "message_id": msg_id,
-                "status": "complete",
-            },
-        ):
-            sys.stdout.write(json.dumps(event) + "\n")
+        result = {
+            "call_id": req.get("call_id"),
+            "decision": req.get("decision"),
+            "reason": req.get("reason"),
+        }
+        sys.stdout.write(
+            json.dumps(
+                {
+                    "type": "text_delta",
+                    "request_id": req_id,
+                    "message_id": msg_id,
+                    "text": "Result: " + json.dumps(result),
+                }
+            )
+            + "\n"
+        )
         sys.stdout.flush()
     elif req_type == "run":
         msg_id = "44444444-4444-4444-4444-444444444444"
