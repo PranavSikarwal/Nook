@@ -59,12 +59,18 @@ after `allow`. `panel/e2e/test_fake_worker.py` checks every message it sends
 against the schema. Start a native run from `panel/`:
 
 ```sh
-export NOOK_E2E_DATABASE_URL=postgresql://USER:PASSWORD@localhost:5432/postgres
+export NOOK_E2E_DATABASE_URL=postgresql://USER@localhost:5432/postgres
 rtk npm run test:e2e:deterministic
 ```
 
-The role in the URL must be able to create databases. Each run creates and drops
-one database named `nook_e2e_` followed by an id. A failed run can leave one
+The runner stops the test Daemon when the run ends. It finds the process
+through the `daemon.sock` file in the run's own app directory.
+
+A local Postgres that trusts local logins needs no password in the URL. Leave it
+out, because a password with `@` or `/` must be percent-encoded and can end up in
+an error message. For a server that needs one, write `USER:PASSWORD@`. The role
+in the URL must be able to create databases. Each run creates and drops one
+database named `nook_e2e_` followed by an id. A failed run can leave one
 behind. Drop it by hand.
 
 The live native test calls your model endpoint. It reads `NOOK_BASE_URL`,

@@ -1,10 +1,11 @@
-import { spawn } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
 import { createServer } from 'node:net'
 import { chmod, mkdir, mkdtemp, open, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
+import { promisify } from 'node:util'
 import { Client } from 'pg'
 
 const panelDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -17,6 +18,7 @@ const runId = randomUUID().replaceAll('-', '').slice(0, 16)
 const databaseName = `nook_e2e_${runId}`
 const marker = `nook-e2e-owner-${runId}`
 let tempRoot
+let testAppDir
 let databaseCreated = false
 let activeChild
 let lockHandle
@@ -85,6 +87,38 @@ async function stopActiveChild(signal) {
   child.kill(signal)
   await new Promise((resolve) => child.once('exit', resolve))
   if (activeChild === child) activeChild = undefined
+}
+
+const execFileAsync = promisify(execFile)
+const DAEMON_NAMES = new Set(['nookd', 'nookd-delayed'])
+
+function isRunning(pid) {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function stopTestDaemons(appDir) {
+  if (!appDir) return
+  let pids = []
+  try {
+    const { stdout } = await execFileAsync('lsof', ['-t', path.join(appDir, 'daemon.sock')])
+    pids = stdout.split('\n').filter(Boolean).map(Number)
+  } catch {
+    return
+  }
+  for (const pid of pids) {
+    const { stdout } = await execFileAsync('ps', ['-o', 'comm=', '-p', String(pid)]).catch(() => ({ stdout: '' }))
+    if (!DAEMON_NAMES.has(path.basename(stdout.trim()))) continue
+    process.kill(pid, 'SIGTERM')
+    for (let waited = 0; isRunning(pid) && waited < 5000; waited += 100) {
+      await new Promise((resolve) => setTimeout(resolve, 100))
+    }
+    if (isRunning(pid)) process.kill(pid, 'SIGKILL')
+  }
 }
 
 async function createOwnedDatabase(adminUrl) {
@@ -200,6 +234,7 @@ async function main() {
     tempRoot = await mkdtemp(path.join('/tmp', `ne${runId}-`))
     const appDir = path.join(tempRoot, 'app-data')
     await mkdir(appDir, { recursive: false })
+    testAppDir = appDir
     const databaseUrl = await createOwnedDatabase(adminUrl)
     const manifestPath = path.join(tempRoot, 'run.json')
     await writeFile(manifestPath, JSON.stringify({ runId, databaseName, appDir, mode, port }, null, 2))
@@ -239,7 +274,10 @@ async function main() {
       NOOK_DISABLE_KEYCHAIN: '1',
       NOOKD_PATH: testDaemonPath,
       ...(isDeterministic
-        ? { NOOK_E2E_WORKER_COMMAND: `python3 ${path.join(panelDir, 'e2e/fake_worker.py')}` }
+        ? {
+            NOOK_E2E_WORKER_COMMAND: `python3 ${path.join(panelDir, 'e2e/fake_worker.py')}`,
+            NOOK_E2E_APPROVAL_TIMEOUT_MS: '30000',
+          }
         : {}),
       NOOK_E2E_REAL_APP_BINARY: path.join(panelDir, 'src-tauri', 'target', 'debug', 'nook-panel'),
       NOOK_E2E_WDIO_PORT: String(port),
@@ -260,7 +298,11 @@ async function main() {
         ...(isDeterministic ? ['--features', 'e2e'] : []),
       ], { cwd: daemonDir, env })
       await run('npm', ['exec', '--', 'tauri', 'build', '--debug', '--no-bundle', '--features', 'e2e', '--config', 'src-tauri/tauri.e2e.conf.json'], { cwd: panelDir, env })
-      await run('npm', ['exec', '--', 'wdio', 'run', 'e2e/wdio.conf.mjs'], { cwd: panelDir, env })
+      try {
+        await run('npm', ['exec', '--', 'wdio', 'run', 'e2e/wdio.conf.mjs'], { cwd: panelDir, env })
+      } finally {
+        await stopTestDaemons(testAppDir)
+      }
       const workerEnvironmentWarning = await hasWorkerEnvironmentWarning(tempRoot)
       console.log(`Worker environment-path warning: ${workerEnvironmentWarning ? 'found' : 'not found in captured logs'}.`)
       await dropOwnedDatabase(adminUrl)
@@ -271,6 +313,7 @@ async function main() {
     }
   } finally {
     await stopActiveChild('SIGTERM')
+    await stopTestDaemons(testAppDir)
     await releaseRunLock()
   }
 }

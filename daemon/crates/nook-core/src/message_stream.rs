@@ -216,13 +216,12 @@ pub(crate) async fn handle_send_message(
         match ev {
             DaemonWorkerEvent::MessageStarted { message_id, .. } => {
                 asst_message_id = message_id;
-                let _ = tx_out
-                    .send(DaemonMessage::MessageStarted {
-                        id,
-                        chat_id,
-                        message_id,
-                    })
-                    .await;
+                let message = DaemonMessage::MessageStarted {
+                    id,
+                    chat_id,
+                    message_id,
+                };
+                forward_unless_cancelled(&state, id, message, &tx_out).await;
             }
 
             DaemonWorkerEvent::TextDelta { text: delta, .. } => {
@@ -331,7 +330,8 @@ pub(crate) async fn handle_send_message(
                 )
                 .await;
 
-                let _ = tx_out.send(DaemonMessage::Error { id, error }).await;
+                forward_unless_cancelled(&state, id, DaemonMessage::Error { id, error }, &tx_out)
+                    .await;
                 let _ = tx_out
                     .send(DaemonMessage::MessageFinished {
                         id,
@@ -357,6 +357,22 @@ pub(crate) async fn handle_send_message(
     }
 }
 
+pub async fn forward_unless_cancelled(
+    state: &AppState,
+    client_request_id: Uuid,
+    message: DaemonMessage,
+    tx_out: &mpsc::Sender<DaemonMessage>,
+) {
+    let cancelled = state
+        .cancelled_requests
+        .lock()
+        .await
+        .contains(&client_request_id);
+    if !cancelled {
+        let _ = tx_out.send(message).await;
+    }
+}
+
 pub async fn forward_text_delta(
     state: &AppState,
     client_request_id: Uuid,
@@ -367,22 +383,13 @@ pub async fn forward_text_delta(
     tx_out: &mpsc::Sender<DaemonMessage>,
 ) {
     full_text.push_str(&delta);
-    if state
-        .cancelled_requests
-        .lock()
-        .await
-        .contains(&client_request_id)
-    {
-        return;
-    }
-    let _ = tx_out
-        .send(DaemonMessage::TextDelta {
-            id: client_request_id,
-            chat_id,
-            message_id,
-            text: delta,
-        })
-        .await;
+    let message = DaemonMessage::TextDelta {
+        id: client_request_id,
+        chat_id,
+        message_id,
+        text: delta,
+    };
+    forward_unless_cancelled(state, client_request_id, message, tx_out).await;
 }
 
 pub async fn forward_tool_call_event(
@@ -393,14 +400,6 @@ pub async fn forward_tool_call_event(
     event: DaemonWorkerEvent,
     tx_out: &mpsc::Sender<DaemonMessage>,
 ) {
-    if state
-        .cancelled_requests
-        .lock()
-        .await
-        .contains(&client_request_id)
-    {
-        return;
-    }
     let message = match event {
         DaemonWorkerEvent::ToolCallStarted {
             call_id,
@@ -426,7 +425,7 @@ pub async fn forward_tool_call_event(
         },
         _ => return,
     };
-    let _ = tx_out.send(message).await;
+    forward_unless_cancelled(state, client_request_id, message, tx_out).await;
 }
 
 async fn request_title(

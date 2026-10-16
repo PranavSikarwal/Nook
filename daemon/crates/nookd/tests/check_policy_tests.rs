@@ -109,3 +109,23 @@ fn check_policy_finds_the_policy_next_to_the_daemon_directory() {
     );
     assert!(stdout.starts_with("policy ok: "), "stdout: {stdout}");
 }
+
+#[test]
+fn nookd_rejects_arguments_other_than_check_policy() {
+    for args in [
+        vec!["--bogus"],
+        vec!["--bogus", "--check-policy"],
+        vec!["--check-policy", "extra"],
+    ] {
+        let output = Command::new(env!("CARGO_BIN_EXE_nookd"))
+            .args(&args)
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(2), "{args:?}");
+        assert!(output.stdout.is_empty(), "{args:?}");
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains("Usage: nookd"),
+            "{args:?}"
+        );
+    }
+}

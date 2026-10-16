@@ -12,11 +12,19 @@ use tracing::{error, info, warn};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    if std::env::args().skip(1).any(|arg| arg == "--check-policy") {
-        std::process::exit(check_policy());
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    match args.as_slice() {
+        [] => {}
+        [flag] if flag == "--check-policy" => std::process::exit(check_policy()),
+        _ => {
+            eprintln!("Usage: nookd [--check-policy]");
+            std::process::exit(2);
+        }
     }
 
-    tracing_subscriber::fmt::init();
+    tracing_subscriber::fmt()
+        .with_writer(std::io::stderr)
+        .init();
 
     // 0. Load .env if present
     Config::load_env_file();
@@ -41,7 +49,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let api_key = keychain::get_api_key();
 
     // 3. Connect to Postgres with 30s retry
-    let pool = connect_db_with_retry(&config.database_url, Duration::from_secs(30)).await;
+    let pool = db::connect_with_retry(
+        &config.database_url,
+        Duration::from_secs(30),
+        db::CONNECT_ATTEMPT_TIMEOUT,
+    )
+    .await;
 
     // 4. Run migrations & 5. Repair open replies
     if let Some(ref p) = pool {
@@ -84,6 +97,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         open_requests: Mutex::new(HashMap::new()),
         pending_approvals: Mutex::new(HashMap::new()),
         cancelled_requests: Mutex::new(std::collections::HashSet::new()),
+        approval_timeout: approval_timeout(),
         policy,
     });
 
@@ -157,6 +171,20 @@ fn e2e_worker_command() -> Option<Vec<String>> {
 }
 
 #[cfg(feature = "e2e")]
+fn approval_timeout() -> Duration {
+    std::env::var("NOOK_E2E_APPROVAL_TIMEOUT_MS")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .map(Duration::from_millis)
+        .unwrap_or(nook_core::tool_approval::APPROVAL_TIMEOUT)
+}
+
+#[cfg(not(feature = "e2e"))]
+fn approval_timeout() -> Duration {
+    nook_core::tool_approval::APPROVAL_TIMEOUT
+}
+
+#[cfg(feature = "e2e")]
 fn deterministic_worker_enabled() -> bool {
     std::env::var("NOOK_E2E_WORKER_COMMAND").is_ok()
 }
@@ -164,20 +192,4 @@ fn deterministic_worker_enabled() -> bool {
 #[cfg(not(feature = "e2e"))]
 fn deterministic_worker_enabled() -> bool {
     false
-}
-
-async fn connect_db_with_retry(db_url: &str, timeout_dur: Duration) -> Option<sqlx::PgPool> {
-    let start = std::time::Instant::now();
-    loop {
-        match db::create_pool(db_url).await {
-            Ok(pool) => return Some(pool),
-            Err(e) => {
-                if start.elapsed() >= timeout_dur {
-                    warn!("Database connection failed after 30s timeout: {e}");
-                    return None;
-                }
-                tokio::time::sleep(Duration::from_secs(1)).await;
-            }
-        }
-    }
 }

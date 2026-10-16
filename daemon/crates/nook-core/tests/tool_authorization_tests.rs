@@ -68,7 +68,16 @@ impl Harness {
         Self::with_policy(modified_policy(edit)).await
     }
 
+    async fn with_timeout(approval_timeout: Duration) -> Self {
+        let policy = Arc::new(PolicyAssets::load(&policy_dir()).unwrap());
+        Self::build(policy, approval_timeout).await
+    }
+
     async fn with_policy(policy: Arc<PolicyAssets>) -> Self {
+        Self::build(policy, APPROVAL_TIMEOUT).await
+    }
+
+    async fn build(policy: Arc<PolicyAssets>, approval_timeout: Duration) -> Self {
         let supervisor =
             WorkerSupervisor::new(&Config::default(), None, Some(fake_worker_command()))
                 .await
@@ -82,6 +91,7 @@ impl Harness {
             open_requests: Mutex::new(HashMap::new()),
             pending_approvals: Mutex::new(HashMap::new()),
             cancelled_requests: Mutex::new(HashSet::new()),
+            approval_timeout,
             policy,
         });
         let (panel_tx, panel_rx) = mpsc::channel(32);
@@ -1043,4 +1053,56 @@ async fn expiry_does_not_touch_a_newer_call_that_reuses_the_call_id() {
     expire_pending_approval(&h.state, "c1", Uuid::new_v4(), Duration::from_millis(20)).await;
     assert_eq!(h.pending_count().await, 1);
     assert_worker_silent(&mut call).await;
+}
+
+#[tokio::test]
+async fn an_unanswered_approval_expires_by_itself() {
+    let mut h = Harness::with_timeout(Duration::from_millis(100)).await;
+    let mut call = h
+        .start_call(
+            Uuid::new_v4(),
+            "c1",
+            FETCH,
+            &fetch_args("https://a.example/x"),
+        )
+        .await;
+    h.expect_prompt().await;
+
+    let (decision, reason) = worker_result(&mut call).await;
+
+    assert_eq!(decision, "deny");
+    assert_eq!(reason.as_deref(), Some("Approval timed out"));
+    assert_eq!(h.pending_count().await, 0);
+}
+
+#[tokio::test]
+async fn a_decision_before_the_timeout_is_not_followed_by_a_second_result() {
+    let mut h = Harness::with_timeout(Duration::from_millis(150)).await;
+    let chat_id = Uuid::new_v4();
+    let mut call = h
+        .start_call(chat_id, "c1", FETCH, &fetch_args("https://a.example/x"))
+        .await;
+    h.expect_prompt().await;
+    h.decide_in_chat(chat_id, "c1", "allow_once").await;
+    assert_eq!(worker_result(&mut call).await.0, "allow");
+
+    tokio::time::sleep(Duration::from_millis(400)).await;
+
+    assert_worker_silent(&mut call).await;
+}
+
+#[tokio::test]
+async fn the_expiry_timer_does_not_keep_the_daemon_state_alive() {
+    let mut h = Harness::new().await;
+    let _call = h
+        .start_call(
+            Uuid::new_v4(),
+            "c1",
+            FETCH,
+            &fetch_args("https://a.example/x"),
+        )
+        .await;
+    h.expect_prompt().await;
+
+    assert_eq!(Arc::strong_count(&h.state), 1);
 }

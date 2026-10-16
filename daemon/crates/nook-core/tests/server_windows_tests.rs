@@ -30,6 +30,7 @@ async fn windows_named_pipe_round_trips_json_ping() {
         open_requests: Mutex::new(HashMap::new()),
         pending_approvals: Mutex::new(HashMap::new()),
         cancelled_requests: Mutex::new(std::collections::HashSet::new()),
+        approval_timeout: nook_core::tool_approval::APPROVAL_TIMEOUT,
         policy: test_policy(),
     });
     let (shutdown_tx, shutdown_rx) = broadcast::channel(1);

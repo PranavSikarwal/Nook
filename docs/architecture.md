@@ -17,13 +17,18 @@ schemas live in `contracts/`. Tool policy files live in `policy/`.
    the configured model endpoint, and exposes registered tools.
 
 On macOS and Linux, the Panel and Daemon communicate through a local Unix
-socket. Windows uses a named pipe scoped to the current account. The Daemon
+socket. Windows uses a named pipe scoped to the current account. A Daemon
+refuses to start when another Daemon already answers on that socket, and it
+removes the socket on shutdown only if the file is still its own. The Daemon
 and Worker exchange newline-delimited JSON through standard input and output.
 
 ## Stored data
 
 The user manages PostgreSQL. Nook does not install or operate PostgreSQL.
-`database_url` selects the database. The Daemon stores chats, messages, and
+`database_url` selects the database. The Daemon tries to connect for 30 seconds,
+with a 5 second limit on each attempt, and logs every failed attempt. If it still
+cannot connect, it starts without a database, and requests fail with
+`database_unavailable` until the Daemon restarts. The Daemon stores chats, messages, and
 attachment metadata. The Worker stores conversation checkpoints using the same
 chat identifier as its thread identifier.
 

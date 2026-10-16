@@ -130,6 +130,26 @@ describe('native approval and grant scope', () => {
     await waitForLatestComplete('Approval denied')
   })
 
+  it('removes the approval card and ends the reply when nobody answers in time', async () => {
+    await submitUrl('https://expire.example.test/page')
+    await waitForApproval()
+
+    await browser.waitUntil(async () => !(await $('[data-testid="approval-card"]').isExisting()), {
+      timeout: 60_000,
+      interval: 250,
+      timeoutMsg: 'The approval card stayed on screen after the approval timed out.',
+    })
+    const reply = await waitForLatestComplete('Approval denied')
+    if (!(await reply.getText()).includes('Approval timed out')) {
+      throw new Error('The reply did not say that the approval timed out.')
+    }
+
+    const prompt = 'E2E_REPLY:after expiry'
+    await $('[aria-label="Ask anything"]').setValue(prompt)
+    await $('[aria-label="Send question"]').click()
+    await waitForLatestComplete('after expiry')
+  })
+
   it('keeps a second URL unsent while the first approval is pending', async () => {
     const first = 'https://pending-url.example.test/first'
     await submitUrl(first)

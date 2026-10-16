@@ -285,8 +285,10 @@ pub async fn ensure_daemon_started(state: &DaemonState) {
                 }
             }
             #[cfg(feature = "e2e")]
-            if let Some(value) = std::env::var_os("NOOK_E2E_WORKER_COMMAND") {
-                cmd.env("NOOK_E2E_WORKER_COMMAND", value);
+            for env_key in ["NOOK_E2E_WORKER_COMMAND", "NOOK_E2E_APPROVAL_TIMEOUT_MS"] {
+                if let Some(value) = std::env::var_os(env_key) {
+                    cmd.env(env_key, value);
+                }
             }
 
             let daemon_log_path = std::env::var_os("NOOK_E2E_RUN_DIR")

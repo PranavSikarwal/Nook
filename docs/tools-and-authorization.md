@@ -13,8 +13,22 @@ approval tier in `policy/tools.yaml`. The fetcher checks URL schemes, addresses,
 response types, timeouts, and response size. It follows a redirect only when the
 target has the same host as the requested URL. A redirect to another host ends
 with an error that asks for the new URL, so the Daemon can ask the user again.
-It blocks private, loopback, link-local, carrier-grade NAT, and other
-non-public addresses.
+It blocks every address that is not globally routable. That includes private,
+loopback, link-local, carrier-grade NAT, documentation, and other reserved
+ranges. The approval prompt does not warn about redirects. The tool description
+tells the model and the user that a redirect to another host needs its own
+approval.
+
+A fetch stops with `Request timed out` after 30 seconds in total, across all
+redirects. Each read also has its own 15 second limit.
+
+The Daemon and the Worker must read a URL the same way. A URL with a backslash,
+a space, a control character, or a username is rejected by both. So is an IP
+address that is not four decimal numbers, such as `2130706433` or `0x7f.1`. Both name the
+host in lowercase IDNA ASCII, using the UTS 46 rules of the `idna` crate and the
+`idna` Python package. The Worker looks up DNS on that ASCII name. The file
+`contracts/host-vectors.json` lists accepted and rejected URLs, and a test on
+each side reads it.
 
 ## Policy files
 
@@ -111,8 +125,14 @@ here." and ends the reply as complete. The model does not continue.
 
 The Worker waits 300 seconds for a result. The Daemon expires a pending approval
 after the same time and sends the Worker a denial with the reason `Approval
-timed out`. A click after that gets an error and records no grant. The Panel
-card stays on screen until the reply ends.
+timed out`. A click after that gets an error and records no grant. The Worker
+ends the reply on the denial, and the Panel removes the card when the reply
+ends. The timer holds only a weak reference to the Daemon state, so a decision
+that arrives first leaves it with nothing to keep alive.
+
+The `AppState` field `approval_timeout` holds the time. A `nookd` built with the
+`e2e` feature reads `NOOK_E2E_APPROVAL_TIMEOUT_MS`. The deterministic native
+run sets it to 15 seconds.
 
 ## Startup rules for `tools.yaml`
 
@@ -124,12 +144,16 @@ to its grant scope. A test checks that the Panel schema lists the same ids.
 Run `nookd --check-policy` to check the policy files without starting the
 Daemon. It prints `policy ok` and the tool count, or an error, and sets the exit
 code. The package workflow runs it on the staged Daemon for each platform.
+`nookd` accepts no argument or `--check-policy` alone. Any other argument prints
+a usage line and exits with code 2.
+
+## After a cancel
+
+After a cancel, the Daemon stops forwarding `text_delta`, tool events,
+`message_started`, and error events to the Panel. It still saves the full text
+and forwards the final `message_finished`.
 
 ## Work still open
-
-After a cancel, the Daemon stops forwarding `text_delta` and tool events to the
-Panel. It still saves the full text. It forwards `message_started` and error
-events from a cancelled request. The Panel ignores them.
 
 The plan in `plans/tool-platform-closeout-and-next-phase.md` blocks new
 privileged tools until TP6 passes.

@@ -2,17 +2,55 @@ use chrono::{DateTime, Utc};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::{PgPool, Row};
 use std::collections::HashMap;
+use std::time::{Duration, Instant};
+use tracing::warn;
 use uuid::Uuid;
 
 use crate::protocol::{
     Attachment, AttachmentKind, ChatMessage, ChatSummary, ErrorCode, ErrorInfo, MessageStatus, Role,
 };
 
+pub const CONNECT_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(5);
+
 pub async fn create_pool(database_url: &str) -> Result<PgPool, sqlx::Error> {
+    create_pool_with_timeout(database_url, CONNECT_ATTEMPT_TIMEOUT).await
+}
+
+pub async fn create_pool_with_timeout(
+    database_url: &str,
+    attempt_timeout: Duration,
+) -> Result<PgPool, sqlx::Error> {
     PgPoolOptions::new()
         .max_connections(10)
+        .acquire_timeout(attempt_timeout)
         .connect(database_url)
         .await
+}
+
+pub async fn connect_with_retry(
+    database_url: &str,
+    total: Duration,
+    attempt_timeout: Duration,
+) -> Option<PgPool> {
+    let start = Instant::now();
+    let mut attempt = 1u32;
+    loop {
+        match create_pool_with_timeout(database_url, attempt_timeout).await {
+            Ok(pool) => return Some(pool),
+            Err(error) => {
+                warn!("Database connection attempt {attempt} failed: {error}");
+                if start.elapsed() >= total {
+                    warn!(
+                        "Database connection failed after {} attempts in {:?}",
+                        attempt, total
+                    );
+                    return None;
+                }
+                attempt += 1;
+                tokio::time::sleep(Duration::from_secs(1)).await;
+            }
+        }
+    }
 }
 
 pub async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::migrate::MigrateError> {

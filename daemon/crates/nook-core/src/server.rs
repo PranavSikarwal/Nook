@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 #[cfg(windows)]
 use tokio::net::windows::named_pipe::{NamedPipeServer, ServerOptions};
@@ -29,7 +30,9 @@ use crate::config::Config;
 use crate::db;
 use crate::keychain;
 use crate::message_stream::handle_send_message;
-pub use crate::message_stream::{forward_text_delta, forward_tool_call_event};
+pub use crate::message_stream::{
+    forward_text_delta, forward_tool_call_event, forward_unless_cancelled,
+};
 use crate::policy_assets::PolicyAssets;
 use crate::protocol::{
     Attachment, ClientMessage, DaemonMessage, DaemonWorkerRequest, ErrorCode, ErrorInfo,
@@ -85,11 +88,14 @@ pub struct AppState {
     pub open_requests: Mutex<HashMap<Uuid, Uuid>>, // maps client id -> worker request_id
     pub pending_approvals: Mutex<HashMap<String, PendingApprovalEntry>>, // maps call_id -> entry
     pub cancelled_requests: Mutex<HashSet<Uuid>>,
+    pub approval_timeout: Duration,
     pub policy: Arc<PolicyAssets>,
 }
 
 pub struct Server {
     socket_path: PathBuf,
+    #[cfg(unix)]
+    socket_inode: u64,
     #[cfg(unix)]
     listener: UnixListener,
     #[cfg(windows)]
@@ -167,6 +173,13 @@ impl Server {
         #[cfg(unix)]
         {
             if socket_path.exists() {
+                if std::os::unix::net::UnixStream::connect(socket_path).is_ok() {
+                    return Err(format!(
+                        "Another daemon is already listening on {}",
+                        socket_path.display()
+                    )
+                    .into());
+                }
                 fs::remove_file(socket_path)?;
             } else if let Some(parent) = socket_path.parent() {
                 fs::create_dir_all(parent)?;
@@ -183,6 +196,7 @@ impl Server {
 
             Ok(Self {
                 socket_path: socket_path.to_path_buf(),
+                socket_inode: std::os::unix::fs::MetadataExt::ino(&fs::metadata(socket_path)?),
                 listener,
                 shutdown_rx,
                 state,
@@ -228,7 +242,9 @@ impl Server {
                 }
             }
 
-            if self.socket_path.exists() {
+            let still_ours = fs::metadata(&self.socket_path)
+                .is_ok_and(|meta| std::os::unix::fs::MetadataExt::ino(&meta) == self.socket_inode);
+            if still_ours {
                 let _ = fs::remove_file(&self.socket_path);
             }
 

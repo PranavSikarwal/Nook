@@ -141,7 +141,11 @@ jobs:
             NOOKD=nookd
           fi
           RESOURCES="$PWD/panel/src-tauri/resources"
-          NOOK_POLICY_DIR="$RESOURCES/policy" "$RESOURCES/daemon/$NOOKD" --check-policy
+          POLICY_DIR="$RESOURCES/policy"
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            POLICY_DIR="$(cygpath -w "$POLICY_DIR")"
+          fi
+          NOOK_POLICY_DIR="$POLICY_DIR" "$RESOURCES/daemon/$NOOKD" --check-policy
           LAYOUT_DIR="$(mktemp -d)"
           CHECK_CWD="$(mktemp -d)"
           cp -R "$RESOURCES/daemon" "$LAYOUT_DIR/daemon"

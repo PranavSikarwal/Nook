@@ -187,9 +187,13 @@ pub async fn handle_authorize_tool(
         let verdict = deny("Approval could not be shown");
         return reply_to_worker(state, ctx, &call_id, verdict).await;
     }
-    let (state, worker_request_id) = (state.clone(), ctx.worker_request_id);
+    let weak_state = Arc::downgrade(state);
+    let (timeout, worker_request_id) = (state.approval_timeout, ctx.worker_request_id);
     tokio::spawn(async move {
-        expire_pending_approval(&state, &call_id, worker_request_id, APPROVAL_TIMEOUT).await;
+        tokio::time::sleep(timeout).await;
+        if let Some(state) = weak_state.upgrade() {
+            expire_pending_approval(&state, &call_id, worker_request_id, Duration::ZERO).await;
+        }
     });
 }
 

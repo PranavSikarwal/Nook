@@ -64,6 +64,7 @@ async fn test_server_ping_pong_and_permissions() {
         open_requests: Mutex::new(HashMap::new()),
         pending_approvals: Mutex::new(HashMap::new()),
         cancelled_requests: Mutex::new(std::collections::HashSet::new()),
+        approval_timeout: nook_core::tool_approval::APPROVAL_TIMEOUT,
         policy: test_policy(),
     });
 
@@ -132,6 +133,7 @@ async fn test_server_returns_error_for_unknown_type_with_id() {
         open_requests: Mutex::new(HashMap::new()),
         pending_approvals: Mutex::new(HashMap::new()),
         cancelled_requests: Mutex::new(std::collections::HashSet::new()),
+        approval_timeout: nook_core::tool_approval::APPROVAL_TIMEOUT,
         policy: test_policy(),
     });
 
@@ -245,6 +247,7 @@ async fn test_server_approval_decision_rejects_unknown_call_id() {
         open_requests: Mutex::new(HashMap::new()),
         pending_approvals: Mutex::new(HashMap::new()),
         cancelled_requests: Mutex::new(std::collections::HashSet::new()),
+        approval_timeout: nook_core::tool_approval::APPROVAL_TIMEOUT,
         policy: test_policy(),
     });
 
@@ -321,6 +324,7 @@ async fn test_server_approval_forward_failure_keeps_pending_entry() {
         open_requests: Mutex::new(HashMap::new()),
         pending_approvals: Mutex::new(HashMap::new()),
         cancelled_requests: Mutex::new(std::collections::HashSet::new()),
+        approval_timeout: nook_core::tool_approval::APPROVAL_TIMEOUT,
         policy: test_policy(),
     });
     let chat_id = Uuid::new_v4();
@@ -447,6 +451,7 @@ async fn test_server_approval_decision_mismatched_chat_is_nondestructive() {
         open_requests: Mutex::new(HashMap::new()),
         pending_approvals: Mutex::new(HashMap::new()),
         cancelled_requests: Mutex::new(std::collections::HashSet::new()),
+        approval_timeout: nook_core::tool_approval::APPROVAL_TIMEOUT,
         policy: test_policy(),
     });
 

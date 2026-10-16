@@ -47,7 +47,11 @@ describe('native History, persistence, and settings', () => {
     const activeRow = await $('[data-chat-row][data-active="true"]')
     const chatId = await activeRow.getAttribute('data-chat-row')
     await $('[aria-label="Toggle history drawer"]').click()
+    await browser.execute(() => { window.__nookBeforeReload = true })
     await browser.refresh()
+    await browser.waitUntil(async () => await browser.execute(() =>
+      window.__nookBeforeReload !== true && document.readyState === 'complete'),
+    { timeout: 30_000, interval: 100, timeoutMsg: 'The Panel did not finish reloading.' })
     await browser.tauri.switchWindow('main')
     await browser.waitUntil(async () =>
       await browser.tauri.execute(({ core }) => core.invoke('ping_daemon')) === true,

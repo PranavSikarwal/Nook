@@ -3,9 +3,12 @@
 use nook_core::config::Config;
 use nook_core::policy_assets::PolicyAssets;
 use nook_core::protocol::{
-    ClientMessage, DaemonMessage, DaemonWorkerEvent, DaemonWorkerRequest, FinishStatus,
+    ClientMessage, DaemonMessage, DaemonWorkerEvent, DaemonWorkerRequest, ErrorCode, ErrorInfo,
+    FinishStatus,
 };
-use nook_core::server::{forward_text_delta, forward_tool_call_event, AppState, Server};
+use nook_core::server::{
+    forward_text_delta, forward_tool_call_event, forward_unless_cancelled, AppState, Server,
+};
 use nook_core::supervisor::WorkerSupervisor;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -60,6 +63,7 @@ impl Harness {
             open_requests: Mutex::new(HashMap::new()),
             pending_approvals: Mutex::new(HashMap::new()),
             cancelled_requests: Mutex::new(HashSet::new()),
+            approval_timeout: nook_core::tool_approval::APPROVAL_TIMEOUT,
             policy: Arc::new(PolicyAssets::load(&policy_dir).unwrap()),
         });
         let (panel_tx, panel_rx) = mpsc::channel(32);
@@ -328,4 +332,55 @@ async fn text_of_another_request_is_forwarded_while_one_is_cancelled() {
         h.expect_panel().await,
         DaemonMessage::TextDelta { id, .. } if id == other
     ));
+}
+
+#[tokio::test]
+async fn message_started_and_error_after_cancel_are_not_forwarded() {
+    let mut h = Harness::new().await;
+    let client_id = Uuid::new_v4();
+    let chat_id = Uuid::new_v4();
+    h.state.cancelled_requests.lock().await.insert(client_id);
+
+    forward_unless_cancelled(
+        &h.state,
+        client_id,
+        DaemonMessage::MessageStarted {
+            id: client_id,
+            chat_id,
+            message_id: Uuid::new_v4(),
+        },
+        &h.panel_tx,
+    )
+    .await;
+    forward_unless_cancelled(
+        &h.state,
+        client_id,
+        DaemonMessage::Error {
+            id: client_id,
+            error: ErrorInfo {
+                code: ErrorCode::Internal,
+                message: "late".to_string(),
+                retryable: false,
+            },
+        },
+        &h.panel_tx,
+    )
+    .await;
+
+    h.assert_panel_silent();
+}
+
+#[tokio::test]
+async fn message_started_is_forwarded_when_the_request_is_live() {
+    let mut h = Harness::new().await;
+    let client_id = Uuid::new_v4();
+    let message = DaemonMessage::MessageStarted {
+        id: client_id,
+        chat_id: Uuid::new_v4(),
+        message_id: Uuid::new_v4(),
+    };
+
+    forward_unless_cancelled(&h.state, client_id, message.clone(), &h.panel_tx).await;
+
+    assert_eq!(h.expect_panel().await, message);
 }
