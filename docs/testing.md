@@ -81,7 +81,7 @@ the fetch flow: deny, allow once, a chat and host grant, and cancel.
 The package workflow runs `nookd --check-policy` on the staged Daemon. It runs
 once with `NOOK_POLICY_DIR` set and once from a copy of the resource layout
 without it. `scripts/bundle.sh` runs the same check on the macOS bundle. These
-steps have not run on GitHub yet. Fetcher tests in
+steps passed on macOS, Ubuntu, and Windows in package workflow run 38966546745. Fetcher tests in
 `worker/tests/test_fetch_redirects_and_guards.py` cover redirects and the
 address guards. The next tool platform must test
 sandbox boundaries before it exposes terminal, filesystem, browser, or
