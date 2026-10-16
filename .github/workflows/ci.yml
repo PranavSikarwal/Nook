@@ -67,7 +67,7 @@ jobs:
           cargo test --workspace
 
       - name: Run contract tests
-        run: pytest tests/contracts
+        run: pytest tests/contracts panel/e2e/test_fake_worker.py
 
       - name: Set up Worker environment and run tests
         env:

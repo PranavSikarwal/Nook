@@ -1,4 +1,4 @@
-use crate::authorization::AuthorizationRequest;
+use crate::authorization::{AuthorizationError, AuthorizationRequest};
 use crate::policy::ScopedGrant;
 use crate::protocol::{
     AuthorizationDecision, DaemonMessage, DaemonWorkerRequest, ErrorCode, ErrorInfo,
@@ -27,6 +27,18 @@ type Verdict = (AuthorizationDecision, Option<String>);
 
 fn deny(reason: impl Into<String>) -> Verdict {
     (AuthorizationDecision::Deny, Some(reason.into()))
+}
+
+fn argument_denial(error: &AuthorizationError) -> &'static str {
+    match error {
+        AuthorizationError::UnknownTool(_) => "Unknown tool",
+        _ => "Invalid arguments",
+    }
+}
+
+fn policy_failure(error: impl std::fmt::Display) -> Verdict {
+    warn!("Authorization evaluation failed: {error}");
+    deny("Authorization failed")
 }
 
 async fn send_result(
@@ -69,7 +81,7 @@ pub async fn handle_authorize_tool(
 ) {
     let call_id = call.call_id.clone();
     if call.chat_id != ctx.chat_id {
-        let verdict = deny("The authorization request does not belong to the running chat");
+        let verdict = deny("Request does not match the running chat");
         return reply_to_worker(state, ctx, &call_id, verdict).await;
     }
     let request = match AuthorizationRequest::normalize(
@@ -80,7 +92,11 @@ pub async fn handle_authorize_tool(
         &call.arguments,
     ) {
         Ok(request) => request,
-        Err(error) => return reply_to_worker(state, ctx, &call_id, deny(error.to_string())).await,
+        Err(error) => {
+            warn!("Tool arguments rejected: {error}");
+            let verdict = deny(argument_denial(&error));
+            return reply_to_worker(state, ctx, &call_id, verdict).await;
+        }
     };
 
     match state.policy.authorizer.authorize_tool(&request).await {
@@ -90,7 +106,7 @@ pub async fn handle_authorize_tool(
         }
         Ok(false) => {}
         Err(error) => {
-            let verdict = deny(format!("Authorization failed: {error}"));
+            let verdict = policy_failure(error);
             return reply_to_worker(state, ctx, &call_id, verdict).await;
         }
     }
@@ -174,7 +190,7 @@ async fn resolve_decision(state: &AppState, entry: &PendingApprovalEntry, action
         }
         Err(error) => {
             store.lock().await.remove(&grant);
-            deny(format!("Authorization failed: {error}"))
+            policy_failure(error)
         }
     }
 }

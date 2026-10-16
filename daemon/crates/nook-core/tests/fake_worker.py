@@ -21,7 +21,7 @@ for line in sys.stdin:
         sys.exit(0)
     elif req_type == "run" and req.get("text", "").startswith("authorize:"):
         msg_id = "44444444-4444-4444-4444-444444444444"
-        call_id, tool_name, arguments = req["text"][len("authorize:"):].split("|", 2)
+        call_id, tool_name, arguments = req["text"][len("authorize:") :].split("|", 2)
         for event in (
             {"type": "message_started", "request_id": req_id, "message_id": msg_id},
             {

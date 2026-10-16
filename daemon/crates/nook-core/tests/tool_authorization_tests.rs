@@ -280,7 +280,7 @@ async fn invalid_arguments_are_denied_without_a_prompt() {
         let mut call = h.start_call(Uuid::new_v4(), "c1", tool, args).await;
         let (decision, reason) = worker_result(&mut call).await;
         assert_eq!(decision, "deny");
-        assert!(reason.is_some());
+        assert_eq!(reason.as_deref(), Some("Invalid arguments"));
     }
     h.assert_no_panel_message();
 }
@@ -291,7 +291,7 @@ async fn unknown_tool_is_denied_without_a_prompt() {
     let mut call = h.start_call(Uuid::new_v4(), "c1", "nook:nope", "{}").await;
     let (decision, reason) = worker_result(&mut call).await;
     assert_eq!(decision, "deny");
-    assert!(reason.unwrap().contains("Unknown tool"));
+    assert_eq!(reason.as_deref(), Some("Unknown tool"));
     h.assert_no_panel_message();
 }
 
@@ -334,7 +334,10 @@ async fn authorization_for_another_chat_is_denied() {
     let mut call = h.deliver_authorize_event(call).await;
     let (decision, reason) = worker_result(&mut call).await;
     assert_eq!(decision, "deny");
-    assert!(reason.unwrap().contains("chat"));
+    assert_eq!(
+        reason.as_deref(),
+        Some("Request does not match the running chat")
+    );
     h.assert_no_panel_message();
 }
 

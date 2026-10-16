@@ -258,7 +258,10 @@ def test_concurrent_runs_get_unique_call_ids_and_resolve_independently(worker):
         if event["type"] == "authorize_tool":
             requests[event["request_id"]] = event
 
-    assert requests[first["request_id"]]["call_id"] != requests[second["request_id"]]["call_id"]
+    assert (
+        requests[first["request_id"]]["call_id"]
+        != requests[second["request_id"]]["call_id"]
+    )
 
     worker.send(
         {
@@ -322,7 +325,12 @@ def test_scripted_error(worker):
 def test_title_and_delete_chat(worker):
     request_id, chat_id = str(uuid4()), str(uuid4())
     worker.send(
-        {"type": "title", "request_id": request_id, "chat_id": chat_id, "first_message": "hi"}
+        {
+            "type": "title",
+            "request_id": request_id,
+            "chat_id": chat_id,
+            "first_message": "hi",
+        }
     )
     assert worker.expect("title_ready")["request_id"] == request_id
     worker.send({"type": "delete_chat", "request_id": request_id, "chat_id": chat_id})
