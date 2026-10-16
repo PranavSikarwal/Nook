@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 
-const TOOL_NAMESPACE: &str = "nook:";
+pub(crate) const TOOL_NAMESPACE: &str = "nook:";
 const KNOWN_TIERS: &[&str] = &["allow", "ask_once_per_host", "deny"];
 const KNOWN_ACTIONS: &[&str] = &[
     "allow_once",

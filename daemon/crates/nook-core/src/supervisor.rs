@@ -484,6 +484,7 @@ impl WorkerSupervisor {
             | DaemonWorkerEvent::ToolCallStarted { request_id, .. }
             | DaemonWorkerEvent::ToolCallFinished { request_id, .. }
             | DaemonWorkerEvent::ApprovalRequested { request_id, .. }
+            | DaemonWorkerEvent::AuthorizeTool { request_id, .. }
             | DaemonWorkerEvent::MessageFinished { request_id, .. }
             | DaemonWorkerEvent::TitleReady { request_id, .. }
             | DaemonWorkerEvent::Deleted { request_id, .. }
@@ -544,6 +545,7 @@ impl WorkerSupervisor {
             // A decision shares the running reply's request_id. Registering a
             // listener for it would replace the reply's sender.
             DaemonWorkerRequest::ApprovalDecision { .. }
+            | DaemonWorkerRequest::AuthorizationResult { .. }
             | DaemonWorkerRequest::Cancel { .. }
             | DaemonWorkerRequest::Shutdown => None,
         };

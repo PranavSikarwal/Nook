@@ -211,6 +211,13 @@ pub enum DaemonMessage {
     },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AuthorizationDecision {
+    Allow,
+    Deny,
+}
+
 /// Requests sent from the Daemon to the Worker.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -237,6 +244,12 @@ pub enum DaemonWorkerRequest {
         request_id: Uuid,
         call_id: String,
         action: String,
+    },
+    AuthorizationResult {
+        request_id: Uuid,
+        call_id: String,
+        decision: AuthorizationDecision,
+        reason: Option<String>,
     },
     Shutdown,
 }
@@ -280,6 +293,14 @@ pub enum DaemonWorkerEvent {
         resource_summary: String,
         actions: Vec<String>,
     },
+    AuthorizeTool {
+        request_id: Uuid,
+        message_id: Uuid,
+        call_id: String,
+        chat_id: Uuid,
+        tool_name: String,
+        arguments: String,
+    },
     MessageFinished {
         request_id: Uuid,
         message_id: Uuid,
@@ -297,4 +318,64 @@ pub enum DaemonWorkerEvent {
         request_id: Uuid,
         error: ErrorInfo,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn authorize_tool_event_round_trips() {
+        let event = DaemonWorkerEvent::AuthorizeTool {
+            request_id: Uuid::new_v4(),
+            message_id: Uuid::new_v4(),
+            call_id: "call-1".to_string(),
+            chat_id: Uuid::new_v4(),
+            tool_name: "nook:web_fetch".to_string(),
+            arguments: r#"{"url":"https://example.com"}"#.to_string(),
+        };
+        let value = serde_json::to_value(&event).unwrap();
+        assert_eq!(value["type"], "authorize_tool");
+        assert_eq!(value["tool_name"], "nook:web_fetch");
+        let back: DaemonWorkerEvent = serde_json::from_value(value).unwrap();
+        assert_eq!(back, event);
+    }
+
+    #[test]
+    fn authorization_result_request_round_trips() {
+        let request = DaemonWorkerRequest::AuthorizationResult {
+            request_id: Uuid::new_v4(),
+            call_id: "call-1".to_string(),
+            decision: AuthorizationDecision::Deny,
+            reason: Some("not allowed".to_string()),
+        };
+        let value = serde_json::to_value(&request).unwrap();
+        assert_eq!(value["type"], "authorization_result");
+        assert_eq!(value["decision"], "deny");
+        let back: DaemonWorkerRequest = serde_json::from_value(value).unwrap();
+        assert_eq!(back, request);
+    }
+
+    #[test]
+    fn authorization_result_accepts_allow_without_reason() {
+        let id = Uuid::new_v4();
+        let value = json!({
+            "type": "authorization_result",
+            "request_id": id,
+            "call_id": "c",
+            "decision": "allow",
+            "reason": null
+        });
+        let request: DaemonWorkerRequest = serde_json::from_value(value).unwrap();
+        assert_eq!(
+            request,
+            DaemonWorkerRequest::AuthorizationResult {
+                request_id: id,
+                call_id: "c".to_string(),
+                decision: AuthorizationDecision::Allow,
+                reason: None,
+            }
+        );
+    }
 }

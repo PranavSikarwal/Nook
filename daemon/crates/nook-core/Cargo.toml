@@ -16,6 +16,9 @@ thiserror.workspace = true
 tracing.workspace = true
 sqlx.workspace = true
 cedar-policy.workspace = true
+url.workspace = true
+idna.workspace = true
+sha2.workspace = true
 libc = { workspace = true }
 serde_norway = "0.9.42"
 

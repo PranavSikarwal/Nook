@@ -1,3 +1,5 @@
+use crate::authorization::AuthorizationRequest;
+use crate::policy_assets::TOOL_NAMESPACE;
 use cedar_policy::{
     Authorizer, Context, Decision, Entities, Entity, EntityUid, PolicySet, Request, Schema,
     ValidationMode, Validator,
@@ -172,17 +174,19 @@ impl CedarAuthorizer {
 
     pub async fn authorize_tool(
         &self,
-        chat_id: Uuid,
-        action_name: &str, // "web_search" or "web_fetch"
-        approval_tier: &str,
-        host: Option<&str>,
-        url: Option<&str>,
-        argument_digest: Option<&str>,
+        request: &AuthorizationRequest,
     ) -> Result<bool, PolicyError> {
+        let action_name = request
+            .tool_name
+            .strip_prefix(TOOL_NAMESPACE)
+            .unwrap_or(&request.tool_name);
+        let chat_id = request.chat_id;
+        let host = request.target_host.as_deref();
+        let argument_digest = request.argument_digest.as_str();
         let grant_scope = {
             let store = self.grant_store.lock().await;
             store
-                .find_scope(chat_id, action_name, host, argument_digest)
+                .find_scope(chat_id, action_name, host, Some(argument_digest))
                 .unwrap_or_else(|| "none".to_string())
         };
 
@@ -196,15 +200,21 @@ impl CedarAuthorizer {
 
         let mut context_map = HashMap::new();
         context_map.insert("chat_id".to_string(), make_str_expr(&chat_id.to_string())?);
-        context_map.insert("approval_tier".to_string(), make_str_expr(approval_tier)?);
+        context_map.insert(
+            "approval_tier".to_string(),
+            make_str_expr(&request.approval_tier)?,
+        );
         context_map.insert("grant_scope".to_string(), make_str_expr(&grant_scope)?);
 
         if action_name == "web_fetch" {
             context_map.insert("host".to_string(), make_str_expr(host.unwrap_or(""))?);
-            context_map.insert("url".to_string(), make_str_expr(url.unwrap_or(""))?);
+            context_map.insert(
+                "url".to_string(),
+                make_str_expr(request.url().unwrap_or(""))?,
+            );
             context_map.insert(
                 "argument_digest".to_string(),
-                make_str_expr(argument_digest.unwrap_or(""))?,
+                make_str_expr(argument_digest)?,
             );
         }
 
@@ -225,6 +235,7 @@ impl CedarAuthorizer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::policy_assets::ToolCatalog;
 
     const SCHEMA_SRC: &str = include_str!("../../../../policy/cedar/schema.cedarschema");
     const POLICIES_SRC: &str = include_str!("../../../../policy/cedar/policies.cedar");
@@ -233,16 +244,18 @@ mod tests {
         CedarAuthorizer::from_str(SCHEMA_SRC, POLICIES_SRC).expect("valid test policy files")
     }
 
+    const TOOLS_SRC: &str = include_str!("../../../../policy/tools.yaml");
+
+    fn request(chat_id: Uuid, tool: &str, arguments: &str) -> AuthorizationRequest {
+        let catalog = ToolCatalog::parse(TOOLS_SRC).expect("valid tool catalog");
+        AuthorizationRequest::normalize(&catalog, chat_id, "call-1", tool, arguments)
+            .expect("valid request")
+    }
+
     async fn check_fetch(authorizer: &CedarAuthorizer, chat_id: Uuid, host: &str) -> bool {
+        let args = serde_json::json!({ "url": format!("https://{host}") }).to_string();
         authorizer
-            .authorize_tool(
-                chat_id,
-                "web_fetch",
-                "ask_once_per_host",
-                Some(host),
-                Some(&format!("https://{host}")),
-                Some("digest_xyz"),
-            )
+            .authorize_tool(&request(chat_id, "nook:web_fetch", &args))
             .await
             .expect("evaluation succeeds")
     }
@@ -250,10 +263,34 @@ mod tests {
     #[tokio::test]
     async fn test_web_search_allowed_by_default() {
         let auth = create_test_authorizer();
-        assert!(auth
-            .authorize_tool(Uuid::new_v4(), "web_search", "allow", None, None, None)
-            .await
-            .unwrap());
+        let req = request(Uuid::new_v4(), "nook:web_search", r#"{"query":"rust"}"#);
+        assert!(auth.authorize_tool(&req).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn once_grant_matches_argument_digest() {
+        let auth = create_test_authorizer();
+        let chat_id = Uuid::new_v4();
+        let req = request(
+            chat_id,
+            "nook:web_fetch",
+            r#"{"url":"https://a.example/x"}"#,
+        );
+        assert!(!auth.authorize_tool(&req).await.unwrap());
+        auth.grant_store().lock().await.add_grant(ScopedGrant {
+            chat_id,
+            tool_name: "web_fetch".to_string(),
+            scope: "once".to_string(),
+            host: None,
+            argument_digest: Some(req.argument_digest.clone()),
+        });
+        assert!(auth.authorize_tool(&req).await.unwrap());
+        let other = request(
+            chat_id,
+            "nook:web_fetch",
+            r#"{"url":"https://a.example/y"}"#,
+        );
+        assert!(!auth.authorize_tool(&other).await.unwrap());
     }
 
     #[tokio::test]

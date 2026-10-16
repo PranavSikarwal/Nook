@@ -92,13 +92,24 @@ class ApprovalDecisionRequest(BaseModel):
     ]
 
 
+class AuthorizationResultRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["authorization_result"] = "authorization_result"
+    request_id: UUID
+    call_id: str
+    decision: Literal["allow", "deny"]
+    reason: str | None = None
+
+
 RequestMessage = Annotated[
     RunRequest
     | TitleRequest
     | CancelRequest
     | DeleteChatRequest
     | ShutdownRequest
-    | ApprovalDecisionRequest,
+    | ApprovalDecisionRequest
+    | AuthorizationResultRequest,
     Field(discriminator="type"),
 ]
 
@@ -162,6 +173,18 @@ class ApprovalRequestedEvent(BaseModel):
     actions: list[str]
 
 
+class AuthorizeToolEvent(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["authorize_tool"] = "authorize_tool"
+    request_id: UUID
+    message_id: UUID
+    call_id: str
+    chat_id: UUID
+    tool_name: str
+    arguments: str
+
+
 class MessageFinishedEvent(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -202,6 +225,7 @@ EventMessage = Annotated[
     | ToolCallStartedEvent
     | ToolCallFinishedEvent
     | ApprovalRequestedEvent
+    | AuthorizeToolEvent
     | MessageFinishedEvent
     | TitleReadyEvent
     | DeletedEvent

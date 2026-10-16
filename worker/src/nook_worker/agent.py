@@ -19,6 +19,7 @@ from langchain_core.messages import AIMessageChunk, HumanMessage
 from langchain_core.tools import StructuredTool
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.base import BaseCheckpointSaver
+from pydantic import ValidationError
 
 from nook_worker.approval import default_approval_manager
 from nook_worker.attachments import AttachmentError, process_attachments_and_text
@@ -31,9 +32,17 @@ from nook_worker.protocol import (
     RunRequest,
     TextDeltaEvent,
 )
-from nook_worker.registry import ToolDefinition, default_registry
-from nook_worker.tools.fetch import WebFetchInput, execute_web_fetch
-from nook_worker.tools.search import WebSearchInput, execute_web_search
+from nook_worker.registry import ToolArgumentError, ToolDefinition, default_registry
+from nook_worker.tools.fetch import (
+    StrictWebFetchInput,
+    WebFetchInput,
+    execute_web_fetch,
+)
+from nook_worker.tools.search import (
+    StrictWebSearchInput,
+    WebSearchInput,
+    execute_web_search,
+)
 
 SYSTEM_PROMPT = (
     "You are Nook, a concise desktop assistant. "
@@ -143,6 +152,14 @@ async def _check_tool_approval(
     return None
 
 
+def _format_validation_error(error: ValidationError) -> str:
+    details = "; ".join(
+        f"{'.'.join(str(part) for part in item['loc'])}: {item['msg']}"
+        for item in error.errors()
+    )
+    return f"Error: invalid arguments. {details}"
+
+
 def _create_registry_runner(registered_name: str) -> Any:
     async def registry_runner(**kwargs: Any) -> str:
         defn = default_registry.get(registered_name)
@@ -151,12 +168,17 @@ def _create_registry_runner(registered_name: str) -> Any:
         if defn.approval_tier == "deny":
             return f"Error: Tool '{registered_name}' is denied by policy."
 
+        try:
+            arguments = default_registry.validate_arguments(registered_name, kwargs)
+        except ToolArgumentError as err:
+            return f"Error: {err}"
+
         if defn.approval_tier == "ask_once_per_host":
-            deny_error = await _check_tool_approval(registered_name, kwargs)
+            deny_error = await _check_tool_approval(registered_name, arguments)
             if deny_error:
                 return deny_error
 
-        return await defn.executor(**kwargs)
+        return await defn.executor(**arguments)
 
     return registry_runner
 
@@ -180,6 +202,7 @@ def build_deep_agent(
             "web_search",
             "Search the web using DuckDuckGo. Returns titles, links, and snippets.",
             WebSearchInput,
+            StrictWebSearchInput,
             {"network": True, "read_only": True},
             "allow",
             execute_web_search,
@@ -189,6 +212,7 @@ def build_deep_agent(
             "web_fetch",
             "Fetch a public web page over HTTP or HTTPS and extract readable text.",
             WebFetchInput,
+            StrictWebFetchInput,
             {"network": True, "read_only": True},
             "ask_once_per_host",
             execute_web_fetch,
@@ -196,12 +220,12 @@ def build_deep_agent(
     ]
 
     tools = []
-    for reg_name, tool_name, desc, schema, caps, tier, fn in tool_specs:
+    for reg_name, tool_name, desc, schema, strict_schema, caps, tier, fn in tool_specs:
         default_registry.register(
             ToolDefinition(
                 name=reg_name,
                 description=desc,
-                argument_schema=schema,
+                argument_schema=strict_schema,
                 capabilities=caps,
                 approval_tier=tier,
                 executor=fn,
@@ -213,6 +237,7 @@ def build_deep_agent(
                 name=tool_name,
                 description=desc,
                 args_schema=schema,
+                handle_validation_error=_format_validation_error,
             )
         )
 
