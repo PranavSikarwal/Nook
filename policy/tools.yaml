@@ -3,6 +3,7 @@ version: 1
 
 tools:
   nook:web_search:
+    display_name: "Web search"
     description: "Search the web using DuckDuckGo. Returns titles, links, and snippets."
     capabilities:
       network: true
@@ -11,11 +12,18 @@ tools:
     approval:
       tier: allow
       actions:
-        - allow_once
-        - allow_for_chat
-        - always_allow
+        - id: allow_once
+          label: "Allow once"
+          description: "Allow this exact request one time."
+        - id: allow_for_chat
+          label: "Allow for this chat"
+          description: "Allow this tool for the rest of this chat."
+        - id: always_allow
+          label: "Always allow"
+          description: "Allow this tool in every chat until you remove the grant."
 
   nook:web_fetch:
+    display_name: "Web fetch"
     description: "Fetch a public web page over HTTP or HTTPS and extract readable text."
     capabilities:
       network: true
@@ -33,6 +41,12 @@ tools:
     approval:
       tier: ask_once_per_host
       actions:
-        - allow_once
-        - allow_for_chat_host
-        - deny
+        - id: allow_once
+          label: "Allow once"
+          description: "Allow this exact request one time."
+        - id: allow_for_chat_host
+          label: "Allow for this chat & host"
+          description: "Allow this tool to fetch from this host for the rest of this chat."
+        - id: deny
+          label: "Deny"
+          description: "Reject this request. The tool does not run."

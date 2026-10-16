@@ -40,14 +40,44 @@ describe('native approval and grant scope', () => {
 
     await submitUrl('https://once.example.test/page')
     await (await waitForApproval()).$('button=Allow once').click()
-    if (!(await (await waitForLatestComplete('Approved deterministic fetch')).getText()).includes('once.example.test')) {
+    const resumed = await waitForLatestComplete('Approved deterministic fetch')
+    if (!(await resumed.getText()).includes('once.example.test')) {
       throw new Error('Allow once did not resume the requested action.')
     }
+    await resumed.$('[data-testid="tool-call"][data-tool-status="finished"]').waitForExist({
+      timeout: 10_000,
+      timeoutMsg: 'No finished tool call appeared after Allow once.',
+    })
 
     await submitUrl('https://once.example.test/page')
     await waitForApproval()
     await (await $('[data-testid="approval-card"]')).$('button=Deny').click()
     await waitForLatestComplete('Approval denied')
+  })
+
+  it('ends the reply as cancelled when Escape is pressed during an approval', async () => {
+    await submitUrl('https://escape.example.test/page')
+    await waitForApproval()
+
+    await browser.keys('Escape')
+
+    await browser.waitUntil(async () => {
+      const assistants = await $$('[data-message-role="assistant"]')
+      return assistants.length > 0 &&
+        await assistants.at(-1).getAttribute('data-message-status') === 'cancelled'
+    }, { timeout: 10_000, interval: 100, timeoutMsg: 'Escape did not end the reply as cancelled.' })
+    if (await $('[data-testid="approval-card"]').isExisting()) {
+      throw new Error('The approval card stayed after Escape.')
+    }
+    const cancelled = (await $$('[data-message-role="assistant"]')).at(-1)
+    if (await cancelled.$('[data-testid="tool-call"]').isExisting()) {
+      throw new Error('A tool call appeared for a request that was cancelled.')
+    }
+
+    const prompt = 'E2E_REPLY:after escape'
+    await $('[aria-label="Ask anything"]').setValue(prompt)
+    await $('[aria-label="Send question"]').click()
+    await waitForLatestComplete('after escape')
   })
 
   it('limits host grants by chat and host', async () => {
@@ -73,6 +103,10 @@ describe('native approval and grant scope', () => {
     const card = await waitForApproval()
     if (await card.$('button=Allow for this chat').isExisting()) {
       throw new Error('The fetch approval offered a chat-wide grant that the policy does not list.')
+    }
+    const descriptions = await card.$('[data-testid="approval-action-descriptions"]').getText()
+    if (!descriptions.includes('for the rest of this chat')) {
+      throw new Error('The approval card did not show the action descriptions from the policy.')
     }
     await card.$('button=Allow for this chat & host').click()
     await waitForLatestComplete('chat-grant.example.test/first')

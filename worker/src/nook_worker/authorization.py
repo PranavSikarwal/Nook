@@ -2,22 +2,29 @@ import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 from uuid import UUID, uuid4
 
-from nook_worker.protocol import AuthorizeToolEvent, format_event
+from nook_worker.protocol import (
+    AuthorizeToolEvent,
+    ToolCallFinishedEvent,
+    ToolCallStartedEvent,
+    format_event,
+)
 
 logger = logging.getLogger("nook_worker.authorization")
 
 Decision = Literal["allow", "deny"]
 CallKey = tuple[UUID, str]
+MAX_TOOL_RESULT_CHARS = 2000
 
 
 @dataclass(frozen=True)
 class AuthorizationDecision:
     allowed: bool
     reason: str | None = None
+    call_id: str | None = field(default=None, compare=False)
 
 
 @dataclass(frozen=True)
@@ -82,13 +89,43 @@ class AuthorizationManager:
         )
         try:
             await ctx.write_line(format_event(event))
-            return await asyncio.wait_for(future, self._authorization_timeout)
+            decision = await asyncio.wait_for(future, self._authorization_timeout)
+            return AuthorizationDecision(
+                allowed=decision.allowed, reason=decision.reason, call_id=call_id
+            )
         except TimeoutError:
             return AuthorizationDecision(
                 allowed=False, reason="authorization timed out"
             )
         finally:
             self._waiting.pop(key, None)
+
+    async def emit_tool_started(
+        self, call_id: str, tool_name: str, arguments: str
+    ) -> None:
+        ctx = _current_run_context.get()
+        if ctx is None:
+            return
+        event = ToolCallStartedEvent(
+            request_id=ctx.request_id,
+            message_id=ctx.message_id,
+            call_id=call_id,
+            name=tool_name,
+            arguments=arguments,
+        )
+        await ctx.write_line(format_event(event))
+
+    async def emit_tool_finished(self, call_id: str, result: str) -> None:
+        ctx = _current_run_context.get()
+        if ctx is None:
+            return
+        event = ToolCallFinishedEvent(
+            request_id=ctx.request_id,
+            message_id=ctx.message_id,
+            call_id=call_id,
+            result=result[:MAX_TOOL_RESULT_CHARS],
+        )
+        await ctx.write_line(format_event(event))
 
     def resolve(
         self,

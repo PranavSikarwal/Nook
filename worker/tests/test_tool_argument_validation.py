@@ -1,3 +1,4 @@
+import asyncio
 import json
 from typing import Any
 from uuid import uuid4
@@ -7,7 +8,13 @@ import pytest
 from nook_worker import agent
 from nook_worker.agent import _create_registry_runner
 from nook_worker.authorization import AuthorizationManager
-from nook_worker.protocol import AuthorizeToolEvent, parse_event
+from nook_worker.protocol import (
+    AuthorizeToolEvent,
+    EventMessage,
+    ToolCallFinishedEvent,
+    ToolCallStartedEvent,
+    parse_event,
+)
 from nook_worker.registry import ToolDefinition, ToolRegistry
 from nook_worker.tools.fetch import StrictWebFetchInput
 from nook_worker.tools.search import StrictWebSearchInput
@@ -17,6 +24,7 @@ class FakeTool:
     def __init__(self) -> None:
         self.executor_calls: list[dict[str, Any]] = []
         self.authorize_events: list[AuthorizeToolEvent] = []
+        self.events: list[EventMessage] = []
         self.decision: str = "allow"
         self.reason: str | None = None
         self.manager = AuthorizationManager()
@@ -27,7 +35,9 @@ class FakeTool:
 
     async def daemon(self, line: str) -> None:
         event = parse_event(line)
-        assert isinstance(event, AuthorizeToolEvent)
+        self.events.append(event)
+        if not isinstance(event, AuthorizeToolEvent):
+            return
         self.authorize_events.append(event)
         self.manager.resolve(
             event.request_id,
@@ -159,3 +169,88 @@ def test_missing_required_field_returns_error_text_to_model():
     message = _format_validation_error(caught.value)
     assert message.startswith("Error: invalid arguments.")
     assert "url" in message
+
+
+async def test_allowed_call_emits_started_then_finished_with_authorize_call_id(fake):
+    await _create_registry_runner("nook:web_fetch")(url="https://example.com/")
+
+    [authorize, started, finished] = fake.events
+    assert isinstance(authorize, AuthorizeToolEvent)
+    assert isinstance(started, ToolCallStartedEvent)
+    assert isinstance(finished, ToolCallFinishedEvent)
+    assert started.call_id == authorize.call_id == finished.call_id
+    assert started.request_id == authorize.request_id
+    assert started.message_id == authorize.message_id
+    assert started.name == "nook:web_fetch"
+    assert json.loads(started.arguments) == {"url": "https://example.com/"}
+    assert finished.result == "executed"
+
+
+async def test_started_is_emitted_before_executor_runs(fake):
+    seen_before_executor: list[str] = []
+
+    async def executor(**kwargs: Any) -> str:
+        seen_before_executor.extend(e.type for e in fake.events)
+        return "ok"
+
+    agent.default_registry.get("nook:web_fetch").executor = executor  # type: ignore[union-attr]
+
+    await _create_registry_runner("nook:web_fetch")(url="https://example.com/")
+
+    assert seen_before_executor == ["authorize_tool", "tool_call_started"]
+
+
+async def test_long_result_is_truncated_in_finished_event(fake):
+    async def executor(**kwargs: Any) -> str:
+        return "x" * 5000
+
+    agent.default_registry.get("nook:web_fetch").executor = executor  # type: ignore[union-attr]
+
+    result = await _create_registry_runner("nook:web_fetch")(url="https://example.com/")
+
+    finished = fake.events[-1]
+    assert isinstance(finished, ToolCallFinishedEvent)
+    assert len(finished.result) == 2000
+    assert len(result) == 5000
+
+
+async def test_executor_exception_emits_finished_with_error_text_and_raises(fake):
+    async def executor(**kwargs: Any) -> str:
+        raise RuntimeError("boom")
+
+    agent.default_registry.get("nook:web_fetch").executor = executor  # type: ignore[union-attr]
+
+    with pytest.raises(RuntimeError, match="boom"):
+        await _create_registry_runner("nook:web_fetch")(url="https://example.com/")
+
+    [_, started, finished] = fake.events
+    assert isinstance(started, ToolCallStartedEvent)
+    assert isinstance(finished, ToolCallFinishedEvent)
+    assert finished.call_id == started.call_id
+    assert finished.result == "Error: boom"
+
+
+async def test_cancelled_executor_emits_no_finished_event(fake):
+    async def executor(**kwargs: Any) -> str:
+        raise asyncio.CancelledError
+
+    agent.default_registry.get("nook:web_fetch").executor = executor  # type: ignore[union-attr]
+
+    with pytest.raises(asyncio.CancelledError):
+        await _create_registry_runner("nook:web_fetch")(url="https://example.com/")
+
+    assert [e.type for e in fake.events] == ["authorize_tool", "tool_call_started"]
+
+
+async def test_denied_call_emits_no_tool_call_events(fake):
+    fake.decision = "deny"
+
+    await _create_registry_runner("nook:web_fetch")(url="https://example.com/")
+
+    assert [e.type for e in fake.events] == ["authorize_tool"]
+
+
+async def test_invalid_arguments_emit_no_events(fake):
+    await _create_registry_runner("nook:web_fetch")(url="ftp://example.com/")
+
+    assert fake.events == []

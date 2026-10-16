@@ -5,6 +5,14 @@ import sys
 sys.stdout.write(json.dumps({"type": "ready", "version": "0.1.0"}) + "\n")
 sys.stdout.flush()
 
+tool_on_cancel = {}
+
+
+def emit(event):
+    sys.stdout.write(json.dumps(event) + "\n")
+    sys.stdout.flush()
+
+
 for line in sys.stdin:
     line = line.strip()
     if not line:
@@ -36,6 +44,33 @@ for line in sys.stdin:
         ):
             sys.stdout.write(json.dumps(event) + "\n")
         sys.stdout.flush()
+    elif req_type == "run" and req.get("text", "").startswith("tools:"):
+        msg_id = "44444444-4444-4444-4444-444444444444"
+        call_id = req["text"][len("tools:") :]
+        emit({"type": "message_started", "request_id": req_id, "message_id": msg_id})
+        emit(
+            {
+                "type": "tool_call_started",
+                "request_id": req_id,
+                "message_id": msg_id,
+                "call_id": call_id,
+                "name": "nook:web_fetch",
+                "arguments": '{"url":"https://example.com/"}',
+            }
+        )
+        emit(
+            {
+                "type": "tool_call_finished",
+                "request_id": req_id,
+                "message_id": msg_id,
+                "call_id": call_id,
+                "result": "page text",
+            }
+        )
+    elif req_type == "run" and req.get("text", "").startswith("tools_on_cancel:"):
+        msg_id = "44444444-4444-4444-4444-444444444444"
+        tool_on_cancel[req_id] = req["text"][len("tools_on_cancel:") :]
+        emit({"type": "message_started", "request_id": req_id, "message_id": msg_id})
     elif req_type == "run" and req.get("text") == "crash":
         sys.exit(1)
     elif req_type == "authorization_result":
@@ -121,6 +156,17 @@ for line in sys.stdin:
         )
         sys.stdout.flush()
     elif req_type == "cancel":
+        if req_id in tool_on_cancel:
+            emit(
+                {
+                    "type": "tool_call_started",
+                    "request_id": req_id,
+                    "message_id": "44444444-4444-4444-4444-444444444444",
+                    "call_id": tool_on_cancel.pop(req_id),
+                    "name": "nook:web_fetch",
+                    "arguments": '{"url":"https://example.com/"}',
+                }
+            )
         sys.stdout.write(
             json.dumps(
                 {

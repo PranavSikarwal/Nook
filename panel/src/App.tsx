@@ -5,6 +5,7 @@ import { HistoryDrawer } from './components/HistoryDrawer'
 import { InputBar } from './components/InputBar'
 import { SettingsModal } from './components/SettingsModal'
 import { TranscriptView } from './components/TranscriptView'
+import { applyToolEvent } from './lib/toolCalls'
 import {
   loadShortcuts,
   normalizeKeyboardEvent,
@@ -361,6 +362,18 @@ export default function App() {
                   ...m,
                   message_id: event.message_id || m.message_id,
                   text: m.text + event.text,
+                }
+              : m
+          )
+        )
+      } else if (event.type === 'tool_call_started' || event.type === 'tool_call_finished') {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === localMsgId
+              ? {
+                  ...m,
+                  message_id: event.message_id || m.message_id,
+                  tool_calls: applyToolEvent(m.tool_calls ?? [], event),
                 }
               : m
           )

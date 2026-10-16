@@ -843,36 +843,9 @@ async fn handle_send_message(
                     .await;
             }
 
-            DaemonWorkerEvent::ToolCallStarted {
-                call_id,
-                name,
-                arguments,
-                ..
-            } => {
-                let _ = tx_out
-                    .send(DaemonMessage::ToolCallStarted {
-                        id,
-                        chat_id,
-                        message_id: asst_message_id,
-                        call_id,
-                        name,
-                        arguments,
-                    })
-                    .await;
-            }
-
-            DaemonWorkerEvent::ToolCallFinished {
-                call_id, result, ..
-            } => {
-                let _ = tx_out
-                    .send(DaemonMessage::ToolCallFinished {
-                        id,
-                        chat_id,
-                        message_id: asst_message_id,
-                        call_id,
-                        result,
-                    })
-                    .await;
+            event @ (DaemonWorkerEvent::ToolCallStarted { .. }
+            | DaemonWorkerEvent::ToolCallFinished { .. }) => {
+                forward_tool_call_event(&state, id, chat_id, asst_message_id, event, &tx_out).await;
             }
 
             DaemonWorkerEvent::AuthorizeTool {
@@ -987,6 +960,50 @@ async fn handle_send_message(
         let mut approvals = state.pending_approvals.lock().await;
         approvals.retain(|_, v| v.client_request_id != id);
     }
+}
+
+pub async fn forward_tool_call_event(
+    state: &AppState,
+    client_request_id: Uuid,
+    chat_id: Uuid,
+    message_id: Uuid,
+    event: DaemonWorkerEvent,
+    tx_out: &mpsc::Sender<DaemonMessage>,
+) {
+    if state
+        .cancelled_requests
+        .lock()
+        .await
+        .contains(&client_request_id)
+    {
+        return;
+    }
+    let message = match event {
+        DaemonWorkerEvent::ToolCallStarted {
+            call_id,
+            name,
+            arguments,
+            ..
+        } => DaemonMessage::ToolCallStarted {
+            id: client_request_id,
+            chat_id,
+            message_id,
+            call_id,
+            name,
+            arguments,
+        },
+        DaemonWorkerEvent::ToolCallFinished {
+            call_id, result, ..
+        } => DaemonMessage::ToolCallFinished {
+            id: client_request_id,
+            chat_id,
+            message_id,
+            call_id,
+            result,
+        },
+        _ => return,
+    };
+    let _ = tx_out.send(message).await;
 }
 
 async fn request_title(

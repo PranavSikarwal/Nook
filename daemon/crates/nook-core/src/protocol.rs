@@ -33,6 +33,13 @@ pub enum ErrorCode {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ApprovalAction {
+    pub id: String,
+    pub label: String,
+    pub description: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ErrorInfo {
     pub code: ErrorCode,
     pub message: String,
@@ -166,7 +173,7 @@ pub enum DaemonMessage {
         arguments: String,
         explanation: String,
         resource_summary: String,
-        actions: Vec<String>,
+        actions: Vec<ApprovalAction>,
     },
     MessageFinished {
         id: Uuid,
@@ -240,11 +247,6 @@ pub enum DaemonWorkerRequest {
         request_id: Uuid,
         chat_id: Uuid,
     },
-    ApprovalDecision {
-        request_id: Uuid,
-        call_id: String,
-        action: String,
-    },
     AuthorizationResult {
         request_id: Uuid,
         call_id: String,
@@ -283,16 +285,6 @@ pub enum DaemonWorkerEvent {
         call_id: String,
         result: String,
     },
-    ApprovalRequested {
-        request_id: Uuid,
-        message_id: Uuid,
-        call_id: String,
-        tool_name: String,
-        arguments: String,
-        explanation: String,
-        resource_summary: String,
-        actions: Vec<String>,
-    },
     AuthorizeTool {
         request_id: Uuid,
         message_id: Uuid,
@@ -324,6 +316,57 @@ pub enum DaemonWorkerEvent {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn approval_requested_carries_action_objects() {
+        let message = DaemonMessage::ApprovalRequested {
+            id: Uuid::new_v4(),
+            chat_id: Uuid::new_v4(),
+            message_id: Uuid::new_v4(),
+            call_id: "call-1".to_string(),
+            tool_name: "nook:web_fetch".to_string(),
+            arguments: "{}".to_string(),
+            explanation: "Fetch a page".to_string(),
+            resource_summary: "https://example.com".to_string(),
+            actions: vec![ApprovalAction {
+                id: "allow_once".to_string(),
+                label: "Allow once".to_string(),
+                description: "Allow this exact request one time.".to_string(),
+            }],
+        };
+        let value = serde_json::to_value(&message).unwrap();
+        assert_eq!(value["actions"][0]["id"], "allow_once");
+        assert_eq!(value["actions"][0]["label"], "Allow once");
+        assert_eq!(
+            value["actions"][0]["description"],
+            "Allow this exact request one time."
+        );
+        let back: DaemonMessage = serde_json::from_value(value).unwrap();
+        assert_eq!(back, message);
+    }
+
+    #[test]
+    fn worker_no_longer_accepts_legacy_approval_messages() {
+        let request = json!({
+            "type": "approval_decision",
+            "request_id": Uuid::new_v4(),
+            "call_id": "c",
+            "action": "allow_once"
+        });
+        assert!(serde_json::from_value::<DaemonWorkerRequest>(request).is_err());
+        let event = json!({
+            "type": "approval_requested",
+            "request_id": Uuid::new_v4(),
+            "message_id": Uuid::new_v4(),
+            "call_id": "c",
+            "tool_name": "nook:web_search",
+            "arguments": "{}",
+            "explanation": "x",
+            "resource_summary": "y",
+            "actions": ["allow_once"]
+        });
+        assert!(serde_json::from_value::<DaemonWorkerEvent>(event).is_err());
+    }
 
     #[test]
     fn authorize_tool_event_round_trips() {

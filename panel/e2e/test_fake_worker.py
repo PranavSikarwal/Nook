@@ -298,15 +298,6 @@ def test_same_url_twice_uses_distinct_call_ids(worker):
     assert calls[0] != calls[1]
 
 
-def test_never_emits_approval_requested(worker):
-    run = worker.run("E2E_APPROVAL:https://docs.example.com/x")
-    worker.expect("message_started")
-    worker.expect("authorize_tool")
-    worker.authorize(run, "allow")
-    worker.collect_until_finished()
-    assert "approval_requested" not in {e["type"] for e in worker.seen}
-
-
 def test_plain_reply(worker):
     worker.run("E2E_REPLY:hello")
     worker.expect("message_started")

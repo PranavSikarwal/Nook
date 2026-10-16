@@ -10,8 +10,8 @@ The active task definitions and acceptance conditions are in `docs/plan.md` and
 - [ ] TP1. Load and validate YAML and Cedar policy assets at Daemon startup. Code and tests are done. A start check on a built package is open (TP6).
 - [x] TP2. Define one normalized authorization request.
 - [x] TP3. Move grants and Cedar decisions to the Daemon.
-- [ ] TP4. Make approval actions policy-driven.
-- [ ] TP5. Complete tool lifecycle events and cancellation.
+- [x] TP4. Make approval actions policy-driven.
+- [x] TP5. Complete tool lifecycle events and cancellation.
 - [ ] TP6. Verify the complete web-tool path.
 
 ### Extend the tool platform

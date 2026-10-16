@@ -97,6 +97,7 @@ jobs:
           cd panel
           npm ci --ignore-scripts
           npm run lint
+          npm run test:unit
           npm run build
 
       - name: Run Tauri cargo check

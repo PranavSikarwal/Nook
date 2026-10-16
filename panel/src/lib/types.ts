@@ -24,6 +24,16 @@ export interface ErrorInfo {
   retryable: boolean
 }
 
+export type ToolCallStatus = 'running' | 'finished'
+
+export interface ToolCall {
+  call_id: string
+  name: string
+  arguments: string
+  status: ToolCallStatus
+  result?: string
+}
+
 export interface ChatMessage {
   id: string
   message_id?: string
@@ -32,6 +42,7 @@ export interface ChatMessage {
   status: MessageStatus
   error?: ErrorInfo
   attachments: Attachment[]
+  tool_calls?: ToolCall[]
   created_at: string
 }
 
@@ -59,6 +70,12 @@ export interface SettingsPayload {
   api_key?: string
 }
 
+export interface ApprovalAction {
+  id: string
+  label: string
+  description: string
+}
+
 export interface ApprovalRequest {
   id: string
   chat_id: string
@@ -68,7 +85,7 @@ export interface ApprovalRequest {
   arguments: string
   explanation: string
   resource_summary: string
-  actions: string[]
+  actions: ApprovalAction[]
 }
 
 export type DaemonEvent =

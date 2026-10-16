@@ -10,7 +10,7 @@ use nook_core::tool_approval::{
 };
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, Mutex, RwLock};
@@ -23,27 +23,17 @@ fn policy_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../policy")
 }
 
-fn copy_dir(from: &Path, to: &Path) {
-    std::fs::create_dir_all(to).unwrap();
-    for entry in std::fs::read_dir(from).unwrap() {
-        let entry = entry.unwrap();
-        let target = to.join(entry.file_name());
-        if entry.file_type().unwrap().is_dir() {
-            copy_dir(&entry.path(), &target);
-        } else {
-            std::fs::copy(entry.path(), target).unwrap();
-        }
-    }
-}
-
-fn modified_policy(edit: impl FnOnce(String) -> String) -> (tempfile::TempDir, Arc<PolicyAssets>) {
-    let dir = tempfile::tempdir().unwrap();
-    copy_dir(&policy_dir(), dir.path());
-    let tools_path = dir.path().join("tools.yaml");
-    let edited = edit(std::fs::read_to_string(&tools_path).unwrap());
-    std::fs::write(&tools_path, edited).unwrap();
-    let policy = Arc::new(PolicyAssets::load(dir.path()).unwrap());
-    (dir, policy)
+fn modified_policy(edit: impl FnOnce(String) -> String) -> Arc<PolicyAssets> {
+    let read = |relative: &str| std::fs::read_to_string(policy_dir().join(relative)).unwrap();
+    let tools = edit(read("tools.yaml"));
+    Arc::new(
+        PolicyAssets::from_sources(
+            &tools,
+            &read("cedar/schema.cedarschema"),
+            &read("cedar/policies.cedar"),
+        )
+        .unwrap(),
+    )
 }
 
 fn fake_worker_command() -> Vec<String> {
@@ -57,7 +47,6 @@ struct Harness {
     state: Arc<AppState>,
     panel_tx: mpsc::Sender<DaemonMessage>,
     panel_rx: mpsc::Receiver<DaemonMessage>,
-    _policy_dir: Option<tempfile::TempDir>,
 }
 
 struct Call {
@@ -71,15 +60,14 @@ struct Call {
 impl Harness {
     async fn new() -> Self {
         let policy = Arc::new(PolicyAssets::load(&policy_dir()).unwrap());
-        Self::with_policy(policy, None).await
+        Self::with_policy(policy).await
     }
 
     async fn with_edited_catalog(edit: impl FnOnce(String) -> String) -> Self {
-        let (dir, policy) = modified_policy(edit);
-        Self::with_policy(policy, Some(dir)).await
+        Self::with_policy(modified_policy(edit)).await
     }
 
-    async fn with_policy(policy: Arc<PolicyAssets>, dir: Option<tempfile::TempDir>) -> Self {
+    async fn with_policy(policy: Arc<PolicyAssets>) -> Self {
         let supervisor =
             WorkerSupervisor::new(&Config::default(), None, Some(fake_worker_command()))
                 .await
@@ -100,7 +88,6 @@ impl Harness {
             state,
             panel_tx,
             panel_rx,
-            _policy_dir: dir,
         }
     }
 
@@ -372,7 +359,10 @@ async fn fetch_asks_the_panel_with_daemon_built_fields() {
                 resource_summary,
                 "https://Docs.Example.com/a (docs.example.com)"
             );
-            assert_eq!(actions, vec!["allow_once", "allow_for_chat_host", "deny"]);
+            let catalog_actions = &h.state.policy.catalog.tool(FETCH).unwrap().approval.actions;
+            assert_eq!(&actions, catalog_actions);
+            let ids: Vec<&str> = actions.iter().map(|action| action.id.as_str()).collect();
+            assert_eq!(ids, ["allow_once", "allow_for_chat_host", "deny"]);
         }
         other => panic!("Expected ApprovalRequested, got {other:?}"),
     }
@@ -551,11 +541,7 @@ async fn always_allow_covers_every_chat() {
 #[tokio::test]
 async fn cedar_still_denies_after_an_approval_it_does_not_accept() {
     let mut h = Harness::with_edited_catalog(|yaml| {
-        yaml.replacen(
-            "        - allow_for_chat_host\n        - deny",
-            "        - allow_for_chat\n        - deny",
-            1,
-        )
+        yaml.replacen("id: allow_for_chat_host", "id: allow_for_chat", 1)
     })
     .await;
     let chat_id = Uuid::new_v4();
@@ -572,6 +558,47 @@ async fn cedar_still_denies_after_an_approval_it_does_not_accept() {
             .await,
         0
     );
+}
+
+#[tokio::test]
+async fn yaml_cannot_permit_a_persistent_grant_that_cedar_refuses_for_fetch() {
+    let mut h = Harness::with_edited_catalog(|yaml| {
+        yaml.replacen("id: allow_for_chat_host", "id: always_allow", 1)
+    })
+    .await;
+    let chat_id = Uuid::new_v4();
+    let url = "https://a.example/x";
+    let mut call = h.start_call(chat_id, "c1", FETCH, &fetch_args(url)).await;
+    h.expect_prompt().await;
+    h.decide_in_chat(chat_id, "c1", "always_allow").await;
+    assert_eq!(worker_result(&mut call).await.0, "deny");
+
+    let mut again = h.start_call(chat_id, "c2", FETCH, &fetch_args(url)).await;
+    assert!(matches!(
+        h.expect_prompt().await,
+        DaemonMessage::ApprovalRequested { .. }
+    ));
+    assert_worker_silent(&mut again).await;
+}
+
+#[tokio::test]
+async fn changed_label_in_tools_yaml_reaches_the_approval_message() {
+    let mut h = Harness::with_edited_catalog(|yaml| {
+        yaml.replace("label: \"Allow once\"", "label: \"Approve a single time\"")
+    })
+    .await;
+    let chat_id = Uuid::new_v4();
+    let _call = h
+        .start_call(chat_id, "c1", FETCH, &fetch_args("https://a.example/x"))
+        .await;
+    match h.expect_prompt().await {
+        DaemonMessage::ApprovalRequested { actions, .. } => {
+            assert_eq!(actions[0].id, "allow_once");
+            assert_eq!(actions[0].label, "Approve a single time");
+            assert_eq!(actions[0].description, "Allow this exact request one time.");
+        }
+        other => panic!("Expected ApprovalRequested, got {other:?}"),
+    }
 }
 
 #[tokio::test]

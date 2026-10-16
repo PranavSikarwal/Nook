@@ -97,7 +97,7 @@ def test_daemon_worker_examples_valid() -> None:
     examples = load_ndjson(EXAMPLES_DIR / "daemon-worker.ndjson")
     validator = Draft7Validator(schema, format_checker=format_checker)
 
-    assert len(examples) == 19, f"Expected 19 example lines, found {len(examples)}"
+    assert len(examples) == 17, f"Expected 17 example lines, found {len(examples)}"
 
     for idx, obj in enumerate(examples, 1):
         errors = list(validator.iter_errors(obj))
@@ -146,6 +146,42 @@ def test_daemon_worker_all_types_covered() -> None:
                     "updated_at": "not-a-valid-datetime",
                 }
             ],
+        },
+        {
+            "type": "approval_requested",
+            "id": "11111111-1111-1111-1111-111111111111",
+            "chat_id": "22222222-2222-2222-2222-222222222222",
+            "message_id": "44444444-4444-4444-4444-444444444444",
+            "call_id": "call_fetch_1",
+            "tool_name": "nook:web_fetch",
+            "arguments": "{}",
+            "explanation": "Fetch",
+            "resource_summary": "https://docs.example.com",
+            "actions": ["allow_once"],  # actions must be objects
+        },
+        {
+            "type": "approval_requested",
+            "id": "11111111-1111-1111-1111-111111111111",
+            "chat_id": "22222222-2222-2222-2222-222222222222",
+            "message_id": "44444444-4444-4444-4444-444444444444",
+            "call_id": "call_fetch_1",
+            "tool_name": "nook:web_fetch",
+            "arguments": "{}",
+            "explanation": "Fetch",
+            "resource_summary": "https://docs.example.com",
+            "actions": [{"id": "allow_once", "label": "Allow once"}],  # no description
+        },
+        {
+            "type": "approval_requested",
+            "id": "11111111-1111-1111-1111-111111111111",
+            "chat_id": "22222222-2222-2222-2222-222222222222",
+            "message_id": "44444444-4444-4444-4444-444444444444",
+            "call_id": "call_fetch_1",
+            "tool_name": "nook:web_fetch",
+            "arguments": "{}",
+            "explanation": "Fetch",
+            "resource_summary": "https://docs.example.com",
+            "actions": [{"id": "grant_forever", "label": "x", "description": "y"}],
         },
     ],
 )
@@ -206,6 +242,23 @@ def test_panel_daemon_invalid_payloads_rejected(
                     "path": "/path/to/large.png",
                 }
             ],
+        },
+        {
+            "type": "approval_decision",
+            "request_id": "11111111-1111-1111-1111-111111111111",
+            "call_id": "call_fetch_1",
+            "action": "allow_once",
+        },
+        {
+            "type": "approval_requested",
+            "request_id": "11111111-1111-1111-1111-111111111111",
+            "message_id": "44444444-4444-4444-4444-444444444444",
+            "call_id": "call_fetch_1",
+            "tool_name": "nook:web_fetch",
+            "arguments": "{}",
+            "explanation": "Fetch",
+            "resource_summary": "https://docs.example.com",
+            "actions": ["allow_once"],
         },
         {
             "type": "authorization_result",

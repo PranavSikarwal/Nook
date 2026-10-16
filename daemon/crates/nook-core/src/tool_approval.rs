@@ -141,7 +141,7 @@ pub async fn handle_authorize_tool(
                 worker_request_id: ctx.worker_request_id,
                 decision_in_flight: false,
                 request,
-                offered_actions: actions.clone(),
+                offered_actions: actions.iter().map(|action| action.id.clone()).collect(),
             },
         );
     }

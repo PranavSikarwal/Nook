@@ -77,21 +77,6 @@ class ShutdownRequest(BaseModel):
     type: Literal["shutdown"] = "shutdown"
 
 
-class ApprovalDecisionRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    type: Literal["approval_decision"] = "approval_decision"
-    request_id: UUID
-    call_id: str
-    action: Literal[
-        "allow_once",
-        "allow_for_chat",
-        "allow_for_chat_host",
-        "always_allow",
-        "deny",
-    ]
-
-
 class AuthorizationResultRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -108,7 +93,6 @@ RequestMessage = Annotated[
     | CancelRequest
     | DeleteChatRequest
     | ShutdownRequest
-    | ApprovalDecisionRequest
     | AuthorizationResultRequest,
     Field(discriminator="type"),
 ]
@@ -157,20 +141,6 @@ class ToolCallFinishedEvent(BaseModel):
     message_id: UUID
     call_id: str
     result: str
-
-
-class ApprovalRequestedEvent(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    type: Literal["approval_requested"] = "approval_requested"
-    request_id: UUID
-    message_id: UUID
-    call_id: str
-    tool_name: str
-    arguments: str
-    explanation: str
-    resource_summary: str
-    actions: list[str]
 
 
 class AuthorizeToolEvent(BaseModel):
@@ -224,7 +194,6 @@ EventMessage = Annotated[
     | TextDeltaEvent
     | ToolCallStartedEvent
     | ToolCallFinishedEvent
-    | ApprovalRequestedEvent
     | AuthorizeToolEvent
     | MessageFinishedEvent
     | TitleReadyEvent

@@ -113,7 +113,15 @@ export async function sendMessage(
           arguments: JSON.stringify({ url }),
           explanation: `Web fetch requires approval to access ${host}`,
           resource_summary: url,
-          actions: ['allow_once', 'allow_for_chat_host', 'deny'],
+          actions: [
+            { id: 'allow_once', label: 'Allow once', description: 'Allow this exact request one time.' },
+            {
+              id: 'allow_for_chat_host',
+              label: 'Allow for this chat & host',
+              description: 'Allow this tool to fetch from this host for the rest of this chat.',
+            },
+            { id: 'deny', label: 'Deny', description: 'Reject this request. The tool does not run.' },
+          ],
         })
 
         mockPendingApproval = (action: string) => {
@@ -126,6 +134,23 @@ export async function sendMessage(
               text: `*(User denied permission to access ${host}.)*`,
             })
           } else {
+            onEvent?.({
+              type: 'tool_call_started',
+              id: reqId,
+              chat_id: chatId,
+              message_id: msgId,
+              call_id: 'call_preview_1',
+              name: 'nook:web_fetch',
+              arguments: JSON.stringify({ url }),
+            })
+            onEvent?.({
+              type: 'tool_call_finished',
+              id: reqId,
+              chat_id: chatId,
+              message_id: msgId,
+              call_id: 'call_preview_1',
+              result: 'Preview page text',
+            })
             onEvent?.({
               type: 'text_delta',
               id: reqId,

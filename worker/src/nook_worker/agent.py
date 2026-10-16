@@ -152,13 +152,25 @@ def _create_registry_runner(registered_name: str) -> Any:
         except ToolArgumentError as err:
             return f"Error: {err}"
 
+        arguments_text = json.dumps(arguments)
         decision = await default_authorization_manager.authorize(
-            registered_name, json.dumps(arguments)
+            registered_name, arguments_text
         )
-        if not decision.allowed:
+        if not decision.allowed or decision.call_id is None:
             return _format_denial(decision)
 
-        return await defn.executor(**arguments)
+        await default_authorization_manager.emit_tool_started(
+            decision.call_id, registered_name, arguments_text
+        )
+        try:
+            result = await defn.executor(**arguments)
+        except Exception as err:
+            await default_authorization_manager.emit_tool_finished(
+                decision.call_id, f"Error: {err}"
+            )
+            raise
+        await default_authorization_manager.emit_tool_finished(decision.call_id, result)
+        return result
 
     return registry_runner
 

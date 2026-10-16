@@ -26,8 +26,20 @@ The Panel and Daemon exchange `approval_requested` and `approval_decision`. The
 Daemon sends `approval_requested` to the Panel only when a tool call needs the
 user. The Panel answers with `approval_decision`.
 
-The Daemon and Worker no longer use `approval_requested` or `approval_decision`.
-The schema still lists them. The Daemon ignores them. TP4 removes them.
+`approval_requested` carries `actions`, an array of action objects. Each object
+has three required string fields and allows no other fields:
+
+- `id` is one of `allow_once`, `allow_for_chat`, `allow_for_chat_host`,
+  `always_allow`, or `deny`.
+- `label` is the text of the button. It is not empty.
+- `description` says in plain words what the action covers. It is not empty.
+
+The Panel draws one button for each object, using `label` and `description`
+from the message. `approval_decision` carries the `id` of the chosen action in
+its `action` field.
+
+The Daemon and Worker do not use `approval_requested` or `approval_decision`.
+The Daemon and Worker schema does not list them.
 
 ## Tool authorization
 
@@ -60,8 +72,8 @@ The Daemon steps:
 3. The Daemon asks Cedar. If Cedar allows the call, the Daemon sends `allow`.
    This covers tools in the `allow` tier and calls that match a scoped grant.
 4. The Daemon sends `deny` if the tool is in the `deny` tier.
-5. Otherwise the Daemon sends `approval_requested` to the Panel. The actions
-   come from `policy/tools.yaml`.
+5. Otherwise the Daemon sends `approval_requested` to the Panel. The action
+   objects come from `policy/tools.yaml`.
 6. The Panel sends `approval_decision`. The Daemon rejects an action that it did
    not offer.
 7. The Daemon records a scoped grant for the chosen action and asks Cedar again.

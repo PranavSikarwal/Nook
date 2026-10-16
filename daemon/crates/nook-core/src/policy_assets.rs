@@ -1,4 +1,5 @@
 use crate::policy::{CedarAuthorizer, PolicyError};
+use crate::protocol::ApprovalAction;
 use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -32,11 +33,12 @@ pub enum PolicyAssetsError {
 pub struct ApprovalSpec {
     pub tier: String,
     #[serde(default)]
-    pub actions: Vec<String>,
+    pub actions: Vec<ApprovalAction>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct ToolSpec {
+    pub display_name: String,
     pub description: String,
     pub approval: ApprovalSpec,
 }
@@ -82,16 +84,48 @@ impl ToolCatalog {
                     spec.approval.tier
                 )));
             }
-            for action in &spec.approval.actions {
-                if !KNOWN_ACTIONS.contains(&action.as_str()) {
-                    return Err(PolicyAssetsError::ToolsInvalid(format!(
-                        "tool {name} has unknown approval action {action}"
-                    )));
-                }
+            if spec.display_name.trim().is_empty() {
+                return Err(PolicyAssetsError::ToolsInvalid(format!(
+                    "tool {name} has an empty display_name"
+                )));
             }
+            validate_actions(name, &spec.approval.actions)?;
         }
         Ok(())
     }
+}
+
+fn validate_actions(tool: &str, actions: &[ApprovalAction]) -> Result<(), PolicyAssetsError> {
+    let invalid = |detail: String| PolicyAssetsError::ToolsInvalid(format!("tool {tool} {detail}"));
+    let mut seen: Vec<&str> = Vec::new();
+    for action in actions {
+        if !KNOWN_ACTIONS.contains(&action.id.as_str()) {
+            return Err(invalid(format!(
+                "has unknown approval action {}",
+                action.id
+            )));
+        }
+        if seen.contains(&action.id.as_str()) {
+            return Err(invalid(format!(
+                "has duplicate approval action {}",
+                action.id
+            )));
+        }
+        seen.push(&action.id);
+        if action.label.trim().is_empty() {
+            return Err(invalid(format!(
+                "has an empty label for approval action {}",
+                action.id
+            )));
+        }
+        if action.description.trim().is_empty() {
+            return Err(invalid(format!(
+                "has an empty description for approval action {}",
+                action.id
+            )));
+        }
+    }
+    Ok(())
 }
 
 pub struct PolicyAssets {
@@ -101,17 +135,27 @@ pub struct PolicyAssets {
 
 impl PolicyAssets {
     pub fn load(dir: &Path) -> Result<Self, PolicyAssetsError> {
-        let tools_path = dir.join("tools.yaml");
-        let tools_source =
-            std::fs::read_to_string(&tools_path).map_err(|e| PolicyAssetsError::Io {
-                path: tools_path.display().to_string(),
+        let read = |relative: &str| {
+            let path = dir.join(relative);
+            std::fs::read_to_string(&path).map_err(|e| PolicyAssetsError::Io {
+                path: path.display().to_string(),
                 reason: e.to_string(),
-            })?;
-        let catalog = ToolCatalog::parse(&tools_source)?;
-        let authorizer = CedarAuthorizer::from_files(
-            &dir.join("cedar/schema.cedarschema"),
-            &dir.join("cedar/policies.cedar"),
-        )?;
+            })
+        };
+        Self::from_sources(
+            &read("tools.yaml")?,
+            &read("cedar/schema.cedarschema")?,
+            &read("cedar/policies.cedar")?,
+        )
+    }
+
+    pub fn from_sources(
+        tools_yaml: &str,
+        cedar_schema: &str,
+        cedar_policies: &str,
+    ) -> Result<Self, PolicyAssetsError> {
+        let catalog = ToolCatalog::parse(tools_yaml)?;
+        let authorizer = CedarAuthorizer::from_str(cedar_schema, cedar_policies)?;
         catalog.validate(&authorizer)?;
         Ok(Self {
             catalog,
@@ -214,20 +258,102 @@ mod tests {
         ));
     }
 
+    fn expect_invalid(tools: &str) -> String {
+        let dir = write_assets(tools, SCHEMA, POLICIES);
+        match PolicyAssets::load(dir.path()) {
+            Err(PolicyAssetsError::ToolsInvalid(message)) => message,
+            Err(other) => panic!("Expected ToolsInvalid, got {other:?}"),
+            Ok(_) => panic!("Expected the catalog to be rejected"),
+        }
+    }
+
+    #[test]
+    fn loads_display_names_and_action_objects() {
+        let dir = write_assets(TOOLS, SCHEMA, POLICIES);
+        let assets = PolicyAssets::load(dir.path()).unwrap();
+        let fetch = assets.catalog.tool("nook:web_fetch").unwrap();
+        assert_eq!(fetch.display_name, "Web fetch");
+        let ids: Vec<&str> = fetch
+            .approval
+            .actions
+            .iter()
+            .map(|action| action.id.as_str())
+            .collect();
+        assert_eq!(ids, ["allow_once", "allow_for_chat_host", "deny"]);
+        assert_eq!(
+            fetch.approval.actions[1].label,
+            "Allow for this chat & host"
+        );
+        assert!(!fetch.approval.actions[1].description.is_empty());
+    }
+
     #[test]
     fn rejects_unknown_approval_action() {
-        let tools = TOOLS.replace("- deny", "- grant_forever");
+        let tools = TOOLS.replace("id: deny", "id: grant_forever");
+        assert!(expect_invalid(&tools).contains("grant_forever"));
+    }
+
+    #[test]
+    fn rejects_empty_action_label() {
+        let tools = TOOLS.replace("label: \"Deny\"", "label: \"  \"");
+        assert!(expect_invalid(&tools).contains("label"));
+    }
+
+    #[test]
+    fn rejects_empty_action_description() {
+        let tools = TOOLS.replace(
+            "description: \"Reject this request. The tool does not run.\"",
+            "description: \"\"",
+        );
+        assert!(expect_invalid(&tools).contains("description"));
+    }
+
+    #[test]
+    fn rejects_duplicate_action_id() {
+        let tools = TOOLS.replace("id: deny", "id: allow_once");
+        assert!(expect_invalid(&tools).contains("duplicate"));
+    }
+
+    #[test]
+    fn rejects_action_without_label() {
+        let tools = TOOLS.replace("          label: \"Deny\"\n", "");
         let dir = write_assets(&tools, SCHEMA, POLICIES);
         assert!(matches!(
             PolicyAssets::load(dir.path()),
-            Err(PolicyAssetsError::ToolsInvalid(_))
+            Err(PolicyAssetsError::ToolsParse(_))
+        ));
+    }
+
+    #[test]
+    fn rejects_legacy_string_actions() {
+        let tools = "version: 1\ntools:\n  nook:web_search:\n    display_name: Web search\n    description: x\n    approval:\n      tier: allow\n      actions:\n        - allow_once\n";
+        let dir = write_assets(tools, SCHEMA, POLICIES);
+        assert!(matches!(
+            PolicyAssets::load(dir.path()),
+            Err(PolicyAssetsError::ToolsParse(_))
+        ));
+    }
+
+    #[test]
+    fn rejects_empty_display_name() {
+        let tools = TOOLS.replace("display_name: \"Web fetch\"", "display_name: \"\"");
+        assert!(expect_invalid(&tools).contains("display_name"));
+    }
+
+    #[test]
+    fn rejects_missing_display_name() {
+        let tools = TOOLS.replace("    display_name: \"Web fetch\"\n", "");
+        let dir = write_assets(&tools, SCHEMA, POLICIES);
+        assert!(matches!(
+            PolicyAssets::load(dir.path()),
+            Err(PolicyAssetsError::ToolsParse(_))
         ));
     }
 
     #[test]
     fn rejects_tool_without_cedar_action() {
         let tools = format!(
-            "{TOOLS}\n  nook:other:\n    description: x\n    approval:\n      tier: allow\n"
+            "{TOOLS}\n  nook:other:\n    display_name: Other\n    description: x\n    approval:\n      tier: allow\n"
         );
         let dir = write_assets(&tools, SCHEMA, POLICIES);
         assert!(matches!(

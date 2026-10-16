@@ -18,9 +18,11 @@ Run Worker tests from `worker/`:
 rtk uv run pytest
 ```
 
-Run the Panel build from `panel/`:
+Run the Panel checks from `panel/`:
 
 ```sh
+rtk npm run lint
+rtk npm run test:unit
 rtk npm run build
 ```
 
@@ -65,8 +67,12 @@ The role in the URL must be able to create databases. Each run creates and drops
 one database named `nook_e2e_` followed by an id. A failed run can leave one
 behind. Drop it by hand.
 
-Still to test before the web-tool path is closed: tool start and finish events
-for the live agent, the Panel actions from policy, and the package check that
-the bundled Daemon starts with its policy files. The next tool platform must test
+The live native test calls your model endpoint. It reads `NOOK_BASE_URL`,
+`NOOK_MODEL` and `NOOK_API_KEY` from the shell. Load them from `.env` without
+printing them, then run `rtk npm run test:e2e:live`. It covers a news query and
+the fetch flow: deny, allow once, a chat and host grant, and cancel.
+
+Still to test before the web-tool path is closed: the package check that the
+bundled Daemon starts with its policy files. The next tool platform must test
 sandbox boundaries before it exposes terminal, filesystem, browser, or
 native-system access.

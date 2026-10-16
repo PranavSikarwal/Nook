@@ -5,8 +5,6 @@ from uuid import UUID
 import pytest
 
 from nook_worker.protocol import (
-    ApprovalDecisionRequest,
-    ApprovalRequestedEvent,
     AuthorizationResultRequest,
     AuthorizeToolEvent,
     CancelRequest,
@@ -52,11 +50,6 @@ def test_parse_examples_file():
     assert isinstance(req_title, TitleRequest)
     assert req_title.first_message == "What is the capital of France?"
 
-    req_decision = parse_request(example("approval_decision", 0))
-    assert isinstance(req_decision, ApprovalDecisionRequest)
-    assert req_decision.call_id == "call_search_9"
-    assert req_decision.action == "allow_once"
-
     req_allow = parse_request(example("authorization_result", 0))
     assert isinstance(req_allow, AuthorizationResultRequest)
     assert req_allow.decision == "allow"
@@ -96,11 +89,6 @@ def test_parse_examples_file():
     assert isinstance(ev_tool_finish, ToolCallFinishedEvent)
     assert ev_tool_finish.result == '{"temp":20}'
 
-    ev_approval_req = parse_event(example("approval_requested", 0))
-    assert isinstance(ev_approval_req, ApprovalRequestedEvent)
-    assert ev_approval_req.call_id == "call_search_9"
-    assert ev_approval_req.tool_name == "nook:web_search"
-
     ev_authorize = parse_event(example("authorize_tool", 0))
     assert isinstance(ev_authorize, AuthorizeToolEvent)
     assert ev_authorize.call_id == "call_fetch_1"
@@ -120,6 +108,31 @@ def test_parse_examples_file():
     assert isinstance(ev_error, ErrorEvent)
     assert ev_error.error.code == "endpoint_unreachable"
     assert ev_error.error.retryable is True
+
+
+def test_removed_approval_messages_are_rejected():
+    request_id = "55555555-5555-5555-5555-555555555551"
+    decision = {
+        "type": "approval_decision",
+        "request_id": request_id,
+        "call_id": "call_search_9",
+        "action": "allow_once",
+    }
+    requested = {
+        "type": "approval_requested",
+        "request_id": request_id,
+        "message_id": "44444444-4444-4444-4444-444444444444",
+        "call_id": "call_search_9",
+        "tool_name": "nook:web_search",
+        "arguments": "{}",
+        "explanation": "Search",
+        "resource_summary": "query",
+        "actions": ["allow_once"],
+    }
+    with pytest.raises(ValueError):
+        parse_request(json.dumps(decision))
+    with pytest.raises(ValueError):
+        parse_event(json.dumps(requested))
 
 
 def test_format_event_round_trip():
