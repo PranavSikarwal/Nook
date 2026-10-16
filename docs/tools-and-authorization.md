@@ -1,8 +1,7 @@
 # Tools and authorization
 
 Nook currently exposes web search and web page fetch tools. The Worker validates
-arguments, and the tool policy is intended to make the Daemon the final
-authorization owner.
+arguments. The Daemon is the final authorization owner.
 
 ## Active tools
 
@@ -23,16 +22,44 @@ redirect targets, response types, timeouts, and response size.
 YAML supplies metadata. Cedar makes authorization decisions. The Worker must
 not use YAML or hardcoded values as a substitute for Daemon authorization.
 
-## Current closeout work
+## How a tool call is authorized
 
-`CedarAuthorizer` parses and validates Cedar policy files and evaluates scoped
-grants in `daemon/crates/nook-core/src/policy.rs`. The running Daemon does not
-yet load `policy/tools.yaml` or the Cedar files during startup. It also does not
-yet authorize every active tool request through that component.
+1. The Daemon loads `policy/tools.yaml` and the Cedar files at startup. It
+   stops if a file is missing or invalid. It checks that each tool has a Cedar
+   action, a known tier, and only known approval actions.
+2. The Worker validates the arguments and sends `authorize_tool`.
+3. The Daemon normalizes the request. For `nook:web_fetch` it lowercases the
+   host, removes a trailing dot, converts it with IDNA, and ignores the port.
+   It computes the argument digest.
+4. The Daemon asks Cedar. A tool in the `allow` tier passes. A call that
+   matches a scoped grant passes. A tool in the `deny` tier never passes.
+5. If Cedar denies and the tier is not `deny`, the Daemon asks the user. It
+   offers the actions listed for the tool in `policy/tools.yaml`.
+6. The Daemon records a grant for the chosen action, asks Cedar again, and
+   sends the result to the Worker. The Worker runs the tool only after `allow`.
 
-The plan in `plans/tool-platform-closeout-and-next-phase.md` makes those gaps
-explicit. The plan blocks new privileged tools until the Daemon owns policy
-loading, decision evaluation, and grants.
+The Daemon keeps grants in memory. A Worker restart does not remove them. A
+Daemon restart does. These grant scopes exist:
+
+- `once` covers one call with the same argument digest. The Daemon removes it
+  when it is used.
+- `chat_host` covers one host in one chat.
+- `chat` covers one chat.
+- `persistent` covers every chat.
+
+Deleting a chat removes its `once`, `chat_host`, and `chat` grants. It keeps
+`persistent` grants. Editable policy and stored grants are TP12.
+
+## Work still open
+
+The Panel still draws its own button labels for the actions. TP4 makes it use
+the labels from the policy file. TP5 adds tool start and finish events for the
+live agent and a rule for the end of a reply after a denial. The fetcher still
+checks private addresses after approval, because it must check them again when
+it connects. TP6 tests those checks.
+
+The plan in `plans/tool-platform-closeout-and-next-phase.md` blocks new
+privileged tools until TP6 passes.
 
 ## Deferred platform work
 

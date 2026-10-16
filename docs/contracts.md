@@ -22,9 +22,12 @@ input and output.
 
 ## Tool messages
 
-The schema includes approval and tool-execution messages. The current runtime
-wiring for Cedar and YAML policy ownership is tracked in the closeout plan. The
-schemas remain authoritative even while that work is incomplete.
+The Panel and Daemon exchange `approval_requested` and `approval_decision`. The
+Daemon sends `approval_requested` to the Panel only when a tool call needs the
+user. The Panel answers with `approval_decision`.
+
+The Daemon and Worker no longer use `approval_requested` or `approval_decision`.
+The schema still lists them. The Daemon ignores them. TP4 removes them.
 
 ## Tool authorization
 
@@ -37,24 +40,52 @@ messages carry this exchange.
   no other fields.
 - `authorization_result` goes from Daemon to Worker. It carries `request_id`,
   `call_id`, and `decision`. `decision` is `allow` or `deny`. The optional
-  `reason` is a string.
+  `reason` is a short fixed string. The message allows no other fields.
 
-The flow has five steps.
+The Worker steps:
 
 1. The Worker validates the tool arguments.
 2. The Worker sends `authorize_tool`.
-3. The Worker waits for `authorization_result` with the same `call_id`.
+3. The Worker waits for `authorization_result` with the same `request_id` and
+   `call_id`. It ignores any other result.
 4. The Worker runs the tool executor only if `decision` is `allow`.
 5. The Worker does not run the executor if `decision` is `deny`.
+
+The Daemon steps:
+
+1. The Daemon denies the call if `chat_id` is not the chat of the running
+   request.
+2. The Daemon builds one normalized request from the tool name and arguments.
+   It denies the call if the tool is unknown or the arguments are invalid.
+3. The Daemon asks Cedar. If Cedar allows the call, the Daemon sends `allow`.
+   This covers tools in the `allow` tier and calls that match a scoped grant.
+4. The Daemon sends `deny` if the tool is in the `deny` tier.
+5. Otherwise the Daemon sends `approval_requested` to the Panel. The actions
+   come from `policy/tools.yaml`.
+6. The Panel sends `approval_decision`. The Daemon rejects an action that it did
+   not offer.
+7. The Daemon records a scoped grant for the chosen action and asks Cedar again.
+   It sends `allow` only if Cedar allows the call.
+
+A `once` grant works for one call only. Cancel sends `deny` with the reason
+`Cancelled` for each call that still waits.
 
 The Daemon owns host normalization and argument-digest normalization. The digest
 is the SHA-256 hex of the canonical JSON of the arguments. Canonical JSON uses
 sorted keys and no whitespace. The Worker never sends a digest.
+
+The `reason` is one of a small set of fixed strings, such as `Invalid
+arguments`, `Unknown tool`, `Denied by the user`, `Authorization failed`, and
+`Cancelled`. It never contains error detail. The Daemon writes the detail to its
+log.
 
 ## Verification
 
 Run the contract test suite after changing a schema or an example:
 
 ```sh
-rtk uv run --with pytest --with jsonschema pytest tests/contracts
+rtk uv run --with pytest --with jsonschema pytest tests/contracts panel/e2e/test_fake_worker.py
 ```
+
+The second file checks that the deterministic fake Worker only sends messages
+that the Daemon and Worker schema allows.
