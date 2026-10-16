@@ -204,7 +204,8 @@ def build_deep_agent(
         (
             "nook:web_fetch",
             "web_fetch",
-            "Fetch a public web page over HTTP or HTTPS and extract readable text.",
+            "Fetch a public web page over HTTP or HTTPS and extract readable text. "
+            "If the page redirects to another host, call this tool again with the new URL.",
             WebFetchInput,
             StrictWebFetchInput,
             {"network": True, "read_only": True},

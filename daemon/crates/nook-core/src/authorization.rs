@@ -89,7 +89,20 @@ fn fetch_target_host(arguments: &Value) -> Result<String, AuthorizationError> {
         .get("url")
         .and_then(Value::as_str)
         .ok_or(AuthorizationError::MissingUrl)?;
+    if raw
+        .chars()
+        .any(|c| c == '\\' || c.is_control() || c.is_whitespace())
+    {
+        return Err(AuthorizationError::InvalidUrl(
+            "url contains a backslash, space or control character".to_string(),
+        ));
+    }
     let url = Url::parse(raw).map_err(|e| AuthorizationError::InvalidUrl(e.to_string()))?;
+    if !url.username().is_empty() || url.password().is_some() {
+        return Err(AuthorizationError::InvalidUrl(
+            "url must not contain a username or password".to_string(),
+        ));
+    }
     if !matches!(url.scheme(), "http" | "https") {
         return Err(AuthorizationError::UnsupportedScheme(
             url.scheme().to_string(),
@@ -97,9 +110,26 @@ fn fetch_target_host(arguments: &Value) -> Result<String, AuthorizationError> {
     }
     match url.host().ok_or(AuthorizationError::MissingHost)? {
         Host::Domain(domain) => normalize_domain(domain),
-        Host::Ipv4(ip) => Ok(ip.to_string()),
+        Host::Ipv4(ip) => {
+            if authority_host(raw) != ip.to_string() {
+                return Err(AuthorizationError::InvalidUrl(
+                    "an IP address must be written as four decimal numbers".to_string(),
+                ));
+            }
+            Ok(ip.to_string())
+        }
         Host::Ipv6(ip) => Ok(format!("[{ip}]")),
     }
+}
+
+fn authority_host(raw: &str) -> &str {
+    let rest = raw.split_once("://").map_or(raw, |(_, rest)| rest);
+    let end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+    let authority = &rest[..end];
+    authority
+        .rsplit_once(':')
+        .filter(|(_, port)| port.chars().all(|c| c.is_ascii_digit()))
+        .map_or(authority, |(host, _)| host)
 }
 
 fn normalize_domain(domain: &str) -> Result<String, AuthorizationError> {
@@ -247,6 +277,39 @@ mod tests {
             fetch(&args),
             Err(AuthorizationError::InvalidUrl(_))
         ));
+    }
+
+    #[test]
+    fn urls_that_parsers_read_differently_are_rejected() {
+        for url in [
+            "http://good.com\\@evil.com/",
+            "http://good.com:80@evil.com/",
+            "http://user@good.com/",
+            "http://user:secret@good.com/",
+            "http://good.com\t.evil.com/",
+            "http://good.com\n.evil.com/",
+            "http://good.com /",
+        ] {
+            let args = serde_json::json!({ "url": url }).to_string();
+            assert!(
+                matches!(fetch(&args), Err(AuthorizationError::InvalidUrl(_))),
+                "{url:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn hosts_match_the_vectors_shared_with_the_worker() {
+        let vectors: Value =
+            serde_json::from_str(include_str!("../../../../contracts/host-vectors.json")).unwrap();
+        for case in vectors["accepted"].as_array().unwrap() {
+            let url = case["url"].as_str().unwrap();
+            assert_eq!(host_of(url).as_deref(), case["host"].as_str(), "{url:?}");
+        }
+        for url in vectors["rejected"].as_array().unwrap() {
+            let args = serde_json::json!({ "url": url }).to_string();
+            assert!(fetch(&args).is_err(), "{url:?}");
+        }
     }
 
     #[test]

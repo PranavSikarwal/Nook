@@ -2,6 +2,7 @@ import asyncio
 import json
 import socket
 from collections.abc import Callable, Iterator
+from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
@@ -10,11 +11,15 @@ import pytest
 
 from nook_worker.tools.fetch import (
     MAX_REDIRECTS,
+    _normalized_host,
     execute_web_fetch,
     resolve_and_validate_host,
 )
 
 PUBLIC_IP = "93.184.215.14"
+HOST_VECTORS = json.loads(
+    (Path(__file__).parents[2] / "contracts" / "host-vectors.json").read_text()
+)
 
 
 def redirect_to(location: str) -> httpx.Response:
@@ -228,6 +233,10 @@ async def test_redirect_loop_on_same_host_stops_at_the_limit(
         "http://[::ffff:127.0.0.1]/",
         "http://0.0.0.0/",
         "http://100.100.100.200/",
+        "http://192.0.2.1/",
+        "http://198.51.100.7/",
+        "http://203.0.113.9/",
+        "http://[2001:db8::1]/",
     ],
 )
 async def test_literal_private_addresses_are_refused_before_any_connection(url: str):
@@ -292,3 +301,68 @@ async def test_hostname_resolving_to_public_ip_passes_the_guard(
 
 async def test_literal_public_ip_passes_the_guard():
     assert await resolve_and_validate_host("8.8.8.8", 443) == ["8.8.8.8"]
+
+
+@pytest.mark.parametrize("case", HOST_VECTORS["accepted"], ids=lambda c: c["url"])
+def test_host_matches_the_daemon_vectors(case: dict[str, str]):
+    assert _normalized_host(case["url"]) == case["host"]
+
+
+@pytest.mark.parametrize("url", HOST_VECTORS["rejected"])
+def test_urls_the_daemon_rejects_are_rejected_here_too(url: str):
+    with pytest.raises(ValueError):
+        _normalized_host(url)
+
+
+async def test_redirect_between_hosts_that_only_old_idna_treats_alike_is_refused(
+    network_for: NetworkBuilder,
+):
+    network = network_for({"https://faß.de/": redirect_to("https://fass.de/")})
+
+    result = json.loads(await execute_web_fetch("https://faß.de/"))
+
+    assert "xn--fa-hia.de" not in result["error"]
+    assert "Redirected to fass.de" in result["error"]
+    assert len(network.requested_urls) == 1
+
+
+async def test_dns_lookup_uses_the_ascii_host():
+    looked_up: list[str] = []
+
+    async def resolve(hostname: str, port: int) -> list[str]:
+        looked_up.append(hostname)
+        raise ValueError("stop here")
+
+    with patch(
+        "nook_worker.tools.fetch.resolve_and_validate_host", side_effect=resolve
+    ):
+        await execute_web_fetch("https://faß.de/")
+
+    assert looked_up == ["xn--fa-hia.de"]
+
+
+class SlowStream(httpx.AsyncByteStream):
+    async def __aiter__(self):
+        for _ in range(200):
+            await asyncio.sleep(0.05)
+            yield b"x"
+
+
+async def test_a_response_that_trickles_in_is_stopped_at_the_total_deadline(
+    network_for: NetworkBuilder,
+):
+    network = network_for(
+        {
+            "https://example.com/": httpx.Response(
+                200, headers={"content-type": "text/plain"}, stream=SlowStream()
+            )
+        }
+    )
+
+    with patch("nook_worker.tools.fetch.TOTAL_TIMEOUT_SECONDS", 0.3):
+        result = json.loads(
+            await asyncio.wait_for(execute_web_fetch("https://example.com/"), 3)
+        )
+
+    assert result["error"] == "Request timed out"
+    assert len(network.requested_urls) == 1

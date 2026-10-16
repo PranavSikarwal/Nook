@@ -1,11 +1,13 @@
 import asyncio
 import ipaddress
+import re
 import socket
 from typing import Any
 from urllib.parse import urljoin, urlparse
 
 import httpcore
 import httpx
+import idna
 from bs4 import BeautifulSoup
 from pydantic import BaseModel, Field, field_validator
 
@@ -13,6 +15,7 @@ from nook_worker.tools.common import tool_error, tool_result
 
 MAX_REDIRECTS = 5
 TIMEOUT_SECONDS = 15.0
+TOTAL_TIMEOUT_SECONDS = 30.0
 MAX_RESPONSE_BYTES = 2 * 1024 * 1024  # 2 MB
 CHUNK_SIZE = 64 * 1024  # 64 KB
 ALLOWED_CONTENT_TYPES = [
@@ -154,11 +157,17 @@ async def _read_streamed_body(response: httpx.Response) -> bytes:
 
 def _parse_and_check_url(url: str) -> tuple[str, str, int]:
     """Parse URL and check scheme and hostname."""
+    if any(char == "\\" or char.isspace() or not char.isprintable() for char in url):
+        raise ValueError(
+            f"Invalid URL '{url}': it contains a backslash, space or control character"
+        )
     parsed = urlparse(url)
     if parsed.scheme not in ("http", "https"):
         raise ValueError(
             f"Unsupported URL scheme '{parsed.scheme}'. Only http and https are allowed."
         )
+    if "@" in parsed.netloc:
+        raise ValueError(f"Invalid URL '{url}': it must not contain a username")
 
     hostname = parsed.hostname
     if not hostname:
@@ -168,13 +177,30 @@ def _parse_and_check_url(url: str) -> tuple[str, str, int]:
     return parsed.scheme, hostname, port
 
 
-def _normalized_host(url: str) -> str:
-    """Return the lowercase, dot-stripped, IDNA ASCII host of an http(s) URL."""
-    _, hostname, _ = _parse_and_check_url(url)
+def _ascii_host(hostname: str) -> str:
+    """Return the host the way the Daemon names it, without brackets around IPv6."""
     try:
-        return hostname.lower().removesuffix(".").encode("idna").decode("ascii")
+        return str(ipaddress.ip_address(hostname))
+    except ValueError:
+        pass
+    last_label = hostname.rstrip(".").rsplit(".", 1)[-1]
+    if last_label.isdigit() or re.fullmatch(r"0[xX][0-9a-fA-F]*", last_label):
+        raise ValueError(
+            f"Invalid host '{hostname}': an IP address must be four decimal numbers"
+        )
+    try:
+        return idna.encode(
+            hostname.lower().rstrip("."), uts46=True, transitional=False
+        ).decode("ascii")
     except UnicodeError as exc:
         raise ValueError(f"Invalid host '{hostname}'") from exc
+
+
+def _normalized_host(url: str) -> str:
+    """Return the host as the Daemon names it in an approval: lowercase, IDNA ASCII."""
+    _, hostname, _ = _parse_and_check_url(url)
+    host = _ascii_host(hostname)
+    return f"[{host}]" if ":" in host else host
 
 
 class StrictWebFetchInput(WebFetchInput):
@@ -195,7 +221,7 @@ async def _fetch_single_url(
     """
     try:
         _, hostname, port = _parse_and_check_url(target_url)
-        validated_ips = await resolve_and_validate_host(hostname, port)
+        validated_ips = await resolve_and_validate_host(_ascii_host(hostname), port)
     except ValueError as exc:
         return None, str(exc), None
 
@@ -263,8 +289,16 @@ async def _fetch_single_url(
 async def execute_web_fetch(url: str) -> str:
     """Fetch a public HTTP or HTTPS web page with SSRF protection, DNS pinning,
 
-    streaming size limits, and redirect validation.
+    streaming size limits, redirect validation, and a deadline for the whole fetch.
     """
+    try:
+        async with asyncio.timeout(TOTAL_TIMEOUT_SECONDS):
+            return await _fetch_following_redirects(url)
+    except TimeoutError:
+        return tool_error("Request timed out")
+
+
+async def _fetch_following_redirects(url: str) -> str:
     current_url = url.strip()
     try:
         origin_host = _normalized_host(current_url)

@@ -14,7 +14,7 @@ tools:
 
   nook:web_fetch:
     display_name: "Web fetch"
-    description: "Fetch a public web page over HTTP or HTTPS and extract readable text."
+    description: "Fetch a public web page over HTTP or HTTPS and extract readable text. Redirects to another host are not followed. Each host needs its own approval."
     capabilities:
       network: true
       read_only: true
