@@ -230,7 +230,8 @@ async def test_concurrent_runs_keep_separate_contexts():
     assert [e.request_id for e in runs["web_search"].events()] == [
         runs["web_search"].request_id
     ]
-    manager.cancel_all()
+    for run in runs.values():
+        manager.cancel_for_request(run.request_id)
     for task in (first, second):
         with pytest.raises(asyncio.CancelledError):
             await task

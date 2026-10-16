@@ -6,7 +6,8 @@ use nook_core::protocol::{DaemonMessage, DaemonWorkerEvent, DaemonWorkerRequest}
 use nook_core::server::AppState;
 use nook_core::supervisor::WorkerSupervisor;
 use nook_core::tool_approval::{
-    handle_approval_decision, handle_authorize_tool, AuthorizeContext, AuthorizeToolCall,
+    expire_pending_approval, handle_approval_decision, handle_authorize_tool, AuthorizeContext,
+    AuthorizeToolCall, APPROVAL_TIMEOUT,
 };
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
@@ -176,6 +177,15 @@ impl Harness {
             .await
             .expect("Timeout waiting for the Panel prompt")
             .expect("Panel channel closed")
+    }
+
+    fn close_panel(&mut self) {
+        let (tx, _rx) = mpsc::channel(32);
+        self.panel_tx = tx;
+    }
+
+    async fn pending_count(&self) -> usize {
+        self.state.pending_approvals.lock().await.len()
     }
 
     fn assert_no_panel_message(&mut self) {
@@ -496,7 +506,20 @@ async fn host_grant_covers_the_host_in_that_chat_only() {
 }
 
 fn ask_for_search(yaml: String) -> String {
-    yaml.replacen("tier: allow", "tier: ask_once_per_host", 1)
+    let actions = concat!(
+        "tier: ask_once_per_host\n",
+        "      actions:\n",
+        "        - id: allow_once\n",
+        "          label: \"Allow once\"\n",
+        "          description: \"Allow this exact request one time.\"\n",
+        "        - id: allow_for_chat\n",
+        "          label: \"Allow for this chat\"\n",
+        "          description: \"Allow this tool for the rest of this chat.\"\n",
+        "        - id: always_allow\n",
+        "          label: \"Always allow\"\n",
+        "          description: \"Allow this tool in every chat until you remove the grant.\"\n",
+    );
+    yaml.replacen("tier: allow\n", actions, 1)
 }
 
 #[tokio::test]
@@ -918,4 +941,106 @@ async fn deleting_a_chat_removes_its_grants() {
     assert_worker_silent(&mut after).await;
     shutdown_tx.send(()).unwrap();
     task.await.unwrap();
+}
+
+#[tokio::test]
+async fn closed_panel_denies_the_call_and_drops_the_pending_entry() {
+    let mut h = Harness::new().await;
+    h.close_panel();
+    let mut call = h
+        .start_call(
+            Uuid::new_v4(),
+            "c1",
+            FETCH,
+            &fetch_args("https://a.example/x"),
+        )
+        .await;
+    let (decision, reason) = worker_result(&mut call).await;
+    assert_eq!(decision, "deny");
+    assert_eq!(reason.as_deref(), Some("Approval could not be shown"));
+    assert_eq!(h.pending_count().await, 0);
+}
+
+#[test]
+fn approval_timeout_is_five_minutes() {
+    assert_eq!(APPROVAL_TIMEOUT, Duration::from_secs(300));
+}
+
+#[tokio::test]
+async fn an_expired_approval_denies_the_call_and_a_late_decision_records_no_grant() {
+    let mut h = Harness::new().await;
+    let chat_id = Uuid::new_v4();
+    let mut call = h
+        .start_call(chat_id, "c1", FETCH, &fetch_args("https://a.example/x"))
+        .await;
+    h.expect_prompt().await;
+    expire_pending_approval(&h.state, "c1", call.worker_id, Duration::from_millis(20)).await;
+    let (decision, reason) = worker_result(&mut call).await;
+    assert_eq!(decision, "deny");
+    assert_eq!(reason.as_deref(), Some("Approval timed out"));
+    assert_eq!(h.pending_count().await, 0);
+
+    h.decide_in_chat(chat_id, "c1", "allow_for_chat_host").await;
+    assert!(h.expect_error().await.contains("Unknown or invalid"));
+    assert_eq!(
+        h.grant_count_for(chat_id, "web_fetch", Some("a.example"))
+            .await,
+        0
+    );
+    assert_worker_silent(&mut call).await;
+}
+
+#[tokio::test]
+async fn expiry_leaves_a_decision_that_is_being_forwarded() {
+    let mut h = Harness::new().await;
+    let mut call = h
+        .start_call(
+            Uuid::new_v4(),
+            "c1",
+            FETCH,
+            &fetch_args("https://a.example/x"),
+        )
+        .await;
+    h.expect_prompt().await;
+    h.state
+        .pending_approvals
+        .lock()
+        .await
+        .get_mut("c1")
+        .unwrap()
+        .decision_in_flight = true;
+    expire_pending_approval(&h.state, "c1", call.worker_id, Duration::from_millis(20)).await;
+    assert_eq!(h.pending_count().await, 1);
+    assert_worker_silent(&mut call).await;
+}
+
+#[tokio::test]
+async fn expiry_does_nothing_after_the_user_decided() {
+    let mut h = Harness::new().await;
+    let chat_id = Uuid::new_v4();
+    let mut call = h
+        .start_call(chat_id, "c1", FETCH, &fetch_args("https://a.example/x"))
+        .await;
+    h.expect_prompt().await;
+    h.decide_in_chat(chat_id, "c1", "allow_once").await;
+    assert_eq!(worker_result(&mut call).await.0, "allow");
+    expire_pending_approval(&h.state, "c1", call.worker_id, Duration::from_millis(20)).await;
+    assert_worker_silent(&mut call).await;
+}
+
+#[tokio::test]
+async fn expiry_does_not_touch_a_newer_call_that_reuses_the_call_id() {
+    let mut h = Harness::new().await;
+    let mut call = h
+        .start_call(
+            Uuid::new_v4(),
+            "c1",
+            FETCH,
+            &fetch_args("https://a.example/x"),
+        )
+        .await;
+    h.expect_prompt().await;
+    expire_pending_approval(&h.state, "c1", Uuid::new_v4(), Duration::from_millis(20)).await;
+    assert_eq!(h.pending_count().await, 1);
+    assert_worker_silent(&mut call).await;
 }

@@ -1,7 +1,7 @@
 use nook_core::config::Config;
 use nook_core::db;
 use nook_core::keychain;
-use nook_core::policy_assets::PolicyAssets;
+use nook_core::policy_assets::{find_policy_directory, PolicyAssets};
 use nook_core::server::{AppState, Server};
 use nook_core::supervisor::WorkerSupervisor;
 use std::collections::HashMap;
@@ -12,6 +12,10 @@ use tracing::{error, info, warn};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    if std::env::args().skip(1).any(|arg| arg == "--check-policy") {
+        std::process::exit(check_policy());
+    }
+
     tracing_subscriber::fmt::init();
 
     // 0. Load .env if present
@@ -121,6 +125,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     server.run().await?;
     Ok(())
+}
+
+fn check_policy() -> i32 {
+    match PolicyAssets::load_default() {
+        Ok(policy) => {
+            let dir = find_policy_directory().unwrap_or_default();
+            println!(
+                "policy ok: {} tools from {}",
+                policy.catalog.tools.len(),
+                dir.display()
+            );
+            0
+        }
+        Err(e) => {
+            eprintln!("policy check failed: {e}");
+            1
+        }
+    }
 }
 
 #[cfg(feature = "e2e")]

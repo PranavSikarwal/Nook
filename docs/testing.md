@@ -72,7 +72,11 @@ The live native test calls your model endpoint. It reads `NOOK_BASE_URL`,
 printing them, then run `rtk npm run test:e2e:live`. It covers a news query and
 the fetch flow: deny, allow once, a chat and host grant, and cancel.
 
-Still to test before the web-tool path is closed: the package check that the
-bundled Daemon starts with its policy files. The next tool platform must test
+The package workflow runs `nookd --check-policy` on the staged Daemon. It runs
+once with `NOOK_POLICY_DIR` set and once from a copy of the resource layout
+without it. `scripts/bundle.sh` runs the same check on the macOS bundle. These
+steps have not run on GitHub yet. Fetcher tests in
+`worker/tests/test_fetch_redirects_and_guards.py` cover redirects and the
+address guards. The next tool platform must test
 sandbox boundaries before it exposes terminal, filesystem, browser, or
 native-system access.

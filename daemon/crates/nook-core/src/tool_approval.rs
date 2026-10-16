@@ -1,13 +1,17 @@
 use crate::authorization::{AuthorizationError, AuthorizationRequest};
 use crate::policy::ScopedGrant;
+use crate::policy_assets::approval_action_scope;
 use crate::protocol::{
     AuthorizationDecision, DaemonMessage, DaemonWorkerRequest, ErrorCode, ErrorInfo,
 };
 use crate::server::{claim_pending_approval, AppState, PendingApprovalEntry};
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::mpsc;
 use tracing::warn;
 use uuid::Uuid;
+
+pub const APPROVAL_TIMEOUT: Duration = Duration::from_secs(300);
 
 pub struct AuthorizeContext {
     pub client_request_id: Uuid,
@@ -70,6 +74,28 @@ async fn reply_to_worker(
 ) {
     if let Err(error) = send_result(state, ctx.worker_request_id, call_id, verdict).await {
         warn!("Failed to send authorization result for {call_id}: {error}");
+    }
+}
+
+pub async fn expire_pending_approval(
+    state: &Arc<AppState>,
+    call_id: &str,
+    worker_request_id: Uuid,
+    after: Duration,
+) {
+    tokio::time::sleep(after).await;
+    let expired = {
+        let mut approvals = state.pending_approvals.lock().await;
+        let still_pending = approvals.get(call_id).is_some_and(|entry| {
+            entry.worker_request_id == worker_request_id && !entry.decision_in_flight
+        });
+        still_pending && approvals.remove(call_id).is_some()
+    };
+    if expired {
+        let verdict = deny("Approval timed out");
+        if let Err(error) = send_result(state, worker_request_id, call_id, verdict).await {
+            warn!("Failed to deny timed out call {call_id}: {error}");
+        }
     }
 }
 
@@ -145,53 +171,46 @@ pub async fn handle_authorize_tool(
             },
         );
     }
-    let _ = tx_out
-        .send(DaemonMessage::ApprovalRequested {
-            id: ctx.client_request_id,
-            chat_id: ctx.chat_id,
-            message_id: call.message_id,
-            call_id,
-            tool_name: call.tool_name,
-            arguments: call.arguments,
-            explanation,
-            resource_summary,
-            actions,
-        })
-        .await;
-}
-
-fn scope_for_action(action: &str) -> Option<&'static str> {
-    match action {
-        "allow_once" => Some("once"),
-        "allow_for_chat_host" => Some("chat_host"),
-        "allow_for_chat" => Some("chat"),
-        "always_allow" => Some("persistent"),
-        _ => None,
+    let prompt = DaemonMessage::ApprovalRequested {
+        id: ctx.client_request_id,
+        chat_id: ctx.chat_id,
+        message_id: call.message_id,
+        call_id: call_id.clone(),
+        tool_name: call.tool_name,
+        arguments: call.arguments,
+        explanation,
+        resource_summary,
+        actions,
+    };
+    if tx_out.send(prompt).await.is_err() {
+        state.pending_approvals.lock().await.remove(&call_id);
+        let verdict = deny("Approval could not be shown");
+        return reply_to_worker(state, ctx, &call_id, verdict).await;
     }
+    let (state, worker_request_id) = (state.clone(), ctx.worker_request_id);
+    tokio::spawn(async move {
+        expire_pending_approval(&state, &call_id, worker_request_id, APPROVAL_TIMEOUT).await;
+    });
 }
 
 async fn resolve_decision(state: &AppState, entry: &PendingApprovalEntry, action: &str) -> Verdict {
-    if action == "deny" {
-        return deny("Denied by the user");
-    }
-    let Some(scope) = scope_for_action(action) else {
-        return deny("Unsupported approval action");
+    let scope = match approval_action_scope(action) {
+        None => return deny("Unsupported approval action"),
+        Some(None) => return deny("Denied by the user"),
+        Some(Some(scope)) => scope,
     };
     let Some(grant) = ScopedGrant::for_request(&entry.request, scope) else {
         return deny("The approval action does not apply to this request");
     };
-    let store = state.policy.authorizer.grant_store();
-    store.lock().await.add_grant(grant.clone());
-    match state.policy.authorizer.authorize_tool(&entry.request).await {
+    match state
+        .policy
+        .authorizer
+        .authorize_with_candidate_grant(&entry.request, grant)
+        .await
+    {
         Ok(true) => (AuthorizationDecision::Allow, None),
-        Ok(false) => {
-            store.lock().await.remove(&grant);
-            deny("Policy does not allow this request")
-        }
-        Err(error) => {
-            store.lock().await.remove(&grant);
-            policy_failure(error)
-        }
+        Ok(false) => deny("Policy does not allow this request"),
+        Err(error) => policy_failure(error),
     }
 }
 

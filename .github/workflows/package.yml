@@ -130,6 +130,25 @@ jobs:
             test -f panel/src-tauri/resources/policy/tools.yaml
           fi
 
+      - name: Check staged policy with the staged daemon
+        shell: bash
+        env:
+          RUNNER_OS: ${{ runner.os }}
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            NOOKD=nookd.exe
+          else
+            NOOKD=nookd
+          fi
+          RESOURCES="$PWD/panel/src-tauri/resources"
+          NOOK_POLICY_DIR="$RESOURCES/policy" "$RESOURCES/daemon/$NOOKD" --check-policy
+          LAYOUT_DIR="$(mktemp -d)"
+          CHECK_CWD="$(mktemp -d)"
+          cp -R "$RESOURCES/daemon" "$LAYOUT_DIR/daemon"
+          cp -R "$RESOURCES/policy" "$LAYOUT_DIR/policy"
+          cd "$CHECK_CWD"
+          env -u NOOK_POLICY_DIR "$LAYOUT_DIR/daemon/$NOOKD" --check-policy
+
       - name: Build and package Tauri app
         id: package
         continue-on-error: true

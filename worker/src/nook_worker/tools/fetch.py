@@ -72,6 +72,7 @@ def is_ip_blocked(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
         or ip.is_multicast
         or ip.is_unspecified
         or ip.is_reserved
+        or not ip.is_global
     )
 
 
@@ -167,6 +168,15 @@ def _parse_and_check_url(url: str) -> tuple[str, str, int]:
     return parsed.scheme, hostname, port
 
 
+def _normalized_host(url: str) -> str:
+    """Return the lowercase, dot-stripped, IDNA ASCII host of an http(s) URL."""
+    _, hostname, _ = _parse_and_check_url(url)
+    try:
+        return hostname.lower().removesuffix(".").encode("idna").decode("ascii")
+    except UnicodeError as exc:
+        raise ValueError(f"Invalid host '{hostname}'") from exc
+
+
 class StrictWebFetchInput(WebFetchInput):
     @field_validator("url")
     @classmethod
@@ -256,6 +266,10 @@ async def execute_web_fetch(url: str) -> str:
     streaming size limits, and redirect validation.
     """
     current_url = url.strip()
+    try:
+        origin_host = _normalized_host(current_url)
+    except ValueError as exc:
+        return tool_error(str(exc))
 
     for _ in range(MAX_REDIRECTS + 1):
         redirect_url, error_msg, result = await _fetch_single_url(current_url)
@@ -264,6 +278,14 @@ async def execute_web_fetch(url: str) -> str:
         if result:
             return tool_result(result)
         if redirect_url:
+            try:
+                redirect_host = _normalized_host(redirect_url)
+            except ValueError as exc:
+                return tool_error(str(exc))
+            if redirect_host != origin_host:
+                return tool_error(
+                    f"Redirected to {redirect_host}. Ask for that URL directly so it can be approved."
+                )
             current_url = redirect_url
 
     return tool_error(f"Too many redirects (exceeded limit of {MAX_REDIRECTS})")

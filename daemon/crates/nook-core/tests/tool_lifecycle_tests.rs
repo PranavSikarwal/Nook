@@ -5,7 +5,7 @@ use nook_core::policy_assets::PolicyAssets;
 use nook_core::protocol::{
     ClientMessage, DaemonMessage, DaemonWorkerEvent, DaemonWorkerRequest, FinishStatus,
 };
-use nook_core::server::{forward_tool_call_event, AppState, Server};
+use nook_core::server::{forward_text_delta, forward_tool_call_event, AppState, Server};
 use nook_core::supervisor::WorkerSupervisor;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -250,4 +250,82 @@ async fn a_second_request_does_not_receive_events_of_a_cancelled_one() {
         other => panic!("Expected ToolCallFinished, got {other:?}"),
     }
     h.assert_panel_silent();
+}
+
+#[tokio::test]
+async fn text_before_cancel_is_forwarded_and_accumulated() {
+    let mut h = Harness::new().await;
+    let client_id = Uuid::new_v4();
+    let chat_id = Uuid::new_v4();
+    let message_id = Uuid::new_v4();
+    let mut full_text = String::new();
+
+    forward_text_delta(
+        &h.state,
+        client_id,
+        chat_id,
+        message_id,
+        "hello".to_string(),
+        &mut full_text,
+        &h.panel_tx,
+    )
+    .await;
+
+    assert_eq!(full_text, "hello");
+    assert_eq!(
+        h.expect_panel().await,
+        DaemonMessage::TextDelta {
+            id: client_id,
+            chat_id,
+            message_id,
+            text: "hello".to_string(),
+        }
+    );
+}
+
+#[tokio::test]
+async fn text_after_cancel_is_accumulated_but_not_forwarded() {
+    let mut h = Harness::new().await;
+    let client_id = Uuid::new_v4();
+    let mut full_text = String::from("before ");
+    h.state.cancelled_requests.lock().await.insert(client_id);
+
+    forward_text_delta(
+        &h.state,
+        client_id,
+        Uuid::new_v4(),
+        Uuid::new_v4(),
+        "after".to_string(),
+        &mut full_text,
+        &h.panel_tx,
+    )
+    .await;
+
+    assert_eq!(full_text, "before after");
+    h.assert_panel_silent();
+}
+
+#[tokio::test]
+async fn text_of_another_request_is_forwarded_while_one_is_cancelled() {
+    let mut h = Harness::new().await;
+    let cancelled = Uuid::new_v4();
+    let other = Uuid::new_v4();
+    h.state.cancelled_requests.lock().await.insert(cancelled);
+    let mut full_text = String::new();
+
+    forward_text_delta(
+        &h.state,
+        other,
+        Uuid::new_v4(),
+        Uuid::new_v4(),
+        "live".to_string(),
+        &mut full_text,
+        &h.panel_tx,
+    )
+    .await;
+
+    assert!(matches!(
+        h.expect_panel().await,
+        DaemonMessage::TextDelta { id, .. } if id == other
+    ));
 }

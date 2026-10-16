@@ -96,16 +96,17 @@ fn fetch_target_host(arguments: &Value) -> Result<String, AuthorizationError> {
         ));
     }
     match url.host().ok_or(AuthorizationError::MissingHost)? {
-        Host::Domain(domain) => Ok(normalize_domain(domain)),
+        Host::Domain(domain) => normalize_domain(domain),
         Host::Ipv4(ip) => Ok(ip.to_string()),
         Host::Ipv6(ip) => Ok(format!("[{ip}]")),
     }
 }
 
-fn normalize_domain(domain: &str) -> String {
+fn normalize_domain(domain: &str) -> Result<String, AuthorizationError> {
     let cleaned = domain.trim().to_lowercase();
     let cleaned = cleaned.trim_end_matches('.');
-    idna::domain_to_ascii(cleaned).unwrap_or_else(|_| cleaned.to_string())
+    idna::domain_to_ascii(cleaned)
+        .map_err(|e| AuthorizationError::InvalidUrl(format!("host is not valid: {e}")))
 }
 
 fn digest_arguments(arguments: &Value) -> String {
@@ -224,6 +225,28 @@ mod tests {
             host_of("https://Bücher.example./x").as_deref(),
             Some("xn--bcher-kva.example")
         );
+    }
+
+    #[test]
+    fn domain_with_an_invalid_label_is_rejected() {
+        for domain in ["xn--a-.example", "xn--zz.example", "xn--.example"] {
+            assert!(
+                matches!(
+                    normalize_domain(domain),
+                    Err(AuthorizationError::InvalidUrl(_))
+                ),
+                "{domain}"
+            );
+        }
+    }
+
+    #[test]
+    fn url_with_an_invalid_label_is_rejected() {
+        let args = serde_json::json!({ "url": "https://xn--a-.example/" }).to_string();
+        assert!(matches!(
+            fetch(&args),
+            Err(AuthorizationError::InvalidUrl(_))
+        ));
     }
 
     #[test]

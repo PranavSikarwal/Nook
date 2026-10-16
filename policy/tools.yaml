@@ -11,16 +11,6 @@ tools:
       requires_approval: false
     approval:
       tier: allow
-      actions:
-        - id: allow_once
-          label: "Allow once"
-          description: "Allow this exact request one time."
-        - id: allow_for_chat
-          label: "Allow for this chat"
-          description: "Allow this tool for the rest of this chat."
-        - id: always_allow
-          label: "Always allow"
-          description: "Allow this tool in every chat until you remove the grant."
 
   nook:web_fetch:
     display_name: "Web fetch"

@@ -163,10 +163,5 @@ class AuthorizationManager:
             if waiting_request_id == request_id and not future.done():
                 future.cancel()
 
-    def cancel_all(self) -> None:
-        for future in self._waiting.values():
-            if not future.done():
-                future.cancel()
-
 
 default_authorization_manager = AuthorizationManager()

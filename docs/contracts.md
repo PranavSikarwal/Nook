@@ -87,7 +87,7 @@ is the SHA-256 hex of the canonical JSON of the arguments. Canonical JSON uses
 sorted keys and no whitespace. The Worker never sends a digest.
 
 The `reason` is one of a small set of fixed strings, such as `Invalid
-arguments`, `Unknown tool`, `Denied by the user`, `Authorization failed`, and
+arguments`, `Unknown tool`, `Denied by the user`, `Authorization failed`, `Approval timed out`, `Approval could not be shown`, and
 `Cancelled`. It never contains error detail. The Daemon writes the detail to its
 log.
 

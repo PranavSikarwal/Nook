@@ -10,7 +10,11 @@ arguments. The Daemon is the final authorization owner.
 
 `nook:web_fetch` retrieves public HTTP and HTTPS pages. It has a host-scoped
 approval tier in `policy/tools.yaml`. The fetcher checks URL schemes, addresses,
-redirect targets, response types, timeouts, and response size.
+response types, timeouts, and response size. It follows a redirect only when the
+target has the same host as the requested URL. A redirect to another host ends
+with an error that asks for the new URL, so the Daemon can ask the user again.
+It blocks private, loopback, link-local, carrier-grade NAT, and other
+non-public addresses.
 
 ## Policy files
 
@@ -103,14 +107,29 @@ timeout. The Worker returns the denial to the model for that one call, then
 stops the run at the next chunk. It adds the text "Request denied. I stopped
 here." and ends the reply as complete. The model does not continue.
 
+## Approval timeout
+
+The Worker waits 300 seconds for a result. The Daemon expires a pending approval
+after the same time and sends the Worker a denial with the reason `Approval
+timed out`. A click after that gets an error and records no grant. The Panel
+card stays on screen until the reply ends.
+
+## Startup rules for `tools.yaml`
+
+A tool whose tier asks the user must list at least one approval action. A tool
+in the `allow` or `deny` tier needs none. `nook:web_search` is in the `allow`
+tier and lists no actions. One table in `policy_assets.rs` maps each action id
+to its grant scope. A test checks that the Panel schema lists the same ids.
+
+Run `nookd --check-policy` to check the policy files without starting the
+Daemon. It prints `policy ok` and the tool count, or an error, and sets the exit
+code. The package workflow runs it on the staged Daemon for each platform.
+
 ## Work still open
 
-After a cancel, the Daemon still forwards `text_delta` events to the Panel, and
-the Panel ignores them. The Daemon also uses the same stream to save the partial
-reply, so the filter must apply only to the forwarded copy. TP6 handles this.
-The fetcher still checks private addresses after approval, because it must check
-them again when it connects. TP6 tests those checks and adds a start check on a
-built package.
+After a cancel, the Daemon stops forwarding `text_delta` and tool events to the
+Panel. It still saves the full text. It forwards `message_started` and error
+events from a cancelled request. The Panel ignores them.
 
 The plan in `plans/tool-platform-closeout-and-next-phase.md` blocks new
 privileged tools until TP6 passes.

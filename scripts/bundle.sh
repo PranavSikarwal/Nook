@@ -46,6 +46,10 @@ fi
 cp -R "$BUILD_DIR/worker-dist/release_entry/." "$BUNDLE_DIR/Contents/Resources/worker/"
 NOOK_SMOKE_EXECUTABLE="$BUNDLE_DIR/Contents/Resources/worker/release_entry" "$BUNDLE_DIR/Contents/Resources/worker/release_entry" --smoke-test
 
+if [ -x "$BUNDLE_DIR/Contents/Resources/daemon/nookd" ]; then
+    (cd "$BUILD_DIR" && env -u NOOK_POLICY_DIR "$BUNDLE_DIR/Contents/Resources/daemon/nookd" --check-policy)
+fi
+
 if [ -f "$PANEL_DIR/src-tauri/icons/icon.icns" ]; then
     cp "$PANEL_DIR/src-tauri/icons/icon.icns" "$BUNDLE_DIR/Contents/Resources/icon.icns"
 fi

@@ -7,13 +7,20 @@ use thiserror::Error;
 
 pub(crate) const TOOL_NAMESPACE: &str = "nook:";
 const KNOWN_TIERS: &[&str] = &["allow", "ask_once_per_host", "deny"];
-const KNOWN_ACTIONS: &[&str] = &[
-    "allow_once",
-    "allow_for_chat",
-    "allow_for_chat_host",
-    "always_allow",
-    "deny",
+pub const APPROVAL_ACTIONS: &[(&str, Option<&str>)] = &[
+    ("allow_once", Some("once")),
+    ("allow_for_chat", Some("chat")),
+    ("allow_for_chat_host", Some("chat_host")),
+    ("always_allow", Some("persistent")),
+    ("deny", None),
 ];
+
+pub fn approval_action_scope(id: &str) -> Option<Option<&'static str>> {
+    APPROVAL_ACTIONS
+        .iter()
+        .find(|(known, _)| *known == id)
+        .map(|(_, scope)| *scope)
+}
 
 #[derive(Debug, Error)]
 pub enum PolicyAssetsError {
@@ -89,17 +96,24 @@ impl ToolCatalog {
                     "tool {name} has an empty display_name"
                 )));
             }
-            validate_actions(name, &spec.approval.actions)?;
+            validate_actions(name, &spec.approval)?;
         }
         Ok(())
     }
 }
 
-fn validate_actions(tool: &str, actions: &[ApprovalAction]) -> Result<(), PolicyAssetsError> {
+fn validate_actions(tool: &str, approval: &ApprovalSpec) -> Result<(), PolicyAssetsError> {
     let invalid = |detail: String| PolicyAssetsError::ToolsInvalid(format!("tool {tool} {detail}"));
+    let actions = &approval.actions;
+    if actions.is_empty() && !matches!(approval.tier.as_str(), "allow" | "deny") {
+        return Err(invalid(format!(
+            "has tier {} but lists no approval actions",
+            approval.tier
+        )));
+    }
     let mut seen: Vec<&str> = Vec::new();
     for action in actions {
-        if !KNOWN_ACTIONS.contains(&action.id.as_str()) {
+        if approval_action_scope(&action.id).is_none() {
             return Err(invalid(format!(
                 "has unknown approval action {}",
                 action.id
@@ -332,6 +346,92 @@ mod tests {
             PolicyAssets::load(dir.path()),
             Err(PolicyAssetsError::ToolsParse(_))
         ));
+    }
+
+    const PANEL_SCHEMA: &str = include_str!("../../../../contracts/panel-daemon.schema.json");
+
+    fn schema_enum(definition: &str, property: &str) -> Vec<String> {
+        let schema: serde_json::Value = serde_json::from_str(PANEL_SCHEMA).unwrap();
+        schema["definitions"][definition]["properties"][property]["enum"]
+            .as_array()
+            .unwrap_or_else(|| panic!("{definition}.{property} has no enum"))
+            .iter()
+            .map(|value| value.as_str().unwrap().to_string())
+            .collect()
+    }
+
+    fn table_ids() -> Vec<String> {
+        let mut ids: Vec<String> = APPROVAL_ACTIONS
+            .iter()
+            .map(|(id, _)| id.to_string())
+            .collect();
+        ids.sort();
+        ids
+    }
+
+    #[test]
+    fn approval_actions_match_the_panel_schema_enums() {
+        for (definition, property) in [
+            ("ApprovalAction", "id"),
+            ("ApprovalDecisionRequest", "action"),
+        ] {
+            let mut ids = schema_enum(definition, property);
+            ids.sort();
+            assert_eq!(ids, table_ids(), "{definition}.{property}");
+        }
+    }
+
+    #[test]
+    fn approval_actions_map_ids_to_grant_scopes() {
+        let scope = |id: &str| APPROVAL_ACTIONS.iter().find(|(known, _)| *known == id);
+        assert_eq!(scope("allow_once"), Some(&("allow_once", Some("once"))));
+        assert_eq!(
+            scope("allow_for_chat_host"),
+            Some(&("allow_for_chat_host", Some("chat_host")))
+        );
+        assert_eq!(
+            scope("allow_for_chat"),
+            Some(&("allow_for_chat", Some("chat")))
+        );
+        assert_eq!(
+            scope("always_allow"),
+            Some(&("always_allow", Some("persistent")))
+        );
+        assert_eq!(scope("deny"), Some(&("deny", None)));
+    }
+
+    #[test]
+    fn rejects_asking_tier_without_actions() {
+        let tools = "version: 1\ntools:\n  nook:web_search:\n    display_name: Web search\n    description: x\n    approval:\n      tier: ask_once_per_host\n";
+        assert!(expect_invalid(tools).contains("actions"));
+    }
+
+    #[test]
+    fn rejects_asking_tier_with_empty_actions_list() {
+        let tools = "version: 1\ntools:\n  nook:web_search:\n    display_name: Web search\n    description: x\n    approval:\n      tier: ask_once_per_host\n      actions: []\n";
+        assert!(expect_invalid(tools).contains("actions"));
+    }
+
+    #[test]
+    fn loads_allow_and_deny_tiers_without_actions() {
+        for tier in ["allow", "deny"] {
+            let tools = format!("version: 1\ntools:\n  nook:web_search:\n    display_name: Web search\n    description: x\n    approval:\n      tier: {tier}\n");
+            let dir = write_assets(&tools, SCHEMA, POLICIES);
+            PolicyAssets::load(dir.path()).unwrap();
+        }
+    }
+
+    #[test]
+    fn repository_web_search_lists_no_actions() {
+        let dir = write_assets(TOOLS, SCHEMA, POLICIES);
+        let assets = PolicyAssets::load(dir.path()).unwrap();
+        assert!(assets
+            .catalog
+            .tool("nook:web_search")
+            .unwrap()
+            .approval
+            .actions
+            .is_empty());
     }
 
     #[test]

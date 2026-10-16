@@ -96,8 +96,8 @@ impl GrantStore {
         }
     }
 
-    pub fn add_grant(&mut self, grant: ScopedGrant) {
-        self.grants.insert(grant);
+    pub fn add_grant(&mut self, grant: ScopedGrant) -> bool {
+        self.grants.insert(grant)
     }
 
     pub fn remove(&mut self, grant: &ScopedGrant) -> bool {
@@ -215,13 +215,35 @@ impl CedarAuthorizer {
         &self,
         request: &AuthorizationRequest,
     ) -> Result<bool, PolicyError> {
+        let mut store = self.grant_store.lock().await;
+        self.authorize_locked(&mut store, request)
+    }
+
+    pub async fn authorize_with_candidate_grant(
+        &self,
+        request: &AuthorizationRequest,
+        candidate: ScopedGrant,
+    ) -> Result<bool, PolicyError> {
+        let mut store = self.grant_store.lock().await;
+        let added = store.add_grant(candidate.clone());
+        let outcome = self.authorize_locked(&mut store, request);
+        if added && !matches!(outcome, Ok(true)) {
+            store.remove(&candidate);
+        }
+        outcome
+    }
+
+    fn authorize_locked(
+        &self,
+        store: &mut GrantStore,
+        request: &AuthorizationRequest,
+    ) -> Result<bool, PolicyError> {
         if request.approval_tier == "deny" {
             return Ok(false);
         }
         let action_name = cedar_action_name(&request.tool_name);
         let host = request.target_host.as_deref();
         let argument_digest = request.argument_digest.as_str();
-        let mut store = self.grant_store.lock().await;
         let mut scopes =
             store.matching_scopes(request.chat_id, action_name, host, Some(argument_digest));
         scopes.push("none".to_string());
@@ -433,6 +455,94 @@ mod tests {
             .lock()
             .await
             .add_grant(grant(chat_id, "web_search", "persistent"));
+        assert!(!auth.authorize_tool(&req).await.unwrap());
+    }
+
+    fn fetch_request(chat_id: Uuid, url: &str) -> AuthorizationRequest {
+        request(
+            chat_id,
+            "nook:web_fetch",
+            &serde_json::json!({ "url": url }).to_string(),
+        )
+    }
+
+    async fn has_grant(auth: &CedarAuthorizer, grant: &ScopedGrant) -> bool {
+        auth.grant_store().lock().await.remove(grant)
+    }
+
+    #[tokio::test]
+    async fn candidate_grant_that_allows_is_kept() {
+        let auth = create_test_authorizer();
+        let req = fetch_request(Uuid::new_v4(), "https://a.example/x");
+        let candidate = ScopedGrant::for_request(&req, "chat_host").unwrap();
+        assert!(auth
+            .authorize_with_candidate_grant(&req, candidate.clone())
+            .await
+            .unwrap());
+        assert!(auth.authorize_tool(&req).await.unwrap());
+        assert!(has_grant(&auth, &candidate).await);
+    }
+
+    #[tokio::test]
+    async fn candidate_grant_that_is_denied_is_removed() {
+        let auth = create_test_authorizer();
+        let chat_id = Uuid::new_v4();
+        let req = fetch_request(chat_id, "https://a.example/x");
+        let other = fetch_request(chat_id, "https://b.example/x");
+        let candidate = ScopedGrant::for_request(&other, "chat_host").unwrap();
+        assert!(!auth
+            .authorize_with_candidate_grant(&req, candidate.clone())
+            .await
+            .unwrap());
+        assert!(!has_grant(&auth, &candidate).await);
+    }
+
+    #[tokio::test]
+    async fn denied_candidate_does_not_delete_an_equal_existing_grant() {
+        let auth = create_test_authorizer();
+        let chat_id = Uuid::new_v4();
+        let req = fetch_request(chat_id, "https://a.example/x");
+        let other = fetch_request(chat_id, "https://b.example/x");
+        let existing = ScopedGrant::for_request(&other, "chat_host").unwrap();
+        auth.grant_store().lock().await.add_grant(existing.clone());
+        assert!(!auth
+            .authorize_with_candidate_grant(&req, existing.clone())
+            .await
+            .unwrap());
+        assert!(has_grant(&auth, &existing).await);
+    }
+
+    #[tokio::test]
+    async fn allowed_once_candidate_is_consumed() {
+        let auth = create_test_authorizer();
+        let req = fetch_request(Uuid::new_v4(), "https://a.example/x");
+        let candidate = ScopedGrant::for_request(&req, "once").unwrap();
+        assert!(auth
+            .authorize_with_candidate_grant(&req, candidate.clone())
+            .await
+            .unwrap());
+        assert!(!has_grant(&auth, &candidate).await);
+        assert!(!auth.authorize_tool(&req).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn concurrent_identical_once_candidates_each_use_their_own_grant() {
+        let auth = Arc::new(create_test_authorizer());
+        let req = fetch_request(Uuid::new_v4(), "https://a.example/x");
+        let candidate = ScopedGrant::for_request(&req, "once").unwrap();
+        let mut tasks = Vec::new();
+        for _ in 0..8 {
+            let (auth, req, candidate) = (auth.clone(), req.clone(), candidate.clone());
+            tasks.push(tokio::spawn(async move {
+                auth.authorize_with_candidate_grant(&req, candidate)
+                    .await
+                    .unwrap()
+            }));
+        }
+        for task in tasks {
+            assert!(task.await.unwrap());
+        }
+        assert!(!has_grant(&auth, &candidate).await);
         assert!(!auth.authorize_tool(&req).await.unwrap());
     }
 
