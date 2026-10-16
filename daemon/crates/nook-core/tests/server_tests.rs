@@ -1,6 +1,7 @@
 #![cfg(unix)]
 
 use nook_core::config::Config;
+use nook_core::policy_assets::PolicyAssets;
 use nook_core::protocol::{ClientMessage, DaemonMessage};
 use nook_core::server::{AppState, PendingApprovalEntry, Server};
 use nook_core::supervisor::WorkerSupervisor;
@@ -13,6 +14,11 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
 use tokio::sync::{broadcast, Mutex, RwLock};
 use uuid::Uuid;
+
+fn test_policy() -> Arc<PolicyAssets> {
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../policy");
+    Arc::new(PolicyAssets::load(&dir).unwrap())
+}
 
 #[tokio::test]
 async fn test_server_ping_pong_and_permissions() {
@@ -33,6 +39,7 @@ async fn test_server_ping_pong_and_permissions() {
         open_requests: Mutex::new(HashMap::new()),
         pending_approvals: Mutex::new(HashMap::new()),
         cancelled_requests: Mutex::new(std::collections::HashSet::new()),
+        policy: test_policy(),
     });
 
     let server = Server::bind(&socket_path, shutdown_rx, state)
@@ -100,6 +107,7 @@ async fn test_server_returns_error_for_unknown_type_with_id() {
         open_requests: Mutex::new(HashMap::new()),
         pending_approvals: Mutex::new(HashMap::new()),
         cancelled_requests: Mutex::new(std::collections::HashSet::new()),
+        policy: test_policy(),
     });
 
     let server = Server::bind(&socket_path, shutdown_rx, state)
@@ -212,6 +220,7 @@ async fn test_server_approval_decision_rejects_unknown_call_id() {
         open_requests: Mutex::new(HashMap::new()),
         pending_approvals: Mutex::new(HashMap::new()),
         cancelled_requests: Mutex::new(std::collections::HashSet::new()),
+        policy: test_policy(),
     });
 
     let server = Server::bind(&socket_path, shutdown_rx, state)
@@ -287,6 +296,7 @@ async fn test_server_approval_forward_failure_keeps_pending_entry() {
         open_requests: Mutex::new(HashMap::new()),
         pending_approvals: Mutex::new(HashMap::new()),
         cancelled_requests: Mutex::new(std::collections::HashSet::new()),
+        policy: test_policy(),
     });
     let chat_id = Uuid::new_v4();
     let call_id = "call_forward_failure".to_string();
@@ -410,6 +420,7 @@ async fn test_server_approval_decision_mismatched_chat_is_nondestructive() {
         open_requests: Mutex::new(HashMap::new()),
         pending_approvals: Mutex::new(HashMap::new()),
         cancelled_requests: Mutex::new(std::collections::HashSet::new()),
+        policy: test_policy(),
     });
 
     let legitimate_chat_id = Uuid::new_v4();

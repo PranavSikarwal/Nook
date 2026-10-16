@@ -1,6 +1,7 @@
 use nook_core::config::Config;
 use nook_core::db;
 use nook_core::keychain;
+use nook_core::policy_assets::PolicyAssets;
 use nook_core::server::{AppState, Server};
 use nook_core::supervisor::WorkerSupervisor;
 use std::collections::HashMap;
@@ -24,6 +25,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         base_url = %config.base_url,
         "Loaded configuration"
     );
+
+    // 1b. Load and validate tool policy before accepting any tool work
+    let policy = Arc::new(PolicyAssets::load_default().map_err(|e| {
+        error!("Policy assets failed to load: {e}");
+        e
+    })?);
+    info!(tools = policy.catalog.tools.len(), "Loaded tool policy");
 
     // 2. Read Keychain / env
     let api_key = keychain::get_api_key();
@@ -72,6 +80,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         open_requests: Mutex::new(HashMap::new()),
         pending_approvals: Mutex::new(HashMap::new()),
         cancelled_requests: Mutex::new(std::collections::HashSet::new()),
+        policy,
     });
 
     // 7. Bind socket with permissions 0600

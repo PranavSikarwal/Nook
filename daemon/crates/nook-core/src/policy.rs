@@ -101,6 +101,7 @@ fn make_str_expr(val: &str) -> Result<cedar_policy::RestrictedExpression, Policy
 pub struct CedarAuthorizer {
     authorizer: Authorizer,
     policies: PolicySet,
+    schema: Schema,
     entities: Entities,
     grant_store: Arc<Mutex<GrantStore>>,
 }
@@ -124,7 +125,7 @@ impl CedarAuthorizer {
             PolicySet::from_str(policy_src).map_err(|e| PolicyError::PolicyParse(e.to_string()))?;
 
         // Validate policies against schema
-        let validator = Validator::new(schema);
+        let validator = Validator::new(schema.clone());
         let val_res = validator.validate(&policies, ValidationMode::Strict);
         if !val_res.validation_passed() {
             let errs: Vec<String> = val_res.validation_errors().map(|e| e.to_string()).collect();
@@ -153,9 +154,16 @@ impl CedarAuthorizer {
         Ok(Self {
             authorizer,
             policies,
+            schema,
             entities,
             grant_store: Arc::new(Mutex::new(GrantStore::new())),
         })
+    }
+
+    pub fn has_action(&self, action_name: &str) -> bool {
+        self.schema
+            .actions()
+            .any(|uid| uid.id().unescaped() == action_name)
     }
 
     pub fn grant_store(&self) -> Arc<Mutex<GrantStore>> {

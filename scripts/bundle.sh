@@ -20,6 +20,8 @@ rm -rf "$BUNDLE_DIR"
 mkdir -p "$BUNDLE_DIR/Contents/MacOS"
 mkdir -p "$BUNDLE_DIR/Contents/Resources/daemon"
 mkdir -p "$BUNDLE_DIR/Contents/Resources/worker"
+mkdir -p "$BUNDLE_DIR/Contents/Resources/policy"
+cp -R "$ROOT_DIR/policy/." "$BUNDLE_DIR/Contents/Resources/policy/"
 
 cp "$PANEL_DIR/src-tauri/target/release/nook-panel" "$BUNDLE_DIR/Contents/MacOS/Nook"
 chmod +x "$BUNDLE_DIR/Contents/MacOS/Nook"

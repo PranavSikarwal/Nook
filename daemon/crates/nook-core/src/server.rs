@@ -27,6 +27,7 @@ use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken}
 use crate::config::Config;
 use crate::db;
 use crate::keychain;
+use crate::policy_assets::PolicyAssets;
 use crate::protocol::{
     Attachment, ClientMessage, DaemonMessage, DaemonWorkerEvent, DaemonWorkerRequest, ErrorCode,
     ErrorInfo, FinishStatus, MessageStatus,
@@ -70,6 +71,7 @@ pub struct AppState {
     pub open_requests: Mutex<HashMap<Uuid, Uuid>>, // maps client id -> worker request_id
     pub pending_approvals: Mutex<HashMap<String, PendingApprovalEntry>>, // maps call_id -> entry
     pub cancelled_requests: Mutex<HashSet<Uuid>>,
+    pub policy: Arc<PolicyAssets>,
 }
 
 pub struct Server {

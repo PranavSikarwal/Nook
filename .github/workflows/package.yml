@@ -105,6 +105,8 @@ jobs:
           mkdir -p "$WORKER_RESOURCES" panel/src-tauri/resources/daemon
           cp -R "$WORKER_DIST/." "$WORKER_RESOURCES/"
           cp "$DAEMON_EXE" panel/src-tauri/resources/daemon/
+          mkdir -p panel/src-tauri/resources/policy
+          cp -R policy/. panel/src-tauri/resources/policy/
           NOOK_SMOKE_EXECUTABLE="$WORKER_EXE" "$WORKER_EXE" --smoke-test
 
       - name: Build frontend
@@ -121,9 +123,11 @@ jobs:
           if [ "$RUNNER_OS" = "Windows" ]; then
             test -f panel/src-tauri/resources/daemon/nookd.exe
             test -f panel/src-tauri/resources/worker/release_entry.exe
+            test -f panel/src-tauri/resources/policy/tools.yaml
           else
             test -f panel/src-tauri/resources/daemon/nookd
             test -x panel/src-tauri/resources/worker/release_entry
+            test -f panel/src-tauri/resources/policy/tools.yaml
           fi
 
       - name: Build and package Tauri app
