@@ -83,10 +83,29 @@ pub fn claim_pending_approval(
     }
 }
 
+/// The database pool. It is empty when the Daemon starts without a database
+/// and holds the pool once a later connection attempt works.
+#[derive(Default)]
+pub struct DbPool(std::sync::RwLock<Option<PgPool>>);
+
+impl DbPool {
+    pub fn new(pool: Option<PgPool>) -> Self {
+        Self(std::sync::RwLock::new(pool))
+    }
+
+    pub fn get(&self) -> Option<PgPool> {
+        self.0.read().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    pub fn set(&self, pool: PgPool) {
+        *self.0.write().unwrap_or_else(|e| e.into_inner()) = Some(pool);
+    }
+}
+
 pub struct AppState {
     pub config: RwLock<Config>,
     pub config_path: PathBuf,
-    pub pool: Option<PgPool>,
+    pub pool: DbPool,
     pub supervisor: Mutex<Option<WorkerSupervisor>>,
     pub preserve_worker_on_settings_update: bool,
     pub open_requests: Mutex<HashMap<Uuid, Uuid>>, // maps client id -> worker request_id
@@ -474,8 +493,8 @@ async fn process_client_message(
         }
 
         ClientMessage::ListChats { id } => {
-            if let Some(ref pool) = state.pool {
-                match db::list_chats(pool).await {
+            if let Some(pool) = state.pool.get() {
+                match db::list_chats(&pool).await {
                     Ok(chats) => {
                         let _ = tx_out.send(DaemonMessage::Chats { id, chats }).await;
                     }
@@ -507,8 +526,8 @@ async fn process_client_message(
         }
 
         ClientMessage::GetChat { id, chat_id } => {
-            if let Some(ref pool) = state.pool {
-                match db::get_chat(pool, chat_id).await {
+            if let Some(pool) = state.pool.get() {
+                match db::get_chat(&pool, chat_id).await {
                     Ok(Some((title, messages))) => {
                         let _ = tx_out
                             .send(DaemonMessage::Chat {
@@ -584,8 +603,8 @@ async fn process_client_message(
             }
 
             // 2. Delete database row
-            if let Some(ref pool) = state.pool {
-                if let Err(e) = db::delete_chat(pool, chat_id).await {
+            if let Some(pool) = state.pool.get() {
+                if let Err(e) = db::delete_chat(&pool, chat_id).await {
                     error!("Failed to delete chat {chat_id} from database: {e}");
                 }
             }

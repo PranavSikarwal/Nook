@@ -74,7 +74,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             }
         }
     } else {
-        warn!("Starting daemon without database: requests will receive database_unavailable");
+        warn!("Starting daemon without database: requests receive database_unavailable until it connects");
     }
 
     // 6. Start Worker supervisor
@@ -100,7 +100,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let state = Arc::new(AppState {
         config: RwLock::new(config),
         config_path,
-        pool,
+        pool: nook_core::server::DbPool::new(pool),
         supervisor: Mutex::new(supervisor),
         preserve_worker_on_settings_update: deterministic_worker_enabled(),
         open_requests: Mutex::new(HashMap::new()),
@@ -113,6 +113,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     });
 
     nook_core::permissions::restore(&state).await;
+    if state.pool.get().is_none() {
+        let database_url = state.config.read().await.database_url.clone();
+        tokio::spawn(nook_core::reconnect::reconnect_database(
+            state.clone(),
+            database_url,
+            nook_core::reconnect::RECONNECT_INTERVAL,
+            db::CONNECT_ATTEMPT_TIMEOUT,
+        ));
+    }
 
     // 7. Bind socket with permissions 0600
     let socket_path = Config::default_socket_path();

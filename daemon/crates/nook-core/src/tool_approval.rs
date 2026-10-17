@@ -460,12 +460,14 @@ async fn store_persistent_grant(state: &AppState, entry: &PendingApprovalEntry, 
     if !crate::policy::is_persistent_scope(scope) {
         return;
     }
-    let (Some(grant), Some(pool)) = (ScopedGrant::for_request(&entry.request, scope), &state.pool)
-    else {
+    let (Some(grant), Some(pool)) = (
+        ScopedGrant::for_request(&entry.request, scope),
+        state.pool.get(),
+    ) else {
         return;
     };
     if let Err(error) =
-        crate::db::save_persistent_grant(pool, &crate::permissions::stored_grant(&grant)).await
+        crate::db::save_persistent_grant(&pool, &crate::permissions::stored_grant(&grant)).await
     {
         warn!("Failed to store a persistent grant: {error}");
     }

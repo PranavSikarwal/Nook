@@ -59,7 +59,7 @@ async fn test_server_ping_pong_and_permissions() {
     let state = Arc::new(AppState {
         config: RwLock::new(Config::default()),
         config_path,
-        pool: None,
+        pool: nook_core::server::DbPool::default(),
         supervisor: Mutex::new(None),
         preserve_worker_on_settings_update: false,
         open_requests: Mutex::new(HashMap::new()),
@@ -130,7 +130,7 @@ async fn test_server_returns_error_for_unknown_type_with_id() {
     let state = Arc::new(AppState {
         config: RwLock::new(Config::default()),
         config_path,
-        pool: None,
+        pool: nook_core::server::DbPool::default(),
         supervisor: Mutex::new(None),
         preserve_worker_on_settings_update: false,
         open_requests: Mutex::new(HashMap::new()),
@@ -246,7 +246,7 @@ async fn test_server_approval_decision_rejects_unknown_call_id() {
     let state = Arc::new(AppState {
         config: RwLock::new(Config::default()),
         config_path,
-        pool: None,
+        pool: nook_core::server::DbPool::default(),
         supervisor: Mutex::new(None),
         preserve_worker_on_settings_update: false,
         open_requests: Mutex::new(HashMap::new()),
@@ -325,7 +325,7 @@ async fn test_server_approval_forward_failure_keeps_pending_entry() {
     let state = Arc::new(AppState {
         config: RwLock::new(Config::default()),
         config_path,
-        pool: None,
+        pool: nook_core::server::DbPool::default(),
         supervisor: Mutex::new(Some(supervisor)),
         preserve_worker_on_settings_update: false,
         open_requests: Mutex::new(HashMap::new()),
@@ -454,7 +454,7 @@ async fn test_server_approval_decision_mismatched_chat_is_nondestructive() {
     let state = Arc::new(AppState {
         config: RwLock::new(Config::default()),
         config_path,
-        pool: None,
+        pool: nook_core::server::DbPool::default(),
         supervisor: Mutex::new(None),
         preserve_worker_on_settings_update: false,
         open_requests: Mutex::new(HashMap::new()),

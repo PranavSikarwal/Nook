@@ -57,7 +57,7 @@ impl Harness {
         let state = Arc::new(AppState {
             config: RwLock::new(Config::default()),
             config_path: PathBuf::from("/tmp/nook-unused-config.toml"),
-            pool: None,
+            pool: nook_core::server::DbPool::default(),
             supervisor: Mutex::new(Some(supervisor)),
             preserve_worker_on_settings_update: false,
             open_requests: Mutex::new(HashMap::new()),

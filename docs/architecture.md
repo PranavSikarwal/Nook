@@ -28,7 +28,10 @@ The user manages PostgreSQL. Nook does not install or operate PostgreSQL.
 `database_url` selects the database. The Daemon tries to connect for 30 seconds,
 with a 5 second limit on each attempt, and logs every failed attempt. If it still
 cannot connect, it starts without a database, and requests fail with
-`database_unavailable` until the Daemon restarts. The Daemon stores chats, messages, and
+`database_unavailable`. It then tries again every 10 seconds. When a try works,
+it applies the migrations, repairs open replies, loads the stored grants and
+preferences, and starts to serve requests. The Worker restarts by itself while
+PostgreSQL is down. The Daemon stores chats, messages, and
 attachment metadata. The Worker stores conversation checkpoints using the same
 chat identifier as its thread identifier.
 

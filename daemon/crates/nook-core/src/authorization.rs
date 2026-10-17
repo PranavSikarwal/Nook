@@ -49,7 +49,6 @@ pub const WORKER_TOOLS: &[&str] = &[
     "nook:web_search",
     "nook:web_fetch",
     "nook:news_search",
-    "nook:image_search",
     "nook:video_search",
     "nook:book_search",
 ];

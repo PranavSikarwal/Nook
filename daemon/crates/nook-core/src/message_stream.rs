@@ -88,8 +88,8 @@ pub(crate) async fn handle_send_message(
         }
     }
 
-    let pool = match state.pool {
-        Some(ref p) => p.clone(),
+    let pool = match state.pool.get() {
+        Some(p) => p,
         None => {
             cleanup(&state).await;
             let _ = tx_out

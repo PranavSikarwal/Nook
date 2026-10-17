@@ -8,19 +8,18 @@ arguments. The Daemon is the final authorization owner.
 `nook:web_search` searches DuckDuckGo. It has an automatic approval tier in
 `policy/tools.yaml`.
 
-Four more search tools run in the Worker and have the `allow` tier:
+Three more search tools run in the Worker and have the `allow` tier:
 
 | Tool | Provider | Result fields |
 | --- | --- | --- |
 | `nook:news_search` | DuckDuckGo news | `title`, `url`, `source`, `date`, `snippet` |
-| `nook:image_search` | DuckDuckGo images | `title`, `image_url`, `thumbnail_url`, `page_url`, `source`, `width`, `height` |
 | `nook:video_search` | DuckDuckGo videos | `title`, `url`, `description`, `duration`, `publisher`, `uploader`, `published` |
 | `nook:book_search` | Open Library catalog | `title`, `authors`, `first_published`, `editions`, `isbn`, `subjects`, `url` |
 
 Each takes `query` and `max_results` (1 to 10, default 5). Each result is a fixed
 record. Text is one line with a length cap, and an entry without an `http` or
 `https` link is dropped, so a result cannot carry a script link or a file link.
-Image search returns links, not image data. Book search asks only
+Book search asks only
 `openlibrary.org`, refuses redirects, and reads at most 1 MiB. The model sees a
 warning in each description and in the system prompt that results are untrusted
 text. A user can still set any of these tools to Ask every time or Never allow
@@ -185,8 +184,11 @@ environment.
 
 The Daemon starts all servers at once and waits 10 seconds for `initialize` and
 10 seconds for `tools/list`. A server that fails is off, and the Daemon logs
-why. It does not restart a server that stops later. A call to a stopped server
-returns `Error: the MCP server stopped`, and you restart Nook to bring it back.
+why. A call that reaches a stopped server returns `Error: the MCP server stopped`.
+The Daemon never repeats that call, because the server may have acted on it
+before it stopped. The next call starts the server again. The Daemon waits at
+least 5 seconds between two starts of one server, so a server that crashes at
+once stays stopped until that time has passed.
 
 A tool is offered only if all of this holds:
 

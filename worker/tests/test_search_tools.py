@@ -12,7 +12,6 @@ from nook_worker.tools import books
 from nook_worker.tools.common import clean_text, clean_url
 from nook_worker.tools.media_search import (
     StrictMediaSearchInput,
-    execute_image_search,
     execute_news_search,
     execute_video_search,
 )
@@ -24,15 +23,6 @@ NEWS = {
     "url": "https://news.example.com/python",
     "image": "https://news.example.com/p.png",
     "source": "Example News",
-}
-IMAGE = {
-    "title": "A cat",
-    "image": "https://img.example.com/cat.jpg",
-    "thumbnail": "https://img.example.com/cat_t.jpg",
-    "url": "https://pages.example.com/cat",
-    "source": "Bing",
-    "width": 800,
-    "height": 600,
 }
 VIDEO = {
     "title": "Python course",
@@ -59,7 +49,6 @@ def fake_ddgs(method: str, result: Any = None, error: Exception | None = None):
     ("execute", "method", "raw"),
     [
         (execute_news_search, "news", NEWS),
-        (execute_image_search, "images", IMAGE),
         (execute_video_search, "videos", VIDEO),
     ],
 )
@@ -96,23 +85,6 @@ async def test_news_results_are_cleaned_into_one_line_fields():
     }
 
 
-async def test_image_results_hold_links_and_sizes_only():
-    patcher, _ = fake_ddgs("images", [IMAGE])
-
-    with patcher:
-        [item] = json.loads(await execute_image_search("cats"))
-
-    assert item == {
-        "title": "A cat",
-        "image_url": "https://img.example.com/cat.jpg",
-        "thumbnail_url": "https://img.example.com/cat_t.jpg",
-        "page_url": "https://pages.example.com/cat",
-        "source": "Bing",
-        "width": 800,
-        "height": 600,
-    }
-
-
 async def test_video_results_use_the_content_link():
     patcher, _ = fake_ddgs("videos", [VIDEO])
 
@@ -137,7 +109,6 @@ async def test_video_results_use_the_content_link():
     ("execute", "method", "key", "raw"),
     [
         (execute_news_search, "news", "url", NEWS),
-        (execute_image_search, "images", "image", IMAGE),
         (execute_video_search, "videos", "content", VIDEO),
     ],
 )
@@ -174,7 +145,6 @@ async def test_long_text_is_cut():
     ("execute", "method"),
     [
         (execute_news_search, "news"),
-        (execute_image_search, "images"),
         (execute_video_search, "videos"),
     ],
 )
@@ -193,7 +163,6 @@ async def test_provider_failures_become_a_short_error(execute: Any, method: str)
     ("execute", "method"),
     [
         (execute_news_search, "news"),
-        (execute_image_search, "images"),
         (execute_video_search, "videos"),
     ],
 )
@@ -204,9 +173,7 @@ async def test_no_results_is_an_empty_list(execute: Any, method: str):
         assert json.loads(await execute("python")) == []
 
 
-@pytest.mark.parametrize(
-    "execute", [execute_news_search, execute_image_search, execute_video_search]
-)
+@pytest.mark.parametrize("execute", [execute_news_search, execute_video_search])
 async def test_a_blank_query_is_refused_without_a_search(execute: Any):
     with patch("ddgs.DDGS") as client:
         result = json.loads(await execute("   "))

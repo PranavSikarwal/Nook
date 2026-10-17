@@ -124,7 +124,7 @@ Tool: `run_command` with `argv`, `cwd`, and `timeout_seconds`.
 
 ## TP13. Search providers
 
-Tools: `news_search`, `image_search`, `video_search`, `book_search`. They run in
+Tools: `news_search`, `video_search`, `book_search`. Image search was removed because DuckDuckGo blocks it and no other source was chosen. They run in
 the Worker with DuckDuckGo and return JSON with a fixed result model. Each has a
 YAML entry in the `allow` tier, a Cedar action, a result cap, and tests for
 denial and for untrusted content.

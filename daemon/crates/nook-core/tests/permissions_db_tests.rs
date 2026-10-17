@@ -10,6 +10,7 @@ use nook_core::tool_approval::APPROVAL_TIMEOUT;
 use sqlx::postgres::PgConnectOptions;
 use sqlx::PgPool;
 use std::str::FromStr;
+use std::time::Duration;
 use uuid::Uuid;
 
 const FETCH: &str = "nook:web_fetch";
@@ -18,11 +19,16 @@ const SEARCH: &str = "nook:web_search";
 struct TestDatabase {
     admin: PgPool,
     name: String,
+    url: String,
     pool: PgPool,
 }
 
 impl TestDatabase {
     async fn create() -> Option<Self> {
+        Self::create_with(true).await
+    }
+
+    async fn create_with(migrate: bool) -> Option<Self> {
         let base =
             std::env::var("NOOK_DATABASE_URL").unwrap_or_else(|_| "postgresql:///nook".to_string());
         let admin = match db::create_pool(&base).await {
@@ -45,8 +51,23 @@ impl TestDatabase {
         }
         let options = PgConnectOptions::from_str(&base).ok()?.database(&name);
         let pool = PgPool::connect_with(options).await.ok()?;
-        db::run_migrations(&pool).await.expect("migrations");
-        Some(Self { admin, name, pool })
+        if migrate {
+            db::run_migrations(&pool).await.expect("migrations");
+        }
+        let (without_query, query) = match base.split_once('?') {
+            Some((head, tail)) => (head, format!("?{tail}")),
+            None => (base.as_str(), String::new()),
+        };
+        let prefix = without_query
+            .rsplit_once('/')
+            .map_or(without_query, |p| p.0);
+        let url = format!("{prefix}/{name}{query}");
+        Some(Self {
+            admin,
+            name,
+            url,
+            pool,
+        })
     }
 
     async fn drop_database(self) {
@@ -239,5 +260,75 @@ async fn a_changed_preference_replaces_the_old_one() {
         db::load_tool_preferences(&database.pool).await.unwrap(),
         [(SEARCH.to_string(), "deny".to_string())]
     );
+    database.drop_database().await;
+}
+
+async fn connect_later(h: &Harness, url: &str) {
+    tokio::time::timeout(
+        Duration::from_secs(10),
+        nook_core::reconnect::reconnect_database(
+            h.state.clone(),
+            url.to_string(),
+            Duration::from_millis(20),
+            Duration::from_secs(2),
+        ),
+    )
+    .await
+    .expect("reconnect finished");
+}
+
+#[tokio::test]
+async fn the_daemon_keeps_trying_while_the_database_is_down() {
+    let h = Harness::build_with_pool(common::repo_policy(), vec![], APPROVAL_TIMEOUT, None).await;
+    let task = tokio::spawn(nook_core::reconnect::reconnect_database(
+        h.state.clone(),
+        "postgresql://127.0.0.1:1/none".to_string(),
+        Duration::from_millis(20),
+        Duration::from_millis(200),
+    ));
+
+    tokio::time::sleep(Duration::from_millis(400)).await;
+
+    assert!(h.state.pool.get().is_none());
+    assert!(!task.is_finished());
+    task.abort();
+}
+
+#[tokio::test]
+async fn a_later_connection_prepares_the_database() {
+    let Some(database) = TestDatabase::create_with(false).await else {
+        return;
+    };
+    let h = Harness::build_with_pool(common::repo_policy(), vec![], APPROVAL_TIMEOUT, None).await;
+
+    connect_later(&h, &database.url).await;
+
+    assert!(h.state.pool.get().is_some());
+    let rows = db::load_persistent_grants(&database.pool).await.unwrap();
+    assert!(rows.is_empty());
+    database.drop_database().await;
+}
+
+#[tokio::test]
+async fn a_later_connection_loads_the_stored_grants() {
+    let Some(database) = TestDatabase::create().await else {
+        return;
+    };
+    let mut first = daemon(&database).await;
+    let chat = Uuid::new_v4();
+    let mut call = first
+        .authorize(chat, "c1", FETCH, r#"{"url":"https://docs.example.com/a"}"#)
+        .await;
+    first.panel().await;
+    first.decide(chat, "c1", "always_allow_host").await;
+    assert_eq!(authorization_result(&mut call).await.0, "allow");
+
+    let second =
+        Harness::build_with_pool(common::repo_policy(), vec![], APPROVAL_TIMEOUT, None).await;
+    assert!(permissions::snapshot(&second.state).await.0.is_empty());
+    connect_later(&second, &database.url).await;
+
+    let (grants, _) = permissions::snapshot(&second.state).await;
+    assert_eq!(grants.len(), 1);
     database.drop_database().await;
 }

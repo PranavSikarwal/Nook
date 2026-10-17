@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from nook_worker.tools.common import clean_text, clean_url, tool_error, tool_result
 
-SearchKind = Literal["news", "images", "videos"]
+SearchKind = Literal["news", "videos"]
 
 TITLE_LIMIT = 200
 TEXT_LIMIT = 500
@@ -48,21 +48,6 @@ def _news_item(raw: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
-def _image_item(raw: dict[str, Any]) -> dict[str, Any] | None:
-    image_url = clean_url(raw.get("image"))
-    if not image_url:
-        return None
-    return {
-        "title": clean_text(raw.get("title"), TITLE_LIMIT),
-        "image_url": image_url,
-        "thumbnail_url": clean_url(raw.get("thumbnail")),
-        "page_url": clean_url(raw.get("url")),
-        "source": clean_text(raw.get("source"), SHORT_LIMIT),
-        "width": raw.get("width") if isinstance(raw.get("width"), int) else None,
-        "height": raw.get("height") if isinstance(raw.get("height"), int) else None,
-    }
-
-
 def _video_item(raw: dict[str, Any]) -> dict[str, Any] | None:
     url = clean_url(raw.get("content"))
     if not url:
@@ -78,7 +63,7 @@ def _video_item(raw: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
-_CONVERTERS = {"news": _news_item, "images": _image_item, "videos": _video_item}
+_CONVERTERS = {"news": _news_item, "videos": _video_item}
 
 
 def _run_ddgs_sync(
@@ -125,11 +110,6 @@ async def _execute(kind: SearchKind, query: str, max_results: int) -> str:
 async def execute_news_search(query: str, max_results: int = 5) -> str:
     """Search recent news with DuckDuckGo."""
     return await _execute("news", query, max_results)
-
-
-async def execute_image_search(query: str, max_results: int = 5) -> str:
-    """Search images with DuckDuckGo. The result holds links, not image data."""
-    return await _execute("images", query, max_results)
 
 
 async def execute_video_search(query: str, max_results: int = 5) -> str:

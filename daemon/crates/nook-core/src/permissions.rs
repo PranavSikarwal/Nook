@@ -164,8 +164,8 @@ pub async fn revoke_grant(state: &AppState, grant_id: &str) -> Result<(), &'stat
         store.remove(&found);
         found
     };
-    if let Some(pool) = &state.pool {
-        if let Err(error) = db::delete_persistent_grant(pool, &grant.id()).await {
+    if let Some(pool) = state.pool.get() {
+        if let Err(error) = db::delete_persistent_grant(&pool, &grant.id()).await {
             warn!("Failed to delete a revoked grant from the database: {error}");
         }
     }
@@ -183,8 +183,8 @@ pub async fn set_preference(
         .ok_or("Unknown tool")?;
     if choice == DEFAULT_CHOICE {
         state.policy.set_preference(tool_id, None);
-        if let Some(pool) = &state.pool {
-            if let Err(error) = db::delete_tool_preference(pool, tool_id).await {
+        if let Some(pool) = state.pool.get() {
+            if let Err(error) = db::delete_tool_preference(&pool, tool_id).await {
                 warn!("Failed to delete a tool preference: {error}");
             }
         }
@@ -194,8 +194,8 @@ pub async fn set_preference(
         return Err("That choice is not allowed for this tool");
     }
     state.policy.set_preference(tool_id, Some(choice));
-    if let Some(pool) = &state.pool {
-        if let Err(error) = db::save_tool_preference(pool, tool_id, choice).await {
+    if let Some(pool) = state.pool.get() {
+        if let Err(error) = db::save_tool_preference(&pool, tool_id, choice).await {
             warn!("Failed to save a tool preference: {error}");
         }
     }
@@ -228,8 +228,8 @@ pub fn grant_from_stored(stored: &StoredGrant) -> Option<ScopedGrant> {
 
 /// Loads the stored grants and preferences. Rows that fail a check are ignored.
 pub async fn restore(state: &AppState) {
-    let Some(pool) = &state.pool else { return };
-    match db::load_persistent_grants(pool).await {
+    let Some(pool) = state.pool.get() else { return };
+    match db::load_persistent_grants(&pool).await {
         Ok(rows) => {
             let store = state.policy.authorizer.grant_store();
             let mut store = store.lock().await;
@@ -244,7 +244,7 @@ pub async fn restore(state: &AppState) {
         }
         Err(error) => warn!("Failed to load persistent grants: {error}"),
     }
-    match db::load_tool_preferences(pool).await {
+    match db::load_tool_preferences(&pool).await {
         Ok(rows) => {
             for (tool_id, tier) in rows {
                 state.policy.set_preference(&tool_id, Some(&tier));

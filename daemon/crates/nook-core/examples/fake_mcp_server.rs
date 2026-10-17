@@ -43,6 +43,11 @@ fn tools(mode: &str) -> Vec<Value> {
             "inputSchema": schema(json!({}), &[])
         }),
         json!({
+            "name": "die",
+            "description": "Exits the server.",
+            "inputSchema": schema(json!({}), &[])
+        }),
+        json!({
             "name": "big",
             "description": "Returns a large text.",
             "inputSchema": schema(json!({}), &[])
@@ -104,6 +109,7 @@ fn call(name: &str, arguments: &Value) -> Value {
         "echo" => json!({
             "content": [{ "type": "text", "text": format!("echo: {}", arguments["text"].as_str().unwrap_or_default()) }]
         }),
+        "die" => std::process::exit(7),
         "fail" => json!({
             "isError": true,
             "content": [{ "type": "text", "text": "something broke" }]

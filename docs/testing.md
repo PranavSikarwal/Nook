@@ -77,6 +77,12 @@ checks permanent grants, revoking, and tool preferences with the real policy.
 `permissions_db_tests.rs` stores and restores them in a temporary PostgreSQL
 database and skips when PostgreSQL is not reachable.
 
+`mcp_tool_tests.rs` also kills a server in the middle of a call. It checks that
+the next call starts the server again and that a server which dies soon after a
+start stays stopped. `permissions_db_tests.rs` covers the late database
+connection: it keeps trying while PostgreSQL is down, then applies the
+migrations and loads the stored grants.
+
 `provider_execution_tests.rs` runs the Daemon execute path with a test provider
 and the fake Worker. It covers approval, denial, grants, errors, the output
 limit, invalid arguments, the Worker and Daemon tool mix-ups, expiry, and

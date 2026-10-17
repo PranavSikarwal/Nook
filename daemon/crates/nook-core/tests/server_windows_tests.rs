@@ -24,7 +24,7 @@ async fn windows_named_pipe_round_trips_json_ping() {
     let state = Arc::new(AppState {
         config: RwLock::new(Config::default()),
         config_path: temp_dir.path().join("config.toml"),
-        pool: None,
+        pool: nook_core::server::DbPool::default(),
         supervisor: Mutex::new(None),
         preserve_worker_on_settings_update: false,
         open_requests: Mutex::new(HashMap::new()),

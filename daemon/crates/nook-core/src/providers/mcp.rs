@@ -11,7 +11,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use thiserror::Error;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::sync::{oneshot, Mutex};
@@ -341,6 +341,9 @@ async fn read_loop(
 pub struct StartupLimits {
     pub initialize: Duration,
     pub list_tools: Duration,
+    /// The shortest time between two starts of one server. A server that dies
+    /// sooner than this after a start stays stopped.
+    pub restart_interval: Duration,
 }
 
 impl Default for StartupLimits {
@@ -348,6 +351,7 @@ impl Default for StartupLimits {
         Self {
             initialize: Duration::from_secs(10),
             list_tools: Duration::from_secs(10),
+            restart_interval: Duration::from_secs(5),
         }
     }
 }
@@ -367,9 +371,49 @@ struct ToolEntry {
     descriptor: ToolDescriptor,
 }
 
+struct ServerSlot {
+    name: String,
+    config: McpServerConfig,
+    current: tokio::sync::RwLock<Arc<McpServer>>,
+    started: std::sync::Mutex<Instant>,
+}
+
+impl ServerSlot {
+    /// Returns the running server. A server that has stopped is started again
+    /// first, unless it was started less than `restart_interval` ago. The call
+    /// that found the server stopped is never repeated by the Daemon.
+    async fn live(&self, sandbox: &Sandbox, limits: StartupLimits) -> Arc<McpServer> {
+        let current = self.current.read().await.clone();
+        if !current.client.is_closed() {
+            return current;
+        }
+        let mut guard = self.current.write().await;
+        if !guard.client.is_closed() {
+            return guard.clone();
+        }
+        {
+            let mut started = self.started.lock().unwrap_or_else(|e| e.into_inner());
+            if started.elapsed() < limits.restart_interval {
+                return guard.clone();
+            }
+            *started = Instant::now();
+        }
+        match start_server(&self.config, sandbox, limits).await {
+            Ok((server, _)) => {
+                info!(server = %self.name, "MCP server restarted");
+                *guard = Arc::new(server);
+            }
+            Err(error) => warn!("MCP server {} did not restart: {error}", self.name),
+        }
+        guard.clone()
+    }
+}
+
 pub struct McpProvider {
-    servers: Vec<McpServer>,
+    servers: Vec<ServerSlot>,
     tools: BTreeMap<String, ToolEntry>,
+    sandbox: Sandbox,
+    limits: StartupLimits,
 }
 
 fn valid_server_name(name: &str) -> bool {
@@ -504,6 +548,7 @@ impl McpProvider {
                 .spawn(async move { (position, start_server(&config, &sandbox, limits).await) });
         }
         let mut started: Vec<(usize, McpServer, Vec<McpTool>)> = Vec::new();
+        let started_at = Instant::now();
         while let Some(joined) = starting.join_next().await {
             let Ok((position, outcome)) = joined else {
                 continue;
@@ -518,7 +563,7 @@ impl McpProvider {
         let mut servers = Vec::new();
         let mut tools = BTreeMap::new();
         let mut names: BTreeSet<String> = BTreeSet::new();
-        for (_, server, listed) in started {
+        for (position, server, listed) in started {
             let index = servers.len();
             let mut count = 0;
             for tool in listed {
@@ -536,12 +581,22 @@ impl McpProvider {
                 count += 1;
             }
             info!(server = %server.name, tools = count, "MCP server is ready");
-            servers.push(server);
+            servers.push(ServerSlot {
+                name: server.name.clone(),
+                config: accepted[position].clone(),
+                current: tokio::sync::RwLock::new(Arc::new(server)),
+                started: std::sync::Mutex::new(started_at),
+            });
         }
         if tools.is_empty() {
             return None;
         }
-        Some(Self { servers, tools })
+        Some(Self {
+            servers,
+            tools,
+            sandbox: sandbox.clone(),
+            limits,
+        })
     }
 }
 
@@ -628,7 +683,9 @@ impl Provider for McpProvider {
         let Some(entry) = self.tools.get(tool_id) else {
             return ToolOutput::error("Error: unknown tool");
         };
-        let server = &self.servers[entry.server];
+        let server = self.servers[entry.server]
+            .live(&self.sandbox, self.limits)
+            .await;
         match server
             .client
             .call_tool(&entry.remote_name, arguments, server.call_timeout)

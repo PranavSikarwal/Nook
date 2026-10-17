@@ -8,7 +8,6 @@ from nook_worker.registry import ToolArgumentError, default_registry
 SEARCH_TOOLS = [
     "nook:web_search",
     "nook:news_search",
-    "nook:image_search",
     "nook:video_search",
     "nook:book_search",
 ]

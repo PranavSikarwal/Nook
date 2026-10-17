@@ -58,16 +58,21 @@ fn quick() -> StartupLimits {
     StartupLimits {
         initialize: Duration::from_secs(2),
         list_tools: Duration::from_secs(2),
+        restart_interval: Duration::from_secs(3600),
     }
 }
 
-async fn provider(configs: &[McpServerConfig]) -> Option<McpProvider> {
+async fn provider(configs: &[McpServerConfig], limits: StartupLimits) -> Option<McpProvider> {
     let sandbox = sandbox().await?;
-    McpProvider::start(configs, &sandbox, quick()).await
+    McpProvider::start(configs, &sandbox, limits).await
 }
 
 async fn harness(configs: &[McpServerConfig]) -> Option<Harness> {
-    let provider = provider(configs).await?;
+    harness_with(configs, quick()).await
+}
+
+async fn harness_with(configs: &[McpServerConfig], limits: StartupLimits) -> Option<Harness> {
+    let provider = provider(configs, limits).await?;
     Some(Harness::new(vec![Arc::new(provider)]).await)
 }
 
@@ -98,6 +103,7 @@ async fn only_valid_tools_are_offered_with_clean_names() {
         names(&h),
         [
             "mcp__fake__big",
+            "mcp__fake__die",
             "mcp__fake__dup_name",
             "mcp__fake__echo",
             "mcp__fake__env",
@@ -387,6 +393,39 @@ async fn a_server_that_stops_makes_later_calls_fail_cleanly() {
 }
 
 #[tokio::test]
+async fn a_server_that_died_is_started_again_by_the_next_call() {
+    let limits = StartupLimits {
+        restart_interval: Duration::ZERO,
+        ..quick()
+    };
+    let Some(mut h) = harness_with(&[server("fake", "normal")], limits).await else {
+        return;
+    };
+
+    let died = run(&mut h, Uuid::new_v4(), "c1", "mcp:fake:die", json!({})).await;
+    assert_eq!(died["status"], "error");
+    assert_eq!(died["output"], "Error: the MCP server stopped");
+
+    let chat = Uuid::new_v4();
+    let again = run(&mut h, chat, "c2", ECHO, json!({ "text": "hi" })).await;
+    assert_eq!(again["status"], "ok");
+    assert_eq!(again["output"], "echo: hi");
+}
+
+#[tokio::test]
+async fn a_server_that_died_soon_after_a_start_stays_stopped() {
+    let Some(mut h) = harness(&[server("fake", "normal")]).await else {
+        return;
+    };
+
+    run(&mut h, Uuid::new_v4(), "c1", "mcp:fake:die", json!({})).await;
+    let again = run(&mut h, Uuid::new_v4(), "c2", ECHO, json!({ "text": "hi" })).await;
+
+    assert_eq!(again["status"], "error");
+    assert_eq!(again["output"], "Error: the MCP server stopped");
+}
+
+#[tokio::test]
 async fn a_server_that_never_answers_initialize_is_skipped_without_blocking_the_others() {
     let configs = [server("stuck", "hang"), server("fake", "normal")];
     let start = Instant::now();
@@ -402,7 +441,7 @@ async fn a_server_that_never_answers_initialize_is_skipped_without_blocking_the_
 
 #[tokio::test]
 async fn a_server_with_an_unknown_protocol_version_is_skipped() {
-    assert!(provider(&[server("old", "old")]).await.is_none());
+    assert!(provider(&[server("old", "old")], quick()).await.is_none());
 }
 
 #[tokio::test]

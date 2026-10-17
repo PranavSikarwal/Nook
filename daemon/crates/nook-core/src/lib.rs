@@ -9,6 +9,7 @@ pub mod policy;
 pub mod policy_assets;
 pub mod protocol;
 pub mod providers;
+pub mod reconnect;
 pub mod sandbox;
 pub mod server;
 pub mod supervisor;

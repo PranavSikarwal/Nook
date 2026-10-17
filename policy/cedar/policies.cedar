@@ -4,7 +4,6 @@ permit (
   action in [
     Nook::Action::"web_search",
     Nook::Action::"news_search",
-    Nook::Action::"image_search",
     Nook::Action::"video_search",
     Nook::Action::"book_search"
   ],

@@ -14,7 +14,6 @@ pub const RESERVED_TOOL_NAMES: &[&str] = &[
     "web_search",
     "web_fetch",
     "news_search",
-    "image_search",
     "video_search",
     "book_search",
     "ls",
