@@ -284,6 +284,10 @@ async function main() {
             'args = ["normal"]',
             `read_paths = [${JSON.stringify(path.dirname(mcpExample))}]`,
             '',
+            '[[tools.mcp_servers]]',
+            'name = "broken"',
+            'command = "/nonexistent/nook-e2e-server"',
+            '',
           ]
         : []),
     ].join('\n')

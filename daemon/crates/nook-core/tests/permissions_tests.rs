@@ -75,6 +75,16 @@ impl Session {
         }
     }
 
+    async fn tool_sources(&mut self) -> Vec<nook_core::protocol::ToolSourceInfo> {
+        match self
+            .ask(ClientMessage::ListToolSources { id: Uuid::new_v4() })
+            .await
+        {
+            DaemonMessage::ToolSources { sources, .. } => sources,
+            other => panic!("Expected tool sources, got {other:?}"),
+        }
+    }
+
     async fn set_preference(&mut self, tool_id: &str, tier: &str) -> DaemonMessage {
         self.ask(ClientMessage::SetToolPreference {
             id: Uuid::new_v4(),
@@ -351,4 +361,55 @@ async fn the_messages_round_trip_through_the_wire_format() {
             message
         );
     }
+}
+
+#[tokio::test]
+async fn the_daemon_lists_tool_sources_over_the_socket() {
+    let h = Harness::new(vec![]).await;
+    let mut session = Session::open(&h).await;
+
+    assert!(session.tool_sources().await.is_empty());
+}
+
+#[tokio::test]
+async fn the_tool_source_messages_round_trip_through_the_wire_format() {
+    use nook_core::protocol::{ToolSourceInfo, ToolSourceState};
+    let id = Uuid::new_v4();
+    let request = ClientMessage::ListToolSources { id };
+    let reply = DaemonMessage::ToolSources {
+        id,
+        sources: vec![
+            ToolSourceInfo {
+                source_id: "mcp:notes".to_string(),
+                display_name: "MCP server notes".to_string(),
+                state: ToolSourceState::Off,
+                tools: 0,
+                reason: Some("The command is empty".to_string()),
+            },
+            ToolSourceInfo {
+                source_id: "filesystem".to_string(),
+                display_name: "File tools".to_string(),
+                state: ToolSourceState::Ready,
+                tools: 3,
+                reason: None,
+            },
+        ],
+    };
+
+    for text in [
+        serde_json::to_string(&request).unwrap(),
+        serde_json::to_string(&reply).unwrap(),
+    ] {
+        assert!(text.contains("tool_sources") || text.contains("list_tool_sources"));
+    }
+    let reply_text = serde_json::to_string(&reply).unwrap();
+    assert!(!reply_text.contains("\"reason\":null"));
+    assert_eq!(
+        serde_json::from_str::<DaemonMessage>(&reply_text).unwrap(),
+        reply
+    );
+    assert_eq!(
+        serde_json::from_str::<ClientMessage>(&serde_json::to_string(&request).unwrap()).unwrap(),
+        request
+    );
 }

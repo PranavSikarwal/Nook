@@ -176,6 +176,21 @@ stays stopped for that time.
 
 ## Check that it works
 
+Open Settings, then Tools. The tab lists the file tools, the command tool, and
+each MCP server. Each row shows its state and how many tools it offers:
+
+- **Ready.** The source works.
+- **Off.** The source did not start. The row says why, for example `The command is
+  empty` or `The MCP server stopped`.
+- **Stopped.** An MCP server started and then exited. The next call starts it
+  again.
+
+Refresh reloads the list. A source that you did not configure does not appear.
+The tab shows the state when the Daemon started and changes only for a server
+that stops later.
+
+For more detail, read the Daemon log.
+
 When Nook starts the Daemon, the Panel keeps its log in `daemon.log` in the Nook
 application folder. The file is private to your user (mode `0600` on macOS and
 Linux). When it reaches 1 MiB, it becomes `daemon.log.1`, and Nook keeps no older

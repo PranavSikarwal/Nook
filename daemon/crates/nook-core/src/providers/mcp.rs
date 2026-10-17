@@ -3,7 +3,7 @@ use super::{
     ToolOutput, MAX_DESCRIPTION_LENGTH, RESERVED_TOOL_NAMES,
 };
 use crate::config::McpServerConfig;
-use crate::protocol::ToolDescriptor;
+use crate::protocol::{ToolDescriptor, ToolSourceInfo, ToolSourceState};
 use crate::sandbox::{Sandbox, SandboxProcess, SandboxSpec};
 use async_trait::async_trait;
 use serde_json::{json, Value};
@@ -524,6 +524,17 @@ impl McpProvider {
         sandbox: &Sandbox,
         limits: StartupLimits,
     ) -> Option<Self> {
+        Self::start_reporting(configs, sandbox, limits).await.0
+    }
+
+    /// Like `start`, and also returns one entry for each server that is not
+    /// running, with the reason.
+    pub async fn start_reporting(
+        configs: &[McpServerConfig],
+        sandbox: &Sandbox,
+        limits: StartupLimits,
+    ) -> (Option<Self>, Vec<ToolSourceInfo>) {
+        let mut failed: Vec<ToolSourceInfo> = Vec::new();
         let mut accepted: Vec<&McpServerConfig> = Vec::new();
         let mut seen: BTreeSet<&str> = BTreeSet::new();
         for config in configs {
@@ -532,10 +543,19 @@ impl McpProvider {
                     "Ignored MCP server {:?}: the name is not valid",
                     config.name
                 );
+                failed.push(super::mcp_off(
+                    &config.name,
+                    "The name is not valid. Use letters, digits, _ and -, up to 32 characters",
+                ));
             } else if !seen.insert(config.name.as_str()) {
                 warn!("Ignored MCP server {}: the name is used twice", config.name);
+                failed.push(super::mcp_off(
+                    &config.name,
+                    "Another server uses this name",
+                ));
             } else if config.command.trim().is_empty() {
                 warn!("Ignored MCP server {}: the command is empty", config.name);
+                failed.push(super::mcp_off(&config.name, "The command is empty"));
             } else {
                 accepted.push(config);
             }
@@ -555,7 +575,10 @@ impl McpProvider {
             };
             match outcome {
                 Ok((server, tools)) => started.push((position, server, tools)),
-                Err(error) => warn!("MCP server {} is off: {error}", accepted[position].name),
+                Err(error) => {
+                    warn!("MCP server {} is off: {error}", accepted[position].name);
+                    failed.push(super::mcp_off(&accepted[position].name, &error));
+                }
             }
         }
         started.sort_by_key(|(position, _, _)| *position);
@@ -581,6 +604,12 @@ impl McpProvider {
                 count += 1;
             }
             info!(server = %server.name, tools = count, "MCP server is ready");
+            if count == 0 {
+                failed.push(super::mcp_off(
+                    &server.name,
+                    "The server offers no usable tool",
+                ));
+            }
             servers.push(ServerSlot {
                 name: server.name.clone(),
                 config: accepted[position].clone(),
@@ -589,14 +618,15 @@ impl McpProvider {
             });
         }
         if tools.is_empty() {
-            return None;
+            return (None, failed);
         }
-        Some(Self {
+        let provider = Self {
             servers,
             tools,
             sandbox: sandbox.clone(),
             limits,
-        })
+        };
+        (Some(provider), failed)
     }
 }
 
@@ -677,6 +707,36 @@ impl Provider for McpProvider {
             context,
             ..ToolFacts::default()
         })
+    }
+
+    fn sources(&self) -> Vec<ToolSourceInfo> {
+        self.servers
+            .iter()
+            .enumerate()
+            .filter_map(|(index, slot)| {
+                let tools = self.tools.values().filter(|e| e.server == index).count();
+                if tools == 0 {
+                    return None;
+                }
+                let stopped = slot
+                    .current
+                    .try_read()
+                    .map(|server| server.client.is_closed())
+                    .unwrap_or(false);
+                Some(ToolSourceInfo {
+                    source_id: format!("mcp:{}", slot.name),
+                    display_name: format!("MCP server {}", slot.name),
+                    state: if stopped {
+                        ToolSourceState::Stopped
+                    } else {
+                        ToolSourceState::Ready
+                    },
+                    tools: tools as u32,
+                    reason: stopped
+                        .then(|| "The server stopped. The next call starts it again.".to_string()),
+                })
+            })
+            .collect()
     }
 
     async fn call(&self, tool_id: &str, arguments: Value, _context: CallContext) -> ToolOutput {

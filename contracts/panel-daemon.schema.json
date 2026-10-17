@@ -13,6 +13,7 @@
     { "$ref": "#/definitions/SetSettingsRequest" },
     { "$ref": "#/definitions/PingRequest" },
     { "$ref": "#/definitions/ListPermissionsRequest" },
+    { "$ref": "#/definitions/ListToolSourcesRequest" },
     { "$ref": "#/definitions/RevokeGrantRequest" },
     { "$ref": "#/definitions/SetToolPreferenceRequest" },
     { "$ref": "#/definitions/MessageStartedEvent" },
@@ -29,6 +30,7 @@
     { "$ref": "#/definitions/SettingsResponse" },
     { "$ref": "#/definitions/CancelledResponse" },
     { "$ref": "#/definitions/PermissionsResponse" },
+    { "$ref": "#/definitions/ToolSourcesResponse" },
     { "$ref": "#/definitions/PongResponse" },
     { "$ref": "#/definitions/ErrorResponse" }
   ],
@@ -397,6 +399,15 @@
       "required": ["type", "id"],
       "additionalProperties": false
     },
+    "ListToolSourcesRequest": {
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "const": "list_tool_sources" },
+        "id": { "$ref": "#/definitions/UUID" }
+      },
+      "required": ["type", "id"],
+      "additionalProperties": false
+    },
     "RevokeGrantRequest": {
       "type": "object",
       "properties": {
@@ -465,6 +476,28 @@
         "tools": { "type": "array", "items": { "$ref": "#/definitions/ToolPolicyInfo" } }
       },
       "required": ["type", "id", "grants", "tools"],
+      "additionalProperties": false
+    },
+    "ToolSourceInfo": {
+      "type": "object",
+      "properties": {
+        "source_id": { "type": "string", "minLength": 1 },
+        "display_name": { "type": "string", "minLength": 1 },
+        "state": { "type": "string", "enum": ["ready", "off", "stopped"] },
+        "tools": { "type": "integer", "minimum": 0 },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 200 }
+      },
+      "required": ["source_id", "display_name", "state", "tools"],
+      "additionalProperties": false
+    },
+    "ToolSourcesResponse": {
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "const": "tool_sources" },
+        "id": { "$ref": "#/definitions/UUID" },
+        "sources": { "type": "array", "items": { "$ref": "#/definitions/ToolSourceInfo" } }
+      },
+      "required": ["type", "id", "sources"],
       "additionalProperties": false
     },
     "PongResponse": {

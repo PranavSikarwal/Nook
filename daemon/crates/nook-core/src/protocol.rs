@@ -160,6 +160,9 @@ pub enum ClientMessage {
     ListPermissions {
         id: Uuid,
     },
+    ListToolSources {
+        id: Uuid,
+    },
     RevokeGrant {
         id: Uuid,
         grant_id: String,
@@ -251,6 +254,10 @@ pub enum DaemonMessage {
         grants: Vec<GrantInfo>,
         tools: Vec<ToolPolicyInfo>,
     },
+    ToolSources {
+        id: Uuid,
+        sources: Vec<ToolSourceInfo>,
+    },
     Pong {
         id: Uuid,
     },
@@ -258,6 +265,28 @@ pub enum DaemonMessage {
         id: Uuid,
         error: ErrorInfo,
     },
+}
+
+/// Where the tools of a source stand. `stopped` means a started MCP server has
+/// exited and the next call starts it again.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolSourceState {
+    Ready,
+    Off,
+    Stopped,
+}
+
+/// One place that tools come from: the file tools, the command tool, or one MCP
+/// server.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ToolSourceInfo {
+    pub source_id: String,
+    pub display_name: String,
+    pub state: ToolSourceState,
+    pub tools: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

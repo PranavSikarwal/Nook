@@ -110,6 +110,14 @@ export interface ToolPolicyInfo {
   choices: TierChoice[]
 }
 
+export interface ToolSource {
+  source_id: string
+  display_name: string
+  state: 'ready' | 'off' | 'stopped'
+  tools: number
+  reason?: string
+}
+
 export interface Permissions {
   grants: GrantInfo[]
   tools: ToolPolicyInfo[]

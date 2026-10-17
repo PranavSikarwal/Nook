@@ -662,6 +662,13 @@ async fn process_client_message(
             send_permissions(&state, id, &tx_out).await;
         }
 
+        ClientMessage::ListToolSources { id } => {
+            let sources = state.providers.sources();
+            let _ = tx_out
+                .send(DaemonMessage::ToolSources { id, sources })
+                .await;
+        }
+
         ClientMessage::RevokeGrant { id, grant_id } => {
             match crate::permissions::revoke_grant(&state, &grant_id).await {
                 Ok(()) => send_permissions(&state, id, &tx_out).await,

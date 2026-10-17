@@ -82,7 +82,7 @@ def test_panel_daemon_examples_valid() -> None:
     examples = load_ndjson(EXAMPLES_DIR / "panel-daemon.ndjson")
     validator = Draft7Validator(schema, format_checker=format_checker)
 
-    assert len(examples) == 27, f"Expected 27 example lines, found {len(examples)}"
+    assert len(examples) == 29, f"Expected 29 example lines, found {len(examples)}"
 
     for idx, obj in enumerate(examples, 1):
         errors = list(validator.iter_errors(obj))
@@ -216,6 +216,44 @@ def test_daemon_worker_all_types_covered() -> None:
             ],
             "tools": [],
         },
+        {
+            "type": "tool_sources",
+            "id": "11111111-1111-1111-1111-111111111111",
+            "sources": [
+                {
+                    "source_id": "mcp:notes",
+                    "display_name": "MCP server notes",
+                    "state": "broken",  # only ready, off, or stopped
+                    "tools": 0,
+                }
+            ],
+        },
+        {
+            "type": "tool_sources",
+            "id": "11111111-1111-1111-1111-111111111111",
+            "sources": [
+                {
+                    "source_id": "mcp:notes",
+                    "display_name": "MCP server notes",
+                    "state": "off",
+                    "tools": -1,  # a count is never negative
+                }
+            ],
+        },
+        {
+            "type": "tool_sources",
+            "id": "11111111-1111-1111-1111-111111111111",
+            "sources": [
+                {
+                    "source_id": "mcp:notes",
+                    "display_name": "MCP server notes",
+                    "state": "off",
+                    "tools": 0,
+                    "reason": "x" * 201,  # a reason stays short
+                }
+            ],
+        },
+        {"type": "list_tool_sources", "id": "11111111-1111-1111-1111-111111111111", "extra": 1},
         {
             "type": "permissions",
             "id": "11111111-1111-1111-1111-111111111111",

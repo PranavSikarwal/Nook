@@ -1,4 +1,4 @@
-use crate::protocol::ToolDescriptor;
+use crate::protocol::{ToolDescriptor, ToolSourceInfo, ToolSourceState};
 use async_trait::async_trait;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
@@ -100,6 +100,11 @@ pub trait Provider: Send + Sync {
 
     /// Runs one authorized call. The Daemon aborts this future to cancel it.
     async fn call(&self, tool_id: &str, arguments: Value, context: CallContext) -> ToolOutput;
+
+    /// The sources this provider reports now, for the Tools tab.
+    fn sources(&self) -> Vec<ToolSourceInfo> {
+        Vec::new()
+    }
 }
 
 pub mod filesystem;
@@ -163,6 +168,7 @@ pub struct ProviderRegistry {
     providers: Vec<Arc<dyn Provider>>,
     index: BTreeMap<String, usize>,
     descriptors: Vec<ToolDescriptor>,
+    report: Vec<ToolSourceInfo>,
 }
 
 impl ProviderRegistry {
@@ -192,6 +198,23 @@ impl ProviderRegistry {
 
     pub fn is_empty(&self) -> bool {
         self.descriptors.is_empty()
+    }
+
+    /// Adds the sources that did not start, so the Tools tab can say why.
+    pub fn with_report(mut self, report: Vec<ToolSourceInfo>) -> Self {
+        self.report = report;
+        self
+    }
+
+    /// Every source, sorted by id: the ones that did not start and the ones that
+    /// run now.
+    pub fn sources(&self) -> Vec<ToolSourceInfo> {
+        let mut sources = self.report.clone();
+        for provider in &self.providers {
+            sources.extend(provider.sources());
+        }
+        sources.sort_by(|a, b| a.source_id.cmp(&b.source_id));
+        sources
     }
 
     pub fn descriptors(&self) -> &[ToolDescriptor] {
@@ -248,37 +271,104 @@ pub fn truncate_output(text: String, max_bytes: usize) -> String {
 
 /// Builds the registry from the config. A provider that cannot start is left
 /// out and the reason is logged.
+const MAX_REASON_CHARS: usize = 200;
+
+fn off(source_id: &str, display_name: &str, reason: impl Into<String>) -> ToolSourceInfo {
+    let reason: String = reason.into().chars().take(MAX_REASON_CHARS).collect();
+    ToolSourceInfo {
+        source_id: source_id.to_string(),
+        display_name: display_name.to_string(),
+        state: ToolSourceState::Off,
+        tools: 0,
+        reason: Some(reason),
+    }
+}
+
+fn ready(source_id: &str, display_name: &str, tools: usize) -> ToolSourceInfo {
+    ToolSourceInfo {
+        source_id: source_id.to_string(),
+        display_name: display_name.to_string(),
+        state: ToolSourceState::Ready,
+        tools: tools as u32,
+        reason: None,
+    }
+}
+
 pub async fn build_registry(tools: &crate::config::ToolsConfig) -> ProviderRegistry {
     let mut providers: Vec<Arc<dyn Provider>> = Vec::new();
+    let mut report: Vec<ToolSourceInfo> = Vec::new();
+    let has_roots = !tools.filesystem.roots.is_empty();
     if cfg!(unix) {
-        if let Some(filesystem) = filesystem::FilesystemProvider::from_config(&tools.filesystem) {
-            providers.push(Arc::new(filesystem));
+        match filesystem::FilesystemProvider::from_config(&tools.filesystem) {
+            Some(filesystem) => {
+                report.push(ready(
+                    "filesystem",
+                    "File tools",
+                    filesystem.descriptors().len(),
+                ));
+                providers.push(Arc::new(filesystem));
+            }
+            None if has_roots => report.push(off(
+                "filesystem",
+                "File tools",
+                "No folder in roots could be opened",
+            )),
+            None => {}
         }
-    } else if !tools.filesystem.roots.is_empty() {
+    } else if has_roots {
         tracing::warn!("File tools are off: this platform has no sandbox");
+        report.push(off(
+            "filesystem",
+            "File tools",
+            "This platform has no sandbox",
+        ));
     }
     let needs_sandbox = tools.terminal.enabled || !tools.mcp_servers.is_empty();
     if needs_sandbox {
         match crate::sandbox::Sandbox::detect().await {
             Ok(sandbox) => {
                 tracing::info!(sandbox = sandbox.name(), "The command sandbox works");
-                if let Some(terminal) = terminal::TerminalProvider::new(tools, sandbox.clone()) {
-                    providers.push(Arc::new(terminal));
+                if tools.terminal.enabled {
+                    match terminal::TerminalProvider::new(tools, sandbox.clone()) {
+                        Some(terminal) => {
+                            report.push(ready("terminal", "Command tool", 1));
+                            providers.push(Arc::new(terminal));
+                        }
+                        None => report.push(off(
+                            "terminal",
+                            "Command tool",
+                            "No folder in roots could be used as a working folder",
+                        )),
+                    }
                 }
                 #[cfg(unix)]
                 if !tools.mcp_servers.is_empty() {
-                    if let Some(mcp) = mcp::McpProvider::start(
+                    let (mcp, failed) = mcp::McpProvider::start_reporting(
                         &tools.mcp_servers,
                         &sandbox,
                         mcp::StartupLimits::default(),
                     )
-                    .await
-                    {
+                    .await;
+                    report.extend(failed);
+                    if let Some(mcp) = mcp {
                         providers.push(Arc::new(mcp));
                     }
                 }
+                #[cfg(not(unix))]
+                for server in &tools.mcp_servers {
+                    report.push(mcp_off(&server.name, "This platform has no sandbox"));
+                }
             }
-            Err(error) => tracing::warn!("Terminal and MCP tools are off: {error}"),
+            Err(error) => {
+                tracing::warn!("Terminal and MCP tools are off: {error}");
+                let reason = format!("The command sandbox is not available: {error}");
+                if tools.terminal.enabled {
+                    report.push(off("terminal", "Command tool", reason.clone()));
+                }
+                for server in &tools.mcp_servers {
+                    report.push(mcp_off(&server.name, &reason));
+                }
+            }
         }
     }
     match ProviderRegistry::new(providers) {
@@ -286,13 +376,33 @@ pub async fn build_registry(tools: &crate::config::ToolsConfig) -> ProviderRegis
             for descriptor in registry.descriptors() {
                 tracing::info!(tool = %descriptor.id, "Registered tool");
             }
-            registry
+            registry.with_report(report)
         }
         Err(error) => {
             tracing::error!("Tool providers are off: {error}");
-            ProviderRegistry::empty()
+            let reason = format!("The tools were left out: {error}");
+            let report = report
+                .into_iter()
+                .map(|source| {
+                    if source.state == ToolSourceState::Off {
+                        source
+                    } else {
+                        off(&source.source_id, &source.display_name, reason.clone())
+                    }
+                })
+                .collect();
+            ProviderRegistry::empty().with_report(report)
         }
     }
+}
+
+pub(crate) fn mcp_off(name: &str, reason: &str) -> ToolSourceInfo {
+    let name: String = name.chars().take(64).collect();
+    off(
+        &format!("mcp:{name}"),
+        &format!("MCP server {name}"),
+        reason,
+    )
 }
 
 #[cfg(test)]
@@ -468,5 +578,82 @@ mod tests {
 
         assert!(registry.contains("nook:read_local_file"));
         assert!(!registry.contains("nook:write_local_file"));
+    }
+
+    #[tokio::test]
+    async fn nothing_is_configured_so_no_source_is_listed() {
+        let registry = build_registry(&ToolsConfig::default()).await;
+
+        assert!(registry.sources().is_empty());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn file_tools_are_listed_as_ready_with_their_count() {
+        use crate::config::{FilesystemConfig, RootAccess, RootConfig};
+
+        let dir = tempfile::tempdir().unwrap();
+        let tools = ToolsConfig {
+            filesystem: FilesystemConfig {
+                roots: vec![RootConfig {
+                    path: dir.path().display().to_string(),
+                    access: RootAccess::Read,
+                }],
+                ..FilesystemConfig::default()
+            },
+            ..ToolsConfig::default()
+        };
+
+        let sources = build_registry(&tools).await.sources();
+
+        assert_eq!(sources.len(), 1);
+        assert_eq!(sources[0].source_id, "filesystem");
+        assert_eq!(sources[0].state, ToolSourceState::Ready);
+        assert_eq!(sources[0].tools, 2);
+        assert_eq!(sources[0].reason, None);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn roots_that_cannot_be_opened_are_listed_as_off_with_a_reason() {
+        use crate::config::{FilesystemConfig, RootAccess, RootConfig};
+
+        let tools = ToolsConfig {
+            filesystem: FilesystemConfig {
+                roots: vec![RootConfig {
+                    path: "/nonexistent/nook-test-root".to_string(),
+                    access: RootAccess::Read,
+                }],
+                ..FilesystemConfig::default()
+            },
+            ..ToolsConfig::default()
+        };
+
+        let sources = build_registry(&tools).await.sources();
+
+        assert_eq!(sources.len(), 1);
+        assert_eq!(sources[0].state, ToolSourceState::Off);
+        assert_eq!(sources[0].tools, 0);
+        assert!(sources[0].reason.as_deref().unwrap().contains("roots"));
+    }
+
+    #[tokio::test]
+    async fn the_command_tool_without_a_folder_is_listed_as_off() {
+        let mut tools = ToolsConfig::default();
+        tools.terminal.enabled = true;
+
+        let sources = build_registry(&tools).await.sources();
+
+        assert_eq!(sources.len(), 1);
+        assert_eq!(sources[0].source_id, "terminal");
+        assert_eq!(sources[0].state, ToolSourceState::Off);
+        assert!(sources[0].reason.is_some());
+    }
+
+    #[test]
+    fn a_reason_is_cut_to_a_short_length() {
+        let source = off("x", "X", "r".repeat(1000));
+
+        assert_eq!(source.reason.unwrap().chars().count(), MAX_REASON_CHARS);
     }
 }

@@ -5,7 +5,9 @@ mod common;
 use common::{tool_result, Harness};
 use nook_core::config::McpServerConfig;
 use nook_core::protocol::DaemonMessage;
+use nook_core::protocol::ToolSourceState;
 use nook_core::providers::mcp::{McpProvider, StartupLimits};
+use nook_core::providers::Provider;
 use nook_core::sandbox::Sandbox;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
@@ -517,4 +519,75 @@ async fn the_policy_resolves_every_mcp_tool_to_the_shared_entry() {
     assert_eq!(spec.display_name, "MCP tool");
     assert_eq!(spec.approval.tier, "ask");
     assert!(policy.catalog.resolve("nook:nothing").is_none());
+}
+
+#[tokio::test]
+async fn sources_list_each_server_as_ready_or_off_with_a_reason() {
+    let Some(sandbox) = sandbox().await else {
+        return;
+    };
+    let mut broken = server("broken", "normal");
+    broken.command = "/nonexistent/server".to_string();
+    let mut empty_command = server("blank", "normal");
+    empty_command.command = " ".to_string();
+    let configs = [
+        server("fake", "normal"),
+        broken,
+        empty_command,
+        server("fake", "normal"),
+        server("bad name", "normal"),
+    ];
+
+    let (provider, failed) = McpProvider::start_reporting(&configs, &sandbox, quick()).await;
+
+    let ready = provider.expect("one server runs").sources();
+    assert_eq!(ready.len(), 1);
+    assert_eq!(ready[0].source_id, "mcp:fake");
+    assert_eq!(ready[0].state, ToolSourceState::Ready);
+    assert!(ready[0].tools >= 2);
+    let mut reasons: Vec<(String, String)> = failed
+        .into_iter()
+        .map(|s| {
+            assert_eq!(s.state, ToolSourceState::Off);
+            (s.source_id, s.reason.unwrap())
+        })
+        .collect();
+    reasons.sort();
+    assert_eq!(reasons.len(), 4);
+    assert!(reasons
+        .iter()
+        .any(|(id, r)| id == "mcp:blank" && r == "The command is empty"));
+    assert!(reasons
+        .iter()
+        .any(|(id, r)| id == "mcp:broken" && !r.is_empty()));
+    assert!(reasons
+        .iter()
+        .any(|(id, r)| id == "mcp:fake" && r.contains("name")));
+    assert!(reasons
+        .iter()
+        .any(|(id, r)| id == "mcp:bad name" && r.contains("not valid")));
+}
+
+#[tokio::test]
+async fn a_stopped_server_shows_as_stopped_until_a_call_starts_it() {
+    let limits = StartupLimits {
+        restart_interval: Duration::ZERO,
+        ..quick()
+    };
+    let Some(sandbox) = sandbox().await else {
+        return;
+    };
+    let provider = McpProvider::start(&[server("fake", "normal")], &sandbox, limits)
+        .await
+        .unwrap();
+    let mut h = Harness::new(vec![Arc::new(provider)]).await;
+
+    run(&mut h, Uuid::new_v4(), "c1", "mcp:fake:die", json!({})).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let stopped = h.state.providers.sources();
+    assert_eq!(stopped[0].state, ToolSourceState::Stopped);
+    assert!(stopped[0].reason.is_some());
+
+    run(&mut h, Uuid::new_v4(), "c2", ECHO, json!({ "text": "hi" })).await;
+    assert_eq!(h.state.providers.sources()[0].state, ToolSourceState::Ready);
 }

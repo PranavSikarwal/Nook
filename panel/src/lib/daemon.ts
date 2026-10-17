@@ -8,6 +8,7 @@ import type {
   Permissions,
   SettingsInfo,
   SettingsPayload,
+  ToolSource,
 } from './types'
 
 const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
@@ -261,6 +262,22 @@ const previewPermissions: Permissions = {
       ],
     },
   ],
+}
+
+const previewToolSources: ToolSource[] = [
+  { source_id: 'filesystem', display_name: 'File tools', state: 'ready', tools: 2 },
+  {
+    source_id: 'mcp:notes',
+    display_name: 'MCP server notes',
+    state: 'off',
+    tools: 0,
+    reason: 'The server did not answer initialize in 10 seconds',
+  },
+]
+
+export async function getToolSources(): Promise<ToolSource[]> {
+  if (isBrowserMock) return structuredClone(previewToolSources)
+  return await invoke<ToolSource[]>('get_tool_sources')
 }
 
 export async function getPermissions(): Promise<Permissions> {

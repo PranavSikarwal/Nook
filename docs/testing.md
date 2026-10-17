@@ -88,6 +88,13 @@ and the fake Worker. It covers approval, denial, grants, errors, the output
 limit, invalid arguments, the Worker and Daemon tool mix-ups, expiry, and
 cancel.
 
+`panel/e2e/specs/tools.spec.mjs` opens Settings, Tools. It checks that the file
+tools, the command tool, and a working MCP server show as ready, that a server
+with a missing program shows as off with a reason, and that Refresh reloads the
+list. The shared `before` hook in `panel/e2e/wdio.conf.mjs` waits until the Panel
+enables its input, because the Panel keeps its input disabled until its own
+Daemon check passes.
+
 `panel/e2e/specs/links.spec.mjs` clicks a link in a reply. It checks that the Panel
 window stays put, that the link reaches the `open_external_link` command, and that
 a `javascript:` or `file:` address is not a link. The test build never starts a

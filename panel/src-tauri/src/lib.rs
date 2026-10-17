@@ -1,7 +1,7 @@
 use nook_core::config::Config;
 use nook_core::protocol::{
     Attachment, AttachmentKind, ChatMessage, ChatSummary, ClientMessage, DaemonMessage, GrantInfo,
-    ToolPolicyInfo,
+    ToolPolicyInfo, ToolSourceInfo,
 };
 #[cfg(windows)]
 use nook_core::windows_pipe_name;
@@ -824,10 +824,10 @@ pub struct PermissionsPayload {
     pub tools: Vec<ToolPolicyInfo>,
 }
 
-async fn ask_for_permissions<R: Runtime>(
+async fn ask_daemon<R: Runtime>(
     app: &AppHandle<R>,
     msg: ClientMessage,
-) -> Result<PermissionsPayload, String> {
+) -> Result<DaemonMessage, String> {
     let stream = connect_to_daemon(app).await?;
     let (reader, mut writer) = tokio::io::split(stream);
     let mut lines = BufReader::new(reader).lines();
@@ -844,10 +844,27 @@ async fn ask_for_permissions<R: Runtime>(
         return Err("Daemon closed connection unexpectedly".to_string());
     };
     match serde_json::from_str::<DaemonMessage>(&line).map_err(|e| e.to_string())? {
+        DaemonMessage::Error { error, .. } => Err(error.message),
+        reply => Ok(reply),
+    }
+}
+
+async fn ask_for_permissions<R: Runtime>(
+    app: &AppHandle<R>,
+    msg: ClientMessage,
+) -> Result<PermissionsPayload, String> {
+    match ask_daemon(app, msg).await? {
         DaemonMessage::Permissions { grants, tools, .. } => {
             Ok(PermissionsPayload { grants, tools })
         }
-        DaemonMessage::Error { error, .. } => Err(error.message),
+        _ => Err("Unexpected response from daemon".to_string()),
+    }
+}
+
+#[tauri::command]
+async fn get_tool_sources<R: Runtime>(app: AppHandle<R>) -> Result<Vec<ToolSourceInfo>, String> {
+    match ask_daemon(&app, ClientMessage::ListToolSources { id: Uuid::new_v4() }).await? {
+        DaemonMessage::ToolSources { sources, .. } => Ok(sources),
         _ => Err("Unexpected response from daemon".to_string()),
     }
 }
@@ -1032,6 +1049,7 @@ pub fn run() {
             get_settings,
             set_settings,
             get_permissions,
+            get_tool_sources,
             revoke_grant,
             set_tool_preference,
             open_external_link,

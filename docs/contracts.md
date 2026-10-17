@@ -110,6 +110,16 @@ and `choices` with `tier`, `label`, and `effect`). The Daemon writes the
 sentences, so the Panel shows what will happen without its own rules. `tier` is
 `default` when no preference exists.
 
+## Tool sources
+
+The Panel asks which tool sources work with one request, `list_tool_sources`. The
+Daemon answers with `tool_sources`. Each source has `source_id` (`filesystem`,
+`terminal`, or `mcp:<name>`), `display_name`, `state`, `tools` (the number of
+tools it offers), and an optional `reason` of at most 200 characters. `state` is
+`ready`, `off` (the source did not start, and `reason` says why), or `stopped` (an
+MCP server exited, and the next call starts it again). A source that is not
+configured does not appear. Settings, Tools shows the list.
+
 ## Tools that the Daemon runs
 
 The Daemon runs tools that can touch the local machine. These tools reach the
