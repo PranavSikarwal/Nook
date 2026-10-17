@@ -448,7 +448,11 @@ async fn process_client_message(
                 let mut cfg = state.config.write().await;
                 cfg.base_url = base_url.clone();
                 cfg.model = model.clone();
-                let _ = cfg.save_to_file(&state.config_path);
+                if let Err(error) =
+                    Config::update_model_settings(&state.config_path, &base_url, &model)
+                {
+                    warn!("Could not save the settings to config.toml: {error}");
+                }
             }
 
             // Restart supervisor with updated settings without holding mutex across shutdown

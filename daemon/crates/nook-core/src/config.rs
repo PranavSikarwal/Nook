@@ -265,7 +265,7 @@ impl Config {
                 std::fs::create_dir_all(parent)?;
             }
             let toml_str = toml::to_string_pretty(&default_cfg)?;
-            std::fs::write(path, toml_str)?;
+            write_private(path, &toml_str)?;
             default_cfg
         } else {
             let content = std::fs::read_to_string(path)?;
@@ -291,17 +291,49 @@ impl Config {
         Ok(cfg)
     }
 
-    pub fn save_to_file(
-        &self,
+    /// Sets `base_url` and `model` in the file and leaves every other line, comment,
+    /// and table as it is. Creates the file when it is missing.
+    pub fn update_model_settings(
         path: &Path,
+        base_url: &str,
+        model: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        let toml_str = toml::to_string_pretty(self)?;
-        std::fs::write(path, toml_str)?;
-        Ok(())
+        let text = match std::fs::read_to_string(path) {
+            Ok(text) => text,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+            Err(error) => return Err(error.into()),
+        };
+        let mut document = text.parse::<toml_edit::DocumentMut>()?;
+        document["base_url"] = toml_edit::value(base_url);
+        document["model"] = toml_edit::value(model);
+        write_private(path, &document.to_string())
     }
+}
+
+/// Writes the file so that only the user can read it. The file can hold secrets
+/// in the `env` of an MCP server.
+fn write_private(
+    path: &Path,
+    contents: &str,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    use std::io::Write;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let temporary = path.with_extension("toml.tmp");
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options.open(&temporary)?;
+    file.write_all(contents.as_bytes())?;
+    file.sync_all()?;
+    drop(file);
+    std::fs::rename(&temporary, path)?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -353,33 +385,96 @@ mod tests {
         assert_eq!(cfg.database_url, "postgres://localhost/nook");
     }
 
+    const HAND_EDITED: &str = r#"# My Nook settings
+base_url = "https://old.example.com/v1" # the proxy
+model = "old-model"
+database_url = "postgres://localhost/mine"
+
+# Files the assistant may read
+[tools.filesystem]
+roots = [{ path = "/tmp/docs", access = "read" }]
+
+[[tools.mcp_servers]]
+name = "notes"
+command = "/opt/tools/notes"
+env = { TOKEN = "secret-value" }
+"#;
+
     #[test]
-    fn test_save_and_load_config() {
+    fn updating_the_model_keeps_comments_and_tool_blocks() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("config.toml");
-        let cfg = Config {
-            base_url: "https://example.com/v1".to_string(),
-            model: "test-model".to_string(),
-            database_url: "postgres://localhost/test_db".to_string(),
-            max_input_tokens: 500_000,
-            summarize_at_tokens: 350_000,
-            worker_command: None,
-            tools: ToolsConfig::default(),
-        };
-        cfg.save_to_file(&path).unwrap();
+        std::fs::write(&path, HAND_EDITED).unwrap();
 
-        let loaded = Config::from_file(&path).unwrap();
-        assert_eq!(loaded.max_input_tokens, 500_000);
-        assert_eq!(loaded.summarize_at_tokens, 350_000);
-        if std::env::var("NOOK_BASE_URL").is_err() {
-            assert_eq!(loaded.base_url, "https://example.com/v1");
-        }
-        if std::env::var("NOOK_MODEL").is_err() {
-            assert_eq!(loaded.model, "test-model");
-        }
-        if std::env::var("NOOK_DATABASE_URL").is_err() {
-            assert_eq!(loaded.database_url, "postgres://localhost/test_db");
-        }
+        Config::update_model_settings(&path, "https://new.example.com/v1", "new-model").unwrap();
+
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("# My Nook settings"));
+        assert!(text.contains("# Files the assistant may read"));
+        assert!(text.contains("env = { TOKEN = \"secret-value\" }"));
+        assert!(text.contains("database_url = \"postgres://localhost/mine\""));
+        let loaded: Config = toml::from_str(&text).unwrap();
+        assert_eq!(loaded.base_url, "https://new.example.com/v1");
+        assert_eq!(loaded.model, "new-model");
+        assert_eq!(loaded.tools.mcp_servers[0].name, "notes");
+    }
+
+    #[test]
+    fn updating_a_missing_file_creates_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("nested").join("config.toml");
+
+        Config::update_model_settings(&path, "https://a.example.com/v1", "m").unwrap();
+
+        let loaded: Config = toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(loaded.base_url, "https://a.example.com/v1");
+        assert_eq!(loaded.model, "m");
+    }
+
+    #[test]
+    fn a_file_that_is_not_toml_is_left_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(&path, "base_url = [unclosed").unwrap();
+
+        assert!(Config::update_model_settings(&path, "u", "m").is_err());
+
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "base_url = [unclosed"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_config_file_is_private_to_the_user() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(&path, HAND_EDITED).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+        Config::update_model_settings(&path, "u", "m").unwrap();
+
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+        let created = dir.path().join("created.toml");
+        Config::update_model_settings(&created, "u", "m").unwrap();
+        let mode = std::fs::metadata(&created).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_first_start_writes_a_private_default_file() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+
+        Config::from_file(&path).unwrap();
+
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
     }
 
     #[test]

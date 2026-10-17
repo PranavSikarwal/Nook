@@ -32,7 +32,11 @@ settings, the sandbox rules, and the approval flow.
 ## Settings
 
 Each server is one `[[tools.mcp_servers]]` block. The Panel's Settings do not
-edit it. Edit `config.toml` in the Nook application folder.
+edit it. Edit `config.toml` in the Nook application folder. Nook writes the file so that
+only your user can read it (mode `0600` on macOS and Linux), because `env` can
+hold secrets. Saving the model settings in the Panel changes only `base_url` and
+`model` and keeps your comments and server blocks. Windows keeps the default
+file access.
 
 ```toml
 [[tools.mcp_servers]]
