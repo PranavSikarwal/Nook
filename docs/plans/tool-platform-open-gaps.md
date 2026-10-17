@@ -12,11 +12,13 @@ Recorded on October 17, 2026.
    questions. The owner removed clipboard read from the native-system design on
    October 17, 2026, because the user can paste text into the chat. Risk: no browser
    or native-system tool can start until the designs are approved or changed.
-2. **Image search source.** The owner chose to leave it out on October 17,
-   2026. Image search was removed because DuckDuckGo answers
-   with a bot challenge (HTTP 202) and `ddgs` 9.16.0 cannot pass it. Risk: the
-   model cannot find images. Options: leave it out, or add a source with an API,
-   such as Brave, Bing or Wikimedia Commons. Brave and Bing need a key.
+2. **Image search.** The owner chose to leave it out on October 17, 2026. It
+   was removed because the DuckDuckGo image backend answers with a bot challenge
+   (HTTP 202) and `ddgs` 9.16.0 cannot pass it. The `auto`, `bing`, `brave`,
+   `google`, `yahoo` and `wikipedia` backends of `ddgs` returned images on the
+   same day with no key. Risk: the model cannot find images. To bring the tool
+   back, restore it from commit `ff7f57c`, pick one backend, and change the docs
+   that say a search asks only DuckDuckGo.
 3. **macOS sandbox successor.** Seatbelt is deprecated and Apple has published no
    replacement (apple/containerization#737, open). Risk: if a later macOS removes
    `sandbox-exec`, the start-up self-test fails and terminal and MCP tools turn
