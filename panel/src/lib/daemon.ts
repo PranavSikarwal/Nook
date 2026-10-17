@@ -325,3 +325,16 @@ export function subscribeToDaemonEvents(
     callback(event.payload)
   })
 }
+
+export function isWebLink(href: string | undefined): href is string {
+  return typeof href === 'string' && /^https?:\/\/[^\s/]/i.test(href)
+}
+
+export async function openExternalLink(url: string): Promise<void> {
+  if (!isWebLink(url)) return
+  if (isTauri) {
+    await invoke('open_external_link', { url })
+  } else {
+    window.open(url, '_blank', 'noopener,noreferrer')
+  }
+}

@@ -187,7 +187,7 @@ pub async fn wait_for_daemon_ready(socket_path: &Path, timeout: std::time::Durat
         let start = std::time::Instant::now();
         while start.elapsed() < timeout {
             #[cfg(unix)]
-            let ready = socket_path.exists() && connect_local_daemon().await.is_ok();
+            let ready = UnixStream::connect(socket_path).await.is_ok();
             #[cfg(windows)]
             let ready = {
                 let _ = socket_path;
@@ -825,7 +825,9 @@ async fn ask_for_permissions<R: Runtime>(
         return Err("Daemon closed connection unexpectedly".to_string());
     };
     match serde_json::from_str::<DaemonMessage>(&line).map_err(|e| e.to_string())? {
-        DaemonMessage::Permissions { grants, tools, .. } => Ok(PermissionsPayload { grants, tools }),
+        DaemonMessage::Permissions { grants, tools, .. } => {
+            Ok(PermissionsPayload { grants, tools })
+        }
         DaemonMessage::Error { error, .. } => Err(error.message),
         _ => Err("Unexpected response from daemon".to_string()),
     }
@@ -849,6 +851,50 @@ async fn revoke_grant<R: Runtime>(
         },
     )
     .await
+}
+
+const MAX_LINK_LENGTH: usize = 2048;
+
+/// A link the Panel may hand to the system browser: `http` or `https`, no spaces
+/// or control characters, and a host.
+fn is_web_link(url: &str) -> bool {
+    let lower = url.to_ascii_lowercase();
+    let rest = lower
+        .strip_prefix("https://")
+        .or_else(|| lower.strip_prefix("http://"));
+    url.len() <= MAX_LINK_LENGTH
+        && !url.chars().any(|c| c.is_control() || c.is_whitespace())
+        && rest.is_some_and(|rest| !rest.is_empty() && !rest.starts_with('/'))
+}
+
+#[cfg(not(feature = "e2e"))]
+fn open_in_system_browser(app: &tauri::AppHandle, url: String) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    app.opener()
+        .open_url(url, None::<&str>)
+        .map_err(|error| error.to_string())
+}
+
+/// Test builds never start a browser. They append the link to a file in the run
+/// folder, and the native tests read it.
+#[cfg(feature = "e2e")]
+fn open_in_system_browser(_app: &tauri::AppHandle, url: String) -> Result<(), String> {
+    use std::io::Write;
+    let dir = std::env::var_os("NOOK_E2E_RUN_DIR").ok_or("NOOK_E2E_RUN_DIR is not set")?;
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(PathBuf::from(dir).join("opened-links.log"))
+        .map_err(|error| error.to_string())?;
+    writeln!(file, "{url}").map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn open_external_link(app: tauri::AppHandle, url: String) -> Result<(), String> {
+    if !is_web_link(&url) {
+        return Err("Only http and https links can be opened".to_string());
+    }
+    open_in_system_browser(&app, url)
 }
 
 #[tauri::command]
@@ -912,6 +958,7 @@ pub fn run() {
 
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_opener::init())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(move |app, s, event| {
@@ -968,6 +1015,7 @@ pub fn run() {
             get_permissions,
             revoke_grant,
             set_tool_preference,
+            open_external_link,
             set_window_size,
             toggle_window,
             start_drag,
@@ -1049,5 +1097,38 @@ mod tests {
         }
         let proc = state.spawned_process.lock().await;
         assert!(proc.is_none() || proc.is_some());
+    }
+}
+
+#[cfg(test)]
+mod link_tests {
+    use super::is_web_link;
+
+    #[test]
+    fn only_web_links_may_be_opened() {
+        for good in [
+            "https://example.com/docs",
+            "http://example.com",
+            "HTTPS://Example.com/Path?q=1#top",
+        ] {
+            assert!(is_web_link(good), "{good}");
+        }
+        for bad in [
+            "",
+            "javascript:alert(1)",
+            "file:///etc/passwd",
+            "ftp://example.com",
+            "mailto:a@example.com",
+            "https://",
+            "https:///etc/passwd",
+            "https://example.com/a b",
+            "https://example.com/\nHost: x",
+            "//example.com",
+            "example.com",
+        ] {
+            assert!(!is_web_link(bad), "{bad:?}");
+        }
+        let long = format!("https://example.com/{}", "a".repeat(2100));
+        assert!(!is_web_link(&long));
     }
 }

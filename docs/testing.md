@@ -88,6 +88,11 @@ and the fake Worker. It covers approval, denial, grants, errors, the output
 limit, invalid arguments, the Worker and Daemon tool mix-ups, expiry, and
 cancel.
 
+`panel/e2e/specs/links.spec.mjs` clicks a link in a reply. It checks that the Panel
+window stays put, that the link reaches the `open_external_link` command, and that
+a `javascript:` or `file:` address is not a link. The test build never starts a
+browser. It appends the link to `opened-links.log` in the run folder.
+
 The deterministic native tests use `panel/e2e/fake_worker.py`. It sends
 `authorize_tool`, waits for `authorization_result`, and sends tool events only
 after `allow`. `panel/e2e/test_fake_worker.py` checks every message it sends
