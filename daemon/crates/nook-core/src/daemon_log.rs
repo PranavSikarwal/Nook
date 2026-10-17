@@ -125,6 +125,7 @@ impl RotatingLog {
         }
         self.file.write_all(line.as_bytes()).await?;
         self.file.write_all(b"\n").await?;
+        self.file.flush().await?;
         self.written += size;
         Ok(())
     }
