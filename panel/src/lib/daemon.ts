@@ -5,6 +5,7 @@ import type {
   ChatSummary,
   ChatTranscript,
   DaemonEvent,
+  Permissions,
   SettingsInfo,
   SettingsPayload,
 } from './types'
@@ -235,6 +236,54 @@ export async function sendApprovalDecision(
     return
   }
   await invoke('send_approval_decision', { chatId, callId, action })
+}
+
+const previewPermissions: Permissions = {
+  grants: [
+    {
+      grant_id: 'preview-grant',
+      tool_id: 'web_fetch',
+      tool_name: 'Web fetch',
+      scope: 'persistent_host',
+      description: 'Always allow Web fetch for docs.example.com, in every chat',
+    },
+  ],
+  tools: [
+    {
+      tool_id: 'nook:web_search',
+      display_name: 'Web search',
+      default_tier: 'allow',
+      tier: 'default',
+      choices: [
+        { tier: 'default', label: 'Default', effect: 'Nook runs this tool without asking.' },
+        { tier: 'ask', label: 'Ask every time', effect: 'Nook asks before it uses this tool.' },
+        { tier: 'deny', label: 'Never allow', effect: 'Nook never runs this tool.' },
+      ],
+    },
+  ],
+}
+
+export async function getPermissions(): Promise<Permissions> {
+  if (isBrowserMock) return structuredClone(previewPermissions)
+  return await invoke<Permissions>('get_permissions')
+}
+
+export async function revokeGrant(grantId: string): Promise<Permissions> {
+  if (isBrowserMock) {
+    previewPermissions.grants = previewPermissions.grants.filter((grant) => grant.grant_id !== grantId)
+    return structuredClone(previewPermissions)
+  }
+  return await invoke<Permissions>('revoke_grant', { grantId })
+}
+
+export async function setToolPreference(toolId: string, tier: string): Promise<Permissions> {
+  if (isBrowserMock) {
+    previewPermissions.tools = previewPermissions.tools.map((tool) =>
+      tool.tool_id === toolId ? { ...tool, tier } : tool,
+    )
+    return structuredClone(previewPermissions)
+  }
+  return await invoke<Permissions>('set_tool_preference', { toolId, tier })
 }
 
 export async function getSettings(): Promise<SettingsInfo> {

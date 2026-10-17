@@ -11,6 +11,19 @@ tools:
       requires_approval: false
     approval:
       tier: allow
+      actions:
+        - id: allow_once
+          label: "Allow once"
+          description: "Allow this exact search one time."
+        - id: allow_for_chat
+          label: "Allow for this chat"
+          description: "Allow this tool for the rest of this chat."
+        - id: always_allow
+          label: "Always allow"
+          description: "Allow this tool in every chat until you revoke it in Settings."
+        - id: deny
+          label: "Deny"
+          description: "Reject this request. The tool does not run."
 
   nook:web_fetch:
     display_name: "Web fetch"
@@ -37,6 +50,9 @@ tools:
         - id: allow_for_chat_host
           label: "Allow for this chat & host"
           description: "Allow this tool to fetch from this host for the rest of this chat."
+        - id: always_allow_host
+          label: "Always allow this host"
+          description: "Allow this tool to fetch from this host in every chat until you revoke it in Settings."
         - id: deny
           label: "Deny"
           description: "Reject this request. The tool does not run."
@@ -138,6 +154,9 @@ tools:
         - id: allow_for_chat
           label: "Allow this tool for this chat"
           description: "Allow this tool of this server for the rest of this chat."
+        - id: always_allow
+          label: "Always allow this tool"
+          description: "Allow this tool of this server in every chat until you revoke it in Settings."
         - id: deny
           label: "Deny"
           description: "Reject this call. The tool does not run."

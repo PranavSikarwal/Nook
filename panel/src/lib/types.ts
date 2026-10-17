@@ -88,6 +88,33 @@ export interface ApprovalRequest {
   actions: ApprovalAction[]
 }
 
+export interface GrantInfo {
+  grant_id: string
+  tool_id: string
+  tool_name: string
+  scope: string
+  description: string
+}
+
+export interface TierChoice {
+  tier: string
+  label: string
+  effect: string
+}
+
+export interface ToolPolicyInfo {
+  tool_id: string
+  display_name: string
+  default_tier: string
+  tier: string
+  choices: TierChoice[]
+}
+
+export interface Permissions {
+  grants: GrantInfo[]
+  tools: ToolPolicyInfo[]
+}
+
 export type DaemonEvent =
   | { type: 'message_started'; id: string; chat_id: string; message_id: string }
   | { type: 'text_delta'; id: string; chat_id: string; message_id: string; text: string }

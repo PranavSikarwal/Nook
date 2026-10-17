@@ -193,6 +193,43 @@ resource becomes a short marker, and a resource link shows its address. A result
 with only structured content becomes its JSON. `isError` returns an error
 status. The server description and results are untrusted text, as web pages are.
 
+## Permanent grants and tool preferences
+
+Settings has a Permissions tab with two lists.
+
+**Always allowed.** A permanent grant lasts across chats and restarts until you
+revoke it. Two actions create one:
+
+- `always_allow_host` on `nook:web_fetch` allows one host in every chat. The
+  Cedar scope is `persistent_host`.
+- `always_allow` on an MCP tool allows that one tool of that server in every
+  chat. The Cedar scope is `persistent`.
+
+File and command tools offer no permanent grant. The Daemon stores a permanent
+grant in `app.persistent_grants` and loads it at startup. A row whose id does
+not match its content is ignored, and the Daemon logs it. Each grant has a
+stable id, the first 32 hex characters of the SHA-256 of its tool, scope, and
+host. The tab shows a sentence for each grant, such as "Always allow Web fetch
+for docs.example.com, in every chat", and a Revoke button. A revoke removes the
+grant from memory and from the database. Deleting a chat keeps permanent grants.
+
+**Tools.** A preference changes how a tool asks. It can only make a tool
+stricter than the default in `tools.yaml`:
+
+| Default tier | Choices |
+| --- | --- |
+| `allow` (web search) | Default, Ask every time, Never allow |
+| `ask`, `ask_once_per_host` | Default, Never allow |
+| `deny` | Default |
+
+The Daemon checks a request for a looser or unknown choice and returns an error
+without a change. The Daemon stores a choice in `app.tool_preferences`. A tool
+in the `deny` tier never runs, even with a permanent grant. A permanent grant
+stays stored while its tool is denied and applies again when you choose
+Default. Each choice shows its effect in plain words before you pick it. A
+preference never turns a Cedar forbid into an allow, because the Daemon sets
+only the tier that Cedar receives.
+
 ## Policy files
 
 - `policy/tools.yaml` contains tool metadata, limits, approval tiers, and

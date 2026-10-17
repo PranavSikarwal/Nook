@@ -1,4 +1,4 @@
-import { Eye, EyeOff, Keyboard, RotateCcw, Save, Settings as SettingsIcon, X } from 'lucide-react'
+import { Eye, EyeOff, Keyboard, RotateCcw, Save, Settings as SettingsIcon, ShieldCheck, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import {
   DEFAULT_SHORTCUTS,
@@ -11,6 +11,7 @@ import {
   type ShortcutMap,
 } from '../lib/shortcuts'
 import type { SettingsInfo, SettingsPayload } from '../lib/types'
+import { PermissionsTab } from './PermissionsTab'
 
 interface SettingsModalProps {
   readonly currentSettings: SettingsInfo | null
@@ -275,7 +276,7 @@ export function SettingsModal({
   onClose,
   onShortcutsChanged,
 }: SettingsModalProps) {
-  const [activeTab, setActiveTab] = useState<'model' | 'shortcuts'>('model')
+  const [activeTab, setActiveTab] = useState<'model' | 'shortcuts' | 'permissions'>('model')
 
   return (
     <div className="flex flex-col h-full bg-[#161618] border-b border-white/10 overflow-hidden text-zinc-200">
@@ -305,6 +306,18 @@ export function SettingsModal({
             <Keyboard className="size-3.5" />
             <span>Shortcuts</span>
           </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('permissions')}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold transition-colors ${
+              activeTab === 'permissions'
+                ? 'bg-purple-600 text-white'
+                : 'text-zinc-400 hover:text-white hover:bg-white/5'
+            }`}
+          >
+            <ShieldCheck className="size-3.5" />
+            <span>Permissions</span>
+          </button>
         </div>
         <button
           onClick={onClose}
@@ -322,8 +335,10 @@ export function SettingsModal({
           onSave={onSave}
           onClose={onClose}
         />
-      ) : (
+      ) : activeTab === 'shortcuts' ? (
         <ShortcutsTab onShortcutsChanged={onShortcutsChanged} />
+      ) : (
+        <PermissionsTab />
       )}
     </div>
   )

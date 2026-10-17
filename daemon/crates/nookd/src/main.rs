@@ -112,6 +112,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         policy,
     });
 
+    nook_core::permissions::restore(&state).await;
+
     // 7. Bind socket with permissions 0600
     let socket_path = Config::default_socket_path();
     let (shutdown_tx, shutdown_rx) = broadcast::channel(1);

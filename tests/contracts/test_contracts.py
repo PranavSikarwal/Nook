@@ -82,7 +82,7 @@ def test_panel_daemon_examples_valid() -> None:
     examples = load_ndjson(EXAMPLES_DIR / "panel-daemon.ndjson")
     validator = Draft7Validator(schema, format_checker=format_checker)
 
-    assert len(examples) == 23, f"Expected 23 example lines, found {len(examples)}"
+    assert len(examples) == 27, f"Expected 27 example lines, found {len(examples)}"
 
     for idx, obj in enumerate(examples, 1):
         errors = list(validator.iter_errors(obj))
@@ -182,6 +182,53 @@ def test_daemon_worker_all_types_covered() -> None:
             "explanation": "Fetch",
             "resource_summary": "https://docs.example.com",
             "actions": [{"id": "grant_forever", "label": "x", "description": "y"}],
+        },
+        {"type": "revoke_grant", "id": "11111111-1111-1111-1111-111111111111"},
+        {
+            "type": "revoke_grant",
+            "id": "11111111-1111-1111-1111-111111111111",
+            "grant_id": "",
+        },
+        {
+            "type": "set_tool_preference",
+            "id": "11111111-1111-1111-1111-111111111111",
+            "tool_id": "nook:web_search",
+            "tier": "allow",  # a preference can never loosen a tool
+        },
+        {
+            "type": "set_tool_preference",
+            "id": "11111111-1111-1111-1111-111111111111",
+            "tool_id": "nook:web_search",
+            "tier": "deny",
+            "extra": True,
+        },
+        {
+            "type": "permissions",
+            "id": "11111111-1111-1111-1111-111111111111",
+            "grants": [
+                {
+                    "grant_id": "abc",
+                    "tool_id": "web_fetch",
+                    "tool_name": "Web fetch",
+                    "scope": "chat_host",  # chat grants are not permanent
+                    "description": "x",
+                }
+            ],
+            "tools": [],
+        },
+        {
+            "type": "permissions",
+            "id": "11111111-1111-1111-1111-111111111111",
+            "grants": [],
+            "tools": [
+                {
+                    "tool_id": "nook:web_search",
+                    "display_name": "Web search",
+                    "default_tier": "allow",
+                    "tier": "default",
+                    "choices": [],  # at least the default choice
+                }
+            ],
         },
     ],
 )

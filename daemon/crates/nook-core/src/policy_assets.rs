@@ -17,6 +17,7 @@ pub const APPROVAL_ACTIONS: &[(&str, Option<&str>)] = &[
     ("allow_for_chat_path", Some("chat_path")),
     ("allow_for_chat_dir", Some("chat_dir")),
     ("always_allow", Some("persistent")),
+    ("always_allow_host", Some("persistent_host")),
     ("deny", None),
 ];
 
@@ -162,6 +163,7 @@ fn validate_actions(tool: &str, approval: &ApprovalSpec) -> Result<(), PolicyAss
 pub struct PolicyAssets {
     pub catalog: ToolCatalog,
     pub authorizer: CedarAuthorizer,
+    preferences: std::sync::RwLock<std::collections::HashMap<String, String>>,
 }
 
 impl PolicyAssets {
@@ -191,7 +193,30 @@ impl PolicyAssets {
         Ok(Self {
             catalog,
             authorizer,
+            preferences: std::sync::RwLock::new(std::collections::HashMap::new()),
         })
+    }
+
+    /// The tier a tool really has: the default, or a stricter choice of the user.
+    pub fn effective_tier(&self, tool_id: &str, default_tier: &str) -> String {
+        let preferences = self.preferences.read().unwrap_or_else(|e| e.into_inner());
+        crate::permissions::effective_tier(
+            default_tier,
+            preferences.get(tool_id).map(String::as_str),
+        )
+    }
+
+    pub fn preference(&self, tool_id: &str) -> Option<String> {
+        let preferences = self.preferences.read().unwrap_or_else(|e| e.into_inner());
+        preferences.get(tool_id).cloned()
+    }
+
+    pub fn set_preference(&self, tool_id: &str, tier: Option<&str>) {
+        let mut preferences = self.preferences.write().unwrap_or_else(|e| e.into_inner());
+        match tier {
+            Some(tier) => preferences.insert(tool_id.to_string(), tier.to_string()),
+            None => preferences.remove(tool_id),
+        };
     }
 
     pub fn load_default() -> Result<Self, PolicyAssetsError> {
@@ -310,7 +335,15 @@ mod tests {
             .iter()
             .map(|action| action.id.as_str())
             .collect();
-        assert_eq!(ids, ["allow_once", "allow_for_chat_host", "deny"]);
+        assert_eq!(
+            ids,
+            [
+                "allow_once",
+                "allow_for_chat_host",
+                "always_allow_host",
+                "deny"
+            ]
+        );
         assert_eq!(
             fetch.approval.actions[1].label,
             "Allow for this chat & host"
@@ -439,16 +472,21 @@ mod tests {
     }
 
     #[test]
-    fn repository_web_search_lists_no_actions() {
+    fn repository_web_search_offers_actions_for_the_ask_preference() {
         let dir = write_assets(TOOLS, SCHEMA, POLICIES);
         let assets = PolicyAssets::load(dir.path()).unwrap();
-        assert!(assets
-            .catalog
-            .tool("nook:web_search")
-            .unwrap()
+        let search = assets.catalog.tool("nook:web_search").unwrap();
+        let ids: Vec<&str> = search
             .approval
             .actions
-            .is_empty());
+            .iter()
+            .map(|action| action.id.as_str())
+            .collect();
+        assert_eq!(search.approval.tier, "allow");
+        assert_eq!(
+            ids,
+            ["allow_once", "allow_for_chat", "always_allow", "deny"]
+        );
     }
 
     #[test]

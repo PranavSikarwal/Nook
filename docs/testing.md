@@ -72,6 +72,11 @@ the real policy files, a real provider, and the fake Worker through the whole
 approval flow. The MCP tests start `examples/fake_mcp_server.rs` inside the
 sandbox. Cargo builds that example with `cargo test`.
 
+`permissions_tests.rs` drives the permission messages through a real socket and
+checks permanent grants, revoking, and tool preferences with the real policy.
+`permissions_db_tests.rs` stores and restores them in a temporary PostgreSQL
+database and skips when PostgreSQL is not reachable.
+
 `provider_execution_tests.rs` runs the Daemon execute path with a test provider
 and the fake Worker. It covers approval, denial, grants, errors, the output
 limit, invalid arguments, the Worker and Daemon tool mix-ups, expiry, and

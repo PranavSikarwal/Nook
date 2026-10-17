@@ -12,6 +12,9 @@
     { "$ref": "#/definitions/GetSettingsRequest" },
     { "$ref": "#/definitions/SetSettingsRequest" },
     { "$ref": "#/definitions/PingRequest" },
+    { "$ref": "#/definitions/ListPermissionsRequest" },
+    { "$ref": "#/definitions/RevokeGrantRequest" },
+    { "$ref": "#/definitions/SetToolPreferenceRequest" },
     { "$ref": "#/definitions/MessageStartedEvent" },
     { "$ref": "#/definitions/TextDeltaEvent" },
     { "$ref": "#/definitions/ToolCallStartedEvent" },
@@ -25,6 +28,7 @@
     { "$ref": "#/definitions/DeletedResponse" },
     { "$ref": "#/definitions/SettingsResponse" },
     { "$ref": "#/definitions/CancelledResponse" },
+    { "$ref": "#/definitions/PermissionsResponse" },
     { "$ref": "#/definitions/PongResponse" },
     { "$ref": "#/definitions/ErrorResponse" }
   ],
@@ -273,6 +277,7 @@
             "allow_for_chat_path",
             "allow_for_chat_dir",
             "always_allow",
+            "always_allow_host",
             "deny"
           ]
         },
@@ -298,6 +303,7 @@
             "allow_for_chat_path",
             "allow_for_chat_dir",
             "always_allow",
+            "always_allow_host",
             "deny"
           ]
         }
@@ -381,6 +387,85 @@
         "target_id": { "$ref": "#/definitions/UUID" }
       },
       "required": ["type", "id", "target_id"]
+    },
+    "ListPermissionsRequest": {
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "const": "list_permissions" },
+        "id": { "$ref": "#/definitions/UUID" }
+      },
+      "required": ["type", "id"],
+      "additionalProperties": false
+    },
+    "RevokeGrantRequest": {
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "const": "revoke_grant" },
+        "id": { "$ref": "#/definitions/UUID" },
+        "grant_id": { "type": "string", "minLength": 1 }
+      },
+      "required": ["type", "id", "grant_id"],
+      "additionalProperties": false
+    },
+    "SetToolPreferenceRequest": {
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "const": "set_tool_preference" },
+        "id": { "$ref": "#/definitions/UUID" },
+        "tool_id": { "type": "string", "minLength": 1 },
+        "tier": { "type": "string", "enum": ["default", "ask", "deny"] }
+      },
+      "required": ["type", "id", "tool_id", "tier"],
+      "additionalProperties": false
+    },
+    "GrantInfo": {
+      "type": "object",
+      "properties": {
+        "grant_id": { "type": "string", "minLength": 1 },
+        "tool_id": { "type": "string", "minLength": 1 },
+        "tool_name": { "type": "string", "minLength": 1 },
+        "scope": { "type": "string", "enum": ["persistent", "persistent_host"] },
+        "description": { "type": "string", "minLength": 1 }
+      },
+      "required": ["grant_id", "tool_id", "tool_name", "scope", "description"],
+      "additionalProperties": false
+    },
+    "TierChoice": {
+      "type": "object",
+      "properties": {
+        "tier": { "type": "string", "enum": ["default", "ask", "deny"] },
+        "label": { "type": "string", "minLength": 1 },
+        "effect": { "type": "string", "minLength": 1 }
+      },
+      "required": ["tier", "label", "effect"],
+      "additionalProperties": false
+    },
+    "ToolPolicyInfo": {
+      "type": "object",
+      "properties": {
+        "tool_id": { "type": "string", "minLength": 1 },
+        "display_name": { "type": "string", "minLength": 1 },
+        "default_tier": { "type": "string" },
+        "tier": { "type": "string", "enum": ["default", "ask", "deny"] },
+        "choices": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/definitions/TierChoice" }
+        }
+      },
+      "required": ["tool_id", "display_name", "default_tier", "tier", "choices"],
+      "additionalProperties": false
+    },
+    "PermissionsResponse": {
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "const": "permissions" },
+        "id": { "$ref": "#/definitions/UUID" },
+        "grants": { "type": "array", "items": { "$ref": "#/definitions/GrantInfo" } },
+        "tools": { "type": "array", "items": { "$ref": "#/definitions/ToolPolicyInfo" } }
+      },
+      "required": ["type", "id", "grants", "tools"],
+      "additionalProperties": false
     },
     "PongResponse": {
       "type": "object",

@@ -13,6 +13,7 @@ const specsByMode = {
     'e2e/specs/file-tools.spec.mjs',
     'e2e/specs/terminal-tool.spec.mjs',
     'e2e/specs/mcp-tool.spec.mjs',
+    'e2e/specs/permissions.spec.mjs',
     'e2e/specs/history-settings.spec.mjs',
   ],
   live: ['e2e/specs/live-news.spec.mjs', 'e2e/specs/live-fetch.spec.mjs'],

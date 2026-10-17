@@ -12,7 +12,7 @@ export function ApprovalCard({ request, onDecide, disabled = false }: ApprovalCa
     if (action === 'deny') {
       return 'bg-red-500/20 hover:bg-red-500/30 text-red-300 border-red-500/30'
     }
-    if (action.includes('chat') || action === 'always_allow') {
+    if (action.includes('chat') || action.startsWith('always_allow')) {
       return 'bg-purple-600/30 hover:bg-purple-600/50 text-purple-200 border-purple-500/40'
     }
     return 'bg-white/10 hover:bg-white/20 text-zinc-200 border-white/20'

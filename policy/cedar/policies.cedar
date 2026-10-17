@@ -17,6 +17,7 @@ permit (
   resource
 ) when {
   context.grant_scope == "chat_host" ||
+  context.grant_scope == "persistent_host" ||
   context.grant_scope == "once"
 };
 
@@ -91,5 +92,7 @@ permit (
   action == Nook::Action::"mcp_call",
   resource
 ) when {
-  context.grant_scope == "once" || context.grant_scope == "chat"
+  context.grant_scope == "once" ||
+  context.grant_scope == "chat" ||
+  context.grant_scope == "persistent"
 };

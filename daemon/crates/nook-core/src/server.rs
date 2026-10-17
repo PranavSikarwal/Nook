@@ -437,7 +437,14 @@ async fn process_client_message(
                 let old_sup_to_shutdown = {
                     let cfg = state.config.read().await;
                     let key = keychain::get_api_key();
-                    match WorkerSupervisor::new(&cfg, key, None).await {
+                    match WorkerSupervisor::with_tools(
+                        &cfg,
+                        key,
+                        None,
+                        state.providers.descriptors().to_vec(),
+                    )
+                    .await
+                    {
                         Ok(new_sup) => {
                             let mut sup_guard = state.supervisor.lock().await;
                             sup_guard.replace(new_sup)
@@ -628,6 +635,24 @@ async fn process_client_message(
             handle_send_message(id, chat_id, text, attachments, state, tx_out).await;
         }
 
+        ClientMessage::ListPermissions { id } => {
+            send_permissions(&state, id, &tx_out).await;
+        }
+
+        ClientMessage::RevokeGrant { id, grant_id } => {
+            match crate::permissions::revoke_grant(&state, &grant_id).await {
+                Ok(()) => send_permissions(&state, id, &tx_out).await,
+                Err(message) => send_invalid_request(id, message, &tx_out).await,
+            }
+        }
+
+        ClientMessage::SetToolPreference { id, tool_id, tier } => {
+            match crate::permissions::set_preference(&state, &tool_id, &tier).await {
+                Ok(()) => send_permissions(&state, id, &tx_out).await,
+                Err(message) => send_invalid_request(id, message, &tx_out).await,
+            }
+        }
+
         ClientMessage::ApprovalDecision {
             id,
             chat_id,
@@ -637,6 +662,26 @@ async fn process_client_message(
             handle_approval_decision(&state, id, chat_id, call_id, action, &tx_out).await;
         }
     }
+}
+
+async fn send_permissions(state: &AppState, id: Uuid, tx_out: &mpsc::Sender<DaemonMessage>) {
+    let (grants, tools) = crate::permissions::snapshot(state).await;
+    let _ = tx_out
+        .send(DaemonMessage::Permissions { id, grants, tools })
+        .await;
+}
+
+async fn send_invalid_request(id: Uuid, message: &str, tx_out: &mpsc::Sender<DaemonMessage>) {
+    let _ = tx_out
+        .send(DaemonMessage::Error {
+            id,
+            error: ErrorInfo {
+                code: ErrorCode::InvalidRequest,
+                message: message.to_string(),
+                retryable: false,
+            },
+        })
+        .await;
 }
 
 pub fn validate_attachment(att: &Attachment) -> Result<(), String> {

@@ -1,6 +1,7 @@
 use nook_core::config::Config;
 use nook_core::protocol::{
-    Attachment, AttachmentKind, ChatMessage, ChatSummary, ClientMessage, DaemonMessage,
+    Attachment, AttachmentKind, ChatMessage, ChatSummary, ClientMessage, DaemonMessage, GrantInfo,
+    ToolPolicyInfo,
 };
 #[cfg(windows)]
 use nook_core::windows_pipe_name;
@@ -798,6 +799,75 @@ async fn set_settings<R: Runtime>(
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PermissionsPayload {
+    pub grants: Vec<GrantInfo>,
+    pub tools: Vec<ToolPolicyInfo>,
+}
+
+async fn ask_for_permissions<R: Runtime>(
+    app: &AppHandle<R>,
+    msg: ClientMessage,
+) -> Result<PermissionsPayload, String> {
+    let stream = connect_to_daemon(app).await?;
+    let (reader, mut writer) = tokio::io::split(stream);
+    let mut lines = BufReader::new(reader).lines();
+
+    let mut payload = serde_json::to_string(&msg).map_err(|e| e.to_string())?;
+    payload.push('\n');
+    writer
+        .write_all(payload.as_bytes())
+        .await
+        .map_err(|e| e.to_string())?;
+    writer.flush().await.map_err(|e| e.to_string())?;
+
+    let Some(line) = lines.next_line().await.map_err(|e| e.to_string())? else {
+        return Err("Daemon closed connection unexpectedly".to_string());
+    };
+    match serde_json::from_str::<DaemonMessage>(&line).map_err(|e| e.to_string())? {
+        DaemonMessage::Permissions { grants, tools, .. } => Ok(PermissionsPayload { grants, tools }),
+        DaemonMessage::Error { error, .. } => Err(error.message),
+        _ => Err("Unexpected response from daemon".to_string()),
+    }
+}
+
+#[tauri::command]
+async fn get_permissions<R: Runtime>(app: AppHandle<R>) -> Result<PermissionsPayload, String> {
+    ask_for_permissions(&app, ClientMessage::ListPermissions { id: Uuid::new_v4() }).await
+}
+
+#[tauri::command]
+async fn revoke_grant<R: Runtime>(
+    app: AppHandle<R>,
+    grant_id: String,
+) -> Result<PermissionsPayload, String> {
+    ask_for_permissions(
+        &app,
+        ClientMessage::RevokeGrant {
+            id: Uuid::new_v4(),
+            grant_id,
+        },
+    )
+    .await
+}
+
+#[tauri::command]
+async fn set_tool_preference<R: Runtime>(
+    app: AppHandle<R>,
+    tool_id: String,
+    tier: String,
+) -> Result<PermissionsPayload, String> {
+    ask_for_permissions(
+        &app,
+        ClientMessage::SetToolPreference {
+            id: Uuid::new_v4(),
+            tool_id,
+            tier,
+        },
+    )
+    .await
+}
+
 #[tauri::command]
 async fn set_window_size<R: Runtime>(
     app: AppHandle<R>,
@@ -895,6 +965,9 @@ pub fn run() {
             send_approval_decision,
             get_settings,
             set_settings,
+            get_permissions,
+            revoke_grant,
+            set_tool_preference,
             set_window_size,
             toggle_window,
             start_drag,

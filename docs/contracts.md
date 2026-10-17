@@ -91,6 +91,25 @@ arguments`, `Unknown tool`, `Denied by the user`, `Authorization failed`, `Appro
 `Cancelled`. It never contains error detail. The Daemon writes the detail to its
 log.
 
+## Permissions
+
+The Panel manages permanent grants and tool preferences with three requests.
+Each one gets a `permissions` reply with the full current state, or an `error`
+reply when the request is not valid.
+
+- `list_permissions` asks for the state.
+- `revoke_grant` carries `grant_id`. An unknown id gets the error `Unknown
+  grant`.
+- `set_tool_preference` carries `tool_id` and `tier` (`default`, `ask`, or
+  `deny`). A looser choice gets `That choice is not allowed for this tool`, and
+  an unavailable tool gets `Unknown tool`.
+
+`permissions` carries `grants` (`grant_id`, `tool_id`, `tool_name`, `scope`,
+`description`) and `tools` (`tool_id`, `display_name`, `default_tier`, `tier`,
+and `choices` with `tier`, `label`, and `effect`). The Daemon writes the
+sentences, so the Panel shows what will happen without its own rules. `tier` is
+`default` when no preference exists.
+
 ## Tools that the Daemon runs
 
 The Daemon runs tools that can touch the local machine. These tools reach the

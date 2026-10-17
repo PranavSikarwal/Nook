@@ -146,7 +146,10 @@ async fn a_call_asks_first_and_returns_the_server_text() {
         "Call echo on MCP server fake with {\"text\":\"hi\"}"
     );
     let ids: Vec<&str> = actions.iter().map(|a| a.id.as_str()).collect();
-    assert_eq!(ids, ["allow_once", "allow_for_chat", "deny"]);
+    assert_eq!(
+        ids,
+        ["allow_once", "allow_for_chat", "always_allow", "deny"]
+    );
 }
 
 #[tokio::test]

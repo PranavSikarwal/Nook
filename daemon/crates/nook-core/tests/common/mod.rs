@@ -56,6 +56,15 @@ impl Harness {
         providers: Vec<Arc<dyn Provider>>,
         approval_timeout: Duration,
     ) -> Self {
+        Self::build_with_pool(policy, providers, approval_timeout, None).await
+    }
+
+    pub async fn build_with_pool(
+        policy: Arc<PolicyAssets>,
+        providers: Vec<Arc<dyn Provider>>,
+        approval_timeout: Duration,
+        pool: Option<sqlx::PgPool>,
+    ) -> Self {
         let registry = ProviderRegistry::new(providers).unwrap();
         let supervisor = WorkerSupervisor::with_tools(
             &Config::default(),
@@ -68,7 +77,7 @@ impl Harness {
         let state = Arc::new(AppState {
             config: RwLock::new(Config::default()),
             config_path: PathBuf::from("/tmp/nook-unused-config.toml"),
-            pool: None,
+            pool,
             supervisor: Mutex::new(Some(supervisor)),
             preserve_worker_on_settings_update: false,
             open_requests: Mutex::new(HashMap::new()),
@@ -123,18 +132,38 @@ impl Harness {
         self.deliver(call).await
     }
 
-    async fn deliver(&self, mut call: Call) -> Call {
+    /// Starts a Worker-side tool call, as the Worker does for web tools.
+    pub async fn authorize(&self, chat_id: Uuid, call_id: &str, tool: &str, args: &str) -> Call {
+        let call = self
+            .run_text(chat_id, &format!("authorize:{call_id}|{tool}|{args}"))
+            .await;
+        self.deliver_with(call, false).await
+    }
+
+    async fn deliver(&self, call: Call) -> Call {
+        self.deliver_with(call, true).await
+    }
+
+    async fn deliver_with(&self, mut call: Call, execute: bool) -> Call {
         let event = recv(&mut call.worker_rx).await;
-        let DaemonWorkerEvent::ExecuteTool {
-            message_id,
-            call_id,
-            chat_id,
-            tool_name,
-            arguments,
-            ..
-        } = event
-        else {
-            panic!("Expected ExecuteTool, got {event:?}");
+        let (message_id, call_id, chat_id, tool_name, arguments) = match event {
+            DaemonWorkerEvent::ExecuteTool {
+                message_id,
+                call_id,
+                chat_id,
+                tool_name,
+                arguments,
+                ..
+            }
+            | DaemonWorkerEvent::AuthorizeTool {
+                message_id,
+                call_id,
+                chat_id,
+                tool_name,
+                arguments,
+                ..
+            } => (message_id, call_id, chat_id, tool_name, arguments),
+            other => panic!("Expected a tool event, got {other:?}"),
         };
         handle_authorize_tool(
             &self.state,
@@ -149,7 +178,7 @@ impl Harness {
                 chat_id,
                 tool_name,
                 arguments,
-                execute: true,
+                execute,
             },
             &self.panel_tx,
         )
@@ -248,4 +277,13 @@ pub async fn assert_worker_silent(call: &mut Call) {
             .is_err(),
         "Worker received a message"
     );
+}
+
+/// The decision the Worker gets for a call it asked to authorize.
+pub async fn authorization_result(call: &mut Call) -> (String, Option<String>) {
+    let value = text_from_worker(call, "Result: ").await;
+    (
+        value["decision"].as_str().unwrap().to_string(),
+        value["reason"].as_str().map(str::to_string),
+    )
 }

@@ -40,6 +40,31 @@ pub struct ApprovalAction {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GrantInfo {
+    pub grant_id: String,
+    pub tool_id: String,
+    pub tool_name: String,
+    pub scope: String,
+    pub description: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TierChoice {
+    pub tier: String,
+    pub label: String,
+    pub effect: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ToolPolicyInfo {
+    pub tool_id: String,
+    pub display_name: String,
+    pub default_tier: String,
+    pub tier: String,
+    pub choices: Vec<TierChoice>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ErrorInfo {
     pub code: ErrorCode,
     pub message: String,
@@ -132,6 +157,18 @@ pub enum ClientMessage {
         call_id: String,
         action: String,
     },
+    ListPermissions {
+        id: Uuid,
+    },
+    RevokeGrant {
+        id: Uuid,
+        grant_id: String,
+    },
+    SetToolPreference {
+        id: Uuid,
+        tool_id: String,
+        tier: String,
+    },
 }
 
 /// Replies and events sent from the Daemon to the Panel or `nookctl`.
@@ -208,6 +245,11 @@ pub enum DaemonMessage {
     Cancelled {
         id: Uuid,
         target_id: Uuid,
+    },
+    Permissions {
+        id: Uuid,
+        grants: Vec<GrantInfo>,
+        tools: Vec<ToolPolicyInfo>,
     },
     Pong {
         id: Uuid,

@@ -320,7 +320,7 @@ pub async fn handle_authorize_tool(
         };
         return deliver_logged(state, &delivery, deny(reason)).await;
     }
-    let request = match AuthorizationRequest::normalize_with(
+    let mut request = match AuthorizationRequest::normalize_with(
         &state.policy.catalog,
         Some(&state.providers),
         ctx.chat_id,
@@ -335,6 +335,10 @@ pub async fn handle_authorize_tool(
             return deliver_logged(state, &delivery, verdict).await;
         }
     };
+
+    request.approval_tier = state
+        .policy
+        .effective_tier(&request.tool_name, &request.approval_tier);
 
     match state.policy.authorizer.authorize_tool(&request).await {
         Ok(true) => {
@@ -449,6 +453,24 @@ async fn send_error(
         .await;
 }
 
+async fn store_persistent_grant(state: &AppState, entry: &PendingApprovalEntry, action: &str) {
+    let Some(Some(scope)) = approval_action_scope(action) else {
+        return;
+    };
+    if !crate::policy::is_persistent_scope(scope) {
+        return;
+    }
+    let (Some(grant), Some(pool)) = (ScopedGrant::for_request(&entry.request, scope), &state.pool)
+    else {
+        return;
+    };
+    if let Err(error) =
+        crate::db::save_persistent_grant(pool, &crate::permissions::stored_grant(&grant)).await
+    {
+        warn!("Failed to store a persistent grant: {error}");
+    }
+}
+
 pub async fn handle_approval_decision(
     state: &Arc<AppState>,
     id: Uuid,
@@ -467,6 +489,9 @@ pub async fn handle_approval_decision(
     };
 
     let verdict = resolve_decision(state, &entry, &action).await;
+    if verdict.0 == AuthorizationDecision::Allow {
+        store_persistent_grant(state, &entry, &action).await;
+    }
     let delivery = delivery_for(&call_id, &entry);
     match deliver(state, &delivery, verdict).await {
         Ok(()) => {

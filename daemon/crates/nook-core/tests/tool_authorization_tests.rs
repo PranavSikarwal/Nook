@@ -385,7 +385,15 @@ async fn fetch_asks_the_panel_with_daemon_built_fields() {
             let catalog_actions = &h.state.policy.catalog.tool(FETCH).unwrap().approval.actions;
             assert_eq!(&actions, catalog_actions);
             let ids: Vec<&str> = actions.iter().map(|action| action.id.as_str()).collect();
-            assert_eq!(ids, ["allow_once", "allow_for_chat_host", "deny"]);
+            assert_eq!(
+                ids,
+                [
+                    "allow_once",
+                    "allow_for_chat_host",
+                    "always_allow_host",
+                    "deny"
+                ]
+            );
         }
         other => panic!("Expected ApprovalRequested, got {other:?}"),
     }
@@ -519,20 +527,7 @@ async fn host_grant_covers_the_host_in_that_chat_only() {
 }
 
 fn ask_for_search(yaml: String) -> String {
-    let actions = concat!(
-        "tier: ask_once_per_host\n",
-        "      actions:\n",
-        "        - id: allow_once\n",
-        "          label: \"Allow once\"\n",
-        "          description: \"Allow this exact request one time.\"\n",
-        "        - id: allow_for_chat\n",
-        "          label: \"Allow for this chat\"\n",
-        "          description: \"Allow this tool for the rest of this chat.\"\n",
-        "        - id: always_allow\n",
-        "          label: \"Always allow\"\n",
-        "          description: \"Allow this tool in every chat until you remove the grant.\"\n",
-    );
-    yaml.replacen("tier: allow\n", actions, 1)
+    yaml.replacen("tier: allow\n", "tier: ask\n", 1)
 }
 
 #[tokio::test]

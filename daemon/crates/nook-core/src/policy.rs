@@ -46,6 +46,10 @@ pub fn cedar_action_name(tool_name: &str) -> &str {
 }
 
 /// The name a grant is stored under. MCP grants name the exact tool.
+pub fn is_persistent_scope(scope: &str) -> bool {
+    scope.starts_with("persistent")
+}
+
 pub fn grant_key(tool_name: &str) -> &str {
     if tool_name.starts_with(MCP_PREFIX) {
         return tool_name;
@@ -61,20 +65,36 @@ impl ScopedGrant {
     pub fn for_request(request: &AuthorizationRequest, scope: &str) -> Option<Self> {
         let (host, path, argument_digest) = match scope {
             "chat" | "persistent" => (None, None, None),
-            "chat_host" => (Some(request.target_host.clone()?), None, None),
+            "chat_host" | "persistent_host" => (Some(request.target_host.clone()?), None, None),
             "chat_path" => (None, Some(request.target_path.clone()?), None),
             "chat_dir" => (None, Some(request.target_dir.clone()?), None),
             "once" => (None, None, Some(request.argument_digest.clone())),
             _ => return None,
         };
         Some(Self {
-            chat_id: request.chat_id,
+            chat_id: if is_persistent_scope(scope) {
+                Uuid::nil()
+            } else {
+                request.chat_id
+            },
             tool_name: grant_key(&request.tool_name).to_string(),
             scope: scope.to_string(),
             host,
             path,
             argument_digest,
         })
+    }
+
+    /// A stable id for a grant, so the Panel can name it and the database can store it.
+    pub fn id(&self) -> String {
+        use sha2::{Digest, Sha256};
+        let key = format!(
+            "{}\0{}\0{}",
+            self.tool_name,
+            self.scope,
+            self.host.as_deref().unwrap_or_default()
+        );
+        format!("{:x}", Sha256::digest(key.as_bytes()))[..32].to_string()
     }
 
     pub fn matches(
@@ -90,6 +110,7 @@ impl ScopedGrant {
         }
         match self.scope.as_str() {
             "persistent" => true,
+            "persistent_host" => host.is_some() && self.host.as_deref() == host,
             "chat" => self.chat_id == chat_id,
             "chat_host" => {
                 self.chat_id == chat_id && host.is_some() && self.host.as_deref() == host
@@ -134,9 +155,20 @@ impl GrantStore {
         self.grants.remove(grant)
     }
 
+    pub fn persistent_grants(&self) -> Vec<ScopedGrant> {
+        let mut grants: Vec<ScopedGrant> = self
+            .grants
+            .iter()
+            .filter(|grant| is_persistent_scope(&grant.scope))
+            .cloned()
+            .collect();
+        grants.sort_by_key(ScopedGrant::id);
+        grants
+    }
+
     pub fn remove_chat(&mut self, chat_id: Uuid) {
         self.grants
-            .retain(|g| g.chat_id != chat_id || g.scope == "persistent");
+            .retain(|g| g.chat_id != chat_id || is_persistent_scope(&g.scope));
     }
 
     pub fn matching_scopes(
@@ -154,7 +186,7 @@ impl GrantStore {
             .map(|g| g.scope.clone())
             .collect();
         scopes.sort_by_key(|scope| match scope.as_str() {
-            "chat_host" | "chat_path" => 0,
+            "chat_host" | "chat_path" | "persistent_host" => 0,
             "chat_dir" | "chat" => 1,
             "persistent" => 2,
             _ => 3,
