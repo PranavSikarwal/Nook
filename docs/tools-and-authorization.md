@@ -159,60 +159,12 @@ and the approval shows the full command line. Cedar forbids `sudo`, `su`,
 
 ## MCP servers
 
-The Daemon can use tools of MCP servers that you name in `config.toml`. It does
-not search for servers or install them.
-
-```toml
-[[tools.mcp_servers]]
-name = "files"
-command = "/opt/tools/files-server"
-args = ["--stdio"]
-env = { API_TOKEN = "value" }
-network = false
-read_paths = ["/opt/tools"]
-write_paths = ["/Users/me/.cache/files-server"]
-timeout_seconds = 60
-```
-
-The Daemon starts each server inside the command sandbox and speaks MCP over
-standard input and output (`initialize`, `tools/list`, `tools/call`, protocol
-versions 2024-11-05, 2025-03-26, and 2025-06-18). The server gets a private
-home folder, the fixed environment of the command tool plus the `env` entries,
-read access to `read_paths`, write access to `write_paths`, and the network
-only if `network` is true. It does not see your folders or the Daemon's
-environment.
-
-The Daemon starts all servers at once and waits 10 seconds for `initialize` and
-10 seconds for `tools/list`. A server that fails is off, and the Daemon logs
-why. A call that reaches a stopped server returns `Error: the MCP server stopped`.
-The Daemon never repeats that call, because the server may have acted on it
-before it stopped. The next call starts the server again. The Daemon waits at
-least 5 seconds between two starts of one server, so a server that crashes at
-once stays stopped until that time has passed.
-
-A tool is offered only if all of this holds:
-
-- The server name uses letters, digits, `_`, or `-`, up to 32 characters, and
-  no other server uses it.
-- The tool name has no `:` and fits the model name rules after cleaning.
-  The model sees `mcp__<server>__<tool>`, with other characters changed to `_`.
-- The input schema is a valid JSON Schema of type `object`.
-- The cleaned name does not collide with another tool.
-- The server lists at most 64 tools. The Daemon ignores the rest.
-
-A tool without a description gets its name. Every description ends with the
-server name, so the model and the approval can tell where the tool comes from.
-
-The Daemon checks the arguments against the server's schema before it asks
-Cedar. Cedar action `mcp_call` has the context values `server` and `tool`. The
-shared `mcp:*` entry in `tools.yaml` offers `allow_once` and `allow_for_chat`.
-A chat grant covers one tool of one server in one chat. The approval shows the
-server, the tool, and the first 300 characters of the arguments.
-
-An MCP result becomes text. Text parts pass through. An image, audio, or binary
-resource becomes a short marker, and a resource link shows its address. A result
-with only structured content becomes its JSON. `isError` returns an error
-status. The server description and results are untrusted text, as web pages are.
+The Daemon can use the tools of MCP servers that you name in `config.toml`. It
+runs each server in the command sandbox. Every call goes through Cedar and asks
+first, unless you hold a grant for that tool. The `mcp_call` action has the
+context values `server` and `tool`, and the shared `mcp:*` entry in `tools.yaml`
+offers `allow_once`, `allow_for_chat`, and `always_allow`. See `mcp-servers.md`
+for the settings, the sandbox rules, the limits, and what cannot work.
 
 ## Permanent grants and tool preferences
 

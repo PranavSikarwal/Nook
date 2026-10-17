@@ -4,7 +4,7 @@ Nook is a cross-platform desktop overlay app. It has a Tauri Panel, a Rust Daemo
 
 ## Where things are
 
-- `docs/architecture.md`, `docs/contracts.md`, `docs/tools-and-authorization.md`, `docs/release.md`, and `docs/testing.md` describe current behavior.
+- `docs/architecture.md`, `docs/contracts.md`, `docs/tools-and-authorization.md`, `docs/mcp-servers.md`, `docs/release.md`, and `docs/testing.md` describe current behavior.
 - `docs/plan.md` holds the active work, and `CHECKLIST.md` tracks it.
 - `docs/plans/` holds active implementation plans. `docs/archive/plans/` holds completed plans.
 - `docs/design/` holds proposed designs that wait for approval.
