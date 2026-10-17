@@ -29,6 +29,7 @@ import time
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import cast
 
 FETCH_URL = "https://package-check.invalid/page"
 FINAL_TEXT = "PACKAGE-CHECK-DONE"
@@ -53,17 +54,16 @@ class FakeModel(ThreadingHTTPServer):
 
 
 class FakeModelHandler(BaseHTTPRequestHandler):
-    server: FakeModel
-
-    def log_message(self, *_args) -> None:
+    def log_message(self, *_args: object, **_kwargs: object) -> None:
         # The default handler prints one line per request to standard error.
         return None
 
     def do_POST(self) -> None:
         length = int(self.headers.get("content-length", "0"))
         body = json.loads(self.rfile.read(length) or b"{}")
-        with self.server.lock:
-            self.server.requests.append(body)
+        model = cast(FakeModel, self.server)
+        with model.lock:
+            model.requests.append(body)
         wants_tool = bool(body.get("tools")) and not any(
             message.get("role") == "tool" for message in body.get("messages", [])
         )
