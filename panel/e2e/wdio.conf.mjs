@@ -18,7 +18,9 @@ const specsByMode = {
     'e2e/specs/links.spec.mjs',
     'e2e/specs/tools.spec.mjs',
   ],
-  live: ['e2e/specs/live-news.spec.mjs', 'e2e/specs/live-fetch.spec.mjs'],
+  live: process.env.NOOK_E2E_LIVE_TOOLS === '1'
+    ? ['e2e/specs/live-tools.spec.mjs']
+    : ['e2e/specs/live-news.spec.mjs', 'e2e/specs/live-fetch.spec.mjs'],
 }
 const specs = specsByMode[process.env.NOOK_E2E_MODE]
 const appArgs = [

@@ -62,6 +62,22 @@ impl RootSet {
         &self.entries
     }
 
+    /// One sentence for a tool description, so the model knows which paths to use.
+    pub fn describe(&self) -> String {
+        let folders: Vec<String> = self
+            .entries
+            .iter()
+            .map(|entry| {
+                let access = match entry.access {
+                    RootAccess::Read => "read only",
+                    RootAccess::ReadWrite => "read and write",
+                };
+                format!("{} ({access})", entry.configured.display())
+            })
+            .collect();
+        format!("Allowed folders: {}.", folders.join("; "))
+    }
+
     pub fn has_write_access(&self) -> bool {
         self.entries
             .iter()

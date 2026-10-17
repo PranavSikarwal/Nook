@@ -125,17 +125,24 @@ fn io_error(error: &std::io::Error) -> String {
 #[async_trait]
 impl Provider for FilesystemProvider {
     fn descriptors(&self) -> Vec<ToolDescriptor> {
+        let allowed = self.roots.describe();
         let mut tools = vec![
             Self::descriptor(
                 READ_FILE,
                 "read_local_file",
-                "Read a UTF-8 text file from the user's computer. The path must be inside a folder the user allowed.",
+                &format!(
+                    "Read a UTF-8 text file from the user's computer. The path must be inside a folder the user allowed. {}",
+                    allowed
+                ),
                 path_schema(),
             ),
             Self::descriptor(
                 LIST_DIRECTORY,
                 "list_local_directory",
-                "List the entries of a folder on the user's computer. The path must be inside a folder the user allowed.",
+                &format!(
+                    "List the entries of a folder on the user's computer. The path must be inside a folder the user allowed. {}",
+                    allowed
+                ),
                 path_schema(),
             ),
         ];
@@ -143,7 +150,10 @@ impl Provider for FilesystemProvider {
             tools.push(Self::descriptor(
                 WRITE_FILE,
                 "write_local_file",
-                "Write a UTF-8 text file on the user's computer. The path must be inside a folder the user allowed to change. An existing file is replaced only when overwrite is true.",
+                &format!(
+                    "Write a UTF-8 text file on the user's computer. The path must be inside a folder the user allowed to change. An existing file is replaced only when overwrite is true. {}",
+                    allowed
+                ),
                 json!({
                     "type": "object",
                     "properties": {

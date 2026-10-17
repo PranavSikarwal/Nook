@@ -14,6 +14,7 @@ const daemonDir = path.join(repoDir, 'daemon')
 const mode = process.argv[2]
 const isLive = mode === 'live'
 const isDeterministic = mode === 'deterministic'
+const withLiveTools = isLive && process.env.NOOK_E2E_LIVE_TOOLS === '1'
 const runId = randomUUID().replaceAll('-', '').slice(0, 16)
 const databaseName = `nook_e2e_${runId}`
 const marker = `nook-e2e-owner-${runId}`
@@ -258,8 +259,8 @@ async function main() {
     const model = isLive ? required('NOOK_MODEL') : 'nook-e2e-no-network'
     const filesDir = path.join(tempRoot, 'files')
     const mcpExample = path.join(daemonDir, 'target', 'debug', 'examples', 'fake_mcp_server')
+    if (isDeterministic || withLiveTools) await mkdir(filesDir)
     if (isDeterministic) {
-      await mkdir(filesDir)
       await writeFile(path.join(filesDir, 'notes.txt'), 'e2e notes')
       await writeFile(path.join(filesDir, 'more.txt'), 'more notes')
     }
@@ -270,7 +271,7 @@ async function main() {
       'max_input_tokens = 1000000',
       'summarize_at_tokens = 750000',
       '',
-      ...(isDeterministic
+      ...(isDeterministic || withLiveTools
         ? [
             '[tools.filesystem]',
             `roots = [{ path = ${JSON.stringify(filesDir)}, access = "read_write" }]`,
@@ -278,6 +279,10 @@ async function main() {
             '[tools.terminal]',
             'enabled = true',
             '',
+          ]
+        : []),
+      ...(isDeterministic
+        ? [
             '[[tools.mcp_servers]]',
             'name = "e2e"',
             `command = ${JSON.stringify(mcpExample)}`,

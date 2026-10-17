@@ -125,6 +125,13 @@ The live native test calls your model endpoint. It reads `NOOK_BASE_URL`,
 printing them, then run `rtk npm run test:e2e:live`. It covers a news query and
 the fetch flow: deny, allow once, a chat and host grant, and cancel.
 
+`rtk npm run test:e2e:live-tools` runs the live file and command scenarios with
+your model. The test config lists one writable folder in a temporary directory.
+The prompts name no path, so the model must take the path from the tool
+descriptions. The scenarios create a file, replace it, try a write outside the
+folder, and run `ls`. Set `NOOK_MODEL` to the model you use, because a model
+that finds the path on its own does not show the fault.
+
 `scripts/package-approval-check.py` runs the staged release Daemon, the staged
 Worker (the PyInstaller build), and the staged policy through two tool calls. It
 plays the Panel and a fake model endpoint. The fake model asks for `web_fetch`

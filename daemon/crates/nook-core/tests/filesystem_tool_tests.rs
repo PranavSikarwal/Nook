@@ -97,6 +97,32 @@ async fn the_catalog_lists_the_file_tools() {
 }
 
 #[tokio::test]
+async fn every_file_tool_names_the_allowed_folders_and_their_access() {
+    let area = Area::new();
+    let provider = FilesystemProvider::from_config(&area.config()).unwrap();
+    let registry = nook_core::providers::ProviderRegistry::new(vec![Arc::new(provider)]).unwrap();
+
+    for descriptor in registry.descriptors() {
+        assert!(
+            descriptor
+                .description
+                .contains(&format!("{} (read and write)", area.path("rw"))),
+            "{}: {}",
+            descriptor.name,
+            descriptor.description
+        );
+        assert!(
+            descriptor
+                .description
+                .contains(&format!("{} (read only)", area.path("ro"))),
+            "{}: {}",
+            descriptor.name,
+            descriptor.description
+        );
+    }
+}
+
+#[tokio::test]
 async fn a_read_only_setup_offers_no_write_tool() {
     let area = Area::new();
     let mut config = area.config();

@@ -120,6 +120,10 @@ A path outside the roots, a path with `..`, and a write to a read-only root are
 refused before any prompt, with a fixed reason such as `Path is outside the
 allowed folders`.
 
+Each file tool, and the command tool, lists the allowed folders and their access
+in its description. The model has no other way to learn the path, so a prompt
+such as "write a file in my files folder" works without a path.
+
 ## Command tool
 
 `run_command` runs one command in the sandbox. It exists only when the terminal

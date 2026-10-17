@@ -169,9 +169,10 @@ impl Provider for TerminalProvider {
             id: RUN_COMMAND.to_string(),
             name: "run_command".to_string(),
             description: format!(
-                "Run one command on the user's computer inside a sandbox. Give the program and its arguments as a list. No shell runs unless you start one yourself. The command sees only the folder it runs in{}. The default time limit is {} seconds.",
+                "Run one command on the user's computer inside a sandbox. Give the program and its arguments as a list. No shell runs unless you start one yourself. The command sees only the folder it runs in{}. The default time limit is {} seconds. {}",
                 if self.network { ", and it can use the network" } else { ", and it cannot use the network" },
                 self.default_timeout,
+                self.roots.describe(),
             ),
             input_schema: json!({
                 "type": "object",
