@@ -12,7 +12,7 @@ The active task definitions and acceptance conditions are in `docs/plan.md` and
 - [x] TP3. Move grants and Cedar decisions to the Daemon.
 - [x] TP4. Make approval actions policy-driven.
 - [x] TP5. Complete tool lifecycle events and cancellation.
-- [ ] TP6. Verify the complete web-tool path.
+- [x] TP6. Verify the complete web-tool path. The package workflow run 39016561692 ran the staged Daemon, the staged Worker, and the staged policy through an allowed and a denied tool call on macOS and Ubuntu. Windows has the file and policy check only.
 
 ### Extend the tool platform
 

@@ -35,16 +35,16 @@ Recorded on October 17, 2026.
    result: a Notes MCP server cannot run in the macOS sandbox, because macOS
    refuses Apple events from sandboxed processes. The owner must pick a route.
 
-5. **TP6 packaged-app test.** No test drives the packaged release app through an
-   approval, and wdio cannot drive a release build. Risk: a packaging fault in
-   the approval path would show only in a manual check. The checklist item stays
-   open until a test or a manual run closes it.
+5. **TP6 on Windows.** Closed for macOS and Ubuntu on October 17, 2026 (package
+   workflow run 39016561692). The approval check uses a Unix socket, so Windows
+   keeps the file and policy check only. Risk: a fault in the approval path that
+   only the Windows build shows would reach a release.
 6. **Live checks.** The live native test passed on October 17, 2026 for the
    news query and the web fetch flow, on the development build at `43d2cdb`. The
    installed `v0.1.4` app and the Stage 2 tools (file, terminal, MCP, news,
    video, book) were not run against the live model. Risk: a fault that only the live model shows stays
-   hidden. The Hugging Face hang is undiagnosed. The 30 second fetch deadline is
-   the likely fix.
+   hidden. The Hugging Face hang does not reproduce on the current code: the
+   fetch takes about 1 second. The installed `v0.1.4` app has older code.
 7. **News, video and book search.** They were checked with mocks, and news and
    video also with a live call on October 17, 2026. DuckDuckGo throttled them
    earlier. Risk: results can be empty when DuckDuckGo throttles.

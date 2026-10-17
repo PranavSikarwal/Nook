@@ -328,8 +328,9 @@ and forwards the final `message_finished`.
 
 ## Work still open
 
-The plan in `plans/tool-platform-closeout-and-next-phase.md` blocks new
-privileged tools until TP6 passes.
+`plans/tool-platform-open-gaps.md` lists what is open, with the risk and the
+decision for each item. TP6 passed on macOS and Ubuntu, so the gate in
+`plans/tool-platform-closeout-and-next-phase.md` is open.
 
 ## Deferred platform work
 
