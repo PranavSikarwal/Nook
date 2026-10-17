@@ -61,6 +61,19 @@ This changes less of the current message flow. It leaves authorization and
 execution in two processes, and the Python Worker would hold the power to skip
 the sandbox.
 
+### A newer Apple mechanism on macOS
+
+Checked on October 17, 2026. Apple has published no replacement for
+`sandbox-exec` that confines a single macOS process. App Sandbox needs a signed
+app with entitlements and covers the whole app, not one child. Endpoint
+Security and System Extensions observe processes and do not confine them. The
+Containerization framework and the `container` tool run Linux in a virtual
+machine, so a command would see Linux and not the user's macOS tools. Apple
+issue [containerization#737](https://github.com/apple/containerization/issues/737),
+opened May 12, 2026, asks for a replacement and a "lite" mode. It is still open
+with no Apple answer. The `Backend` enum in `sandbox.rs` is the place for a
+successor when one exists.
+
 ### Landlock alone on Linux
 
 Landlock restricts file access from inside the process and needs no helper
@@ -75,7 +88,9 @@ namespace on older kernels.
 - The Daemon owns timeouts, output limits, and cancellation for these tools.
 - Seatbelt is deprecated by Apple, but current browsers and coding agents still
   rely on it. If Apple removes it, macOS terminal and MCP tools stop until a
-  replacement exists. This ADR then needs a successor.
+  replacement exists. This ADR then needs a successor. The Daemon checks the
+  sandbox at every start and turns the tools off when the check fails, so a
+  removal shows up as missing tools and not as an unsandboxed run.
 - Bubblewrap must be installed on Linux. The Daemon reports when it is missing.
 - Tests must prove each boundary on macOS and Linux: reads outside the roots,
   writes outside the roots, network access, environment leaks, timeout, and
