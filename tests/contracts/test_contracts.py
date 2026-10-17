@@ -253,7 +253,11 @@ def test_daemon_worker_all_types_covered() -> None:
                 }
             ],
         },
-        {"type": "list_tool_sources", "id": "11111111-1111-1111-1111-111111111111", "extra": 1},
+        {
+            "type": "list_tool_sources",
+            "id": "11111111-1111-1111-1111-111111111111",
+            "extra": 1,
+        },
         {
             "type": "permissions",
             "id": "11111111-1111-1111-1111-111111111111",
