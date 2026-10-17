@@ -110,15 +110,27 @@ async function stopTestDaemons(appDir) {
   } catch {
     return
   }
-  for (const pid of pids) {
-    const { stdout } = await execFileAsync('ps', ['-o', 'comm=', '-p', String(pid)]).catch(() => ({ stdout: '' }))
-    if (!DAEMON_NAMES.has(path.basename(stdout.trim()))) continue
-    process.kill(pid, 'SIGTERM')
-    for (let waited = 0; isRunning(pid) && waited < 5000; waited += 100) {
-      await new Promise((resolve) => setTimeout(resolve, 100))
-    }
-    if (isRunning(pid)) process.kill(pid, 'SIGKILL')
-  }
+  await Promise.all(pids.map(stopDaemonProcess))
+}
+
+async function stopDaemonProcess(pid) {
+  const { stdout } = await execFileAsync('ps', ['-o', 'comm=', '-p', String(pid)]).catch(() => ({ stdout: '' }))
+  if (!DAEMON_NAMES.has(path.basename(stdout.trim()))) return
+  process.kill(pid, 'SIGTERM')
+  await waitForExit(pid, 5000)
+  if (isRunning(pid)) process.kill(pid, 'SIGKILL')
+}
+
+function waitForExit(pid, timeoutMs) {
+  return new Promise((resolve) => {
+    const deadline = Date.now() + timeoutMs
+    const timer = setInterval(() => {
+      if (!isRunning(pid) || Date.now() >= deadline) {
+        clearInterval(timer)
+        resolve()
+      }
+    }, 100)
+  })
 }
 
 async function createOwnedDatabase(adminUrl) {
@@ -204,7 +216,7 @@ async function ensurePortAvailable() {
   return port
 }
 
-async function main() {
+function checkRunSettings() {
   if (!['smoke', 'deterministic', 'live'].includes(mode)) {
     throw new Error('Usage: npm run test:e2e:smoke, test:e2e:deterministic, or test:e2e:live')
   }
@@ -227,7 +239,11 @@ async function main() {
   if (path.resolve(panelDir) === defaultAppDir || path.resolve(panelDir).startsWith(defaultAppDir + path.sep)) {
     throw new Error('The E2E runner cannot run from inside Nook\'s default app-data directory.')
   }
+  return adminUrl
+}
 
+async function main() {
+  const adminUrl = checkRunSettings()
   await acquireRunLock()
   try {
     const port = await ensurePortAvailable()

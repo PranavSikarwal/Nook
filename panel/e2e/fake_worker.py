@@ -176,6 +176,84 @@ async def run_tool_prompt(
     await finish_request(request_id, message_id)
 
 
+def mcp_arguments(raw: str) -> dict[str, Any]:
+    if raw.startswith("{"):
+        return json.loads(raw)
+    return {"text": raw} if raw else {}
+
+
+def prompt_approval(request_id: str, chat_id: str, message_id: str, rest: str):
+    url = rest.strip()
+    return run_tool_prompt(
+        request_id, chat_id, message_id, "nook:web_fetch", {"url": url}, url
+    )
+
+
+def prompt_search(request_id: str, chat_id: str, message_id: str, rest: str):
+    query = rest.strip()
+    return run_tool_prompt(
+        request_id, chat_id, message_id, "nook:web_search", {"query": query}, query
+    )
+
+
+def prompt_file_read(request_id: str, chat_id: str, message_id: str, rest: str):
+    return run_execute_prompt(
+        request_id, chat_id, message_id, "nook:read_local_file", {"path": rest.strip()}
+    )
+
+
+def prompt_file_list(request_id: str, chat_id: str, message_id: str, rest: str):
+    return run_execute_prompt(
+        request_id,
+        chat_id,
+        message_id,
+        "nook:list_local_directory",
+        {"path": rest.strip()},
+    )
+
+
+def prompt_file_write(request_id: str, chat_id: str, message_id: str, rest: str):
+    path, _, content = rest.partition("|")
+    return run_execute_prompt(
+        request_id,
+        chat_id,
+        message_id,
+        "nook:write_local_file",
+        {"path": path.strip(), "content": content, "overwrite": False},
+    )
+
+
+def prompt_command(request_id: str, chat_id: str, message_id: str, rest: str):
+    return run_execute_prompt(
+        request_id, chat_id, message_id, "nook:run_command", {"argv": rest.split()}
+    )
+
+
+def prompt_mcp(request_id: str, chat_id: str, message_id: str, rest: str):
+    tool, _, raw = rest.partition("|")
+    return run_execute_prompt(
+        request_id, chat_id, message_id, f"mcp:e2e:{tool.strip()}", mcp_arguments(raw)
+    )
+
+
+PROMPTS = {
+    "E2E_APPROVAL:": prompt_approval,
+    "E2E_FILE_READ:": prompt_file_read,
+    "E2E_MCP:": prompt_mcp,
+    "E2E_COMMAND:": prompt_command,
+    "E2E_FILE_LIST:": prompt_file_list,
+    "E2E_FILE_WRITE:": prompt_file_write,
+    "E2E_SEARCH:": prompt_search,
+}
+
+
+def prompt_for(text: str, request_id: str, chat_id: str, message_id: str):
+    for prefix, build in PROMPTS.items():
+        if text.startswith(prefix):
+            return build(request_id, chat_id, message_id, text.removeprefix(prefix))
+    return None
+
+
 async def run_message(request: dict[str, Any]) -> None:
     request_id = str(request["request_id"])
     chat_id = str(request["chat_id"])
@@ -198,81 +276,14 @@ async def run_message(request: dict[str, Any]) -> None:
         if text.startswith("E2E_ERROR:"):
             await emit_error(request_id, text)
             return
-        if text.startswith("E2E_APPROVAL:"):
-            url = text.removeprefix("E2E_APPROVAL:").strip()
-            await run_tool_prompt(
-                request_id, chat_id, message_id, "nook:web_fetch", {"url": url}, url
-            )
-            return
-        if text.startswith("E2E_FILE_READ:"):
-            path = text.removeprefix("E2E_FILE_READ:").strip()
-            await run_execute_prompt(
-                request_id,
-                chat_id,
-                message_id,
-                "nook:read_local_file",
-                {"path": path},
-            )
-            return
-        if text.startswith("E2E_MCP:"):
-            tool, _, raw = text.removeprefix("E2E_MCP:").partition("|")
-            await run_execute_prompt(
-                request_id,
-                chat_id,
-                message_id,
-                f"mcp:e2e:{tool.strip()}",
-                json.loads(raw)
-                if raw.startswith("{")
-                else ({"text": raw} if raw else {}),
-            )
-            return
-        if text.startswith("E2E_COMMAND:"):
-            argv = text.removeprefix("E2E_COMMAND:").split()
-            await run_execute_prompt(
-                request_id,
-                chat_id,
-                message_id,
-                "nook:run_command",
-                {"argv": argv},
-            )
-            return
-        if text.startswith("E2E_FILE_LIST:"):
-            path = text.removeprefix("E2E_FILE_LIST:").strip()
-            await run_execute_prompt(
-                request_id,
-                chat_id,
-                message_id,
-                "nook:list_local_directory",
-                {"path": path},
-            )
-            return
-        if text.startswith("E2E_FILE_WRITE:"):
-            path, _, content = text.removeprefix("E2E_FILE_WRITE:").partition("|")
-            await run_execute_prompt(
-                request_id,
-                chat_id,
-                message_id,
-                "nook:write_local_file",
-                {"path": path.strip(), "content": content, "overwrite": False},
-            )
-            return
-        if text.startswith("E2E_SEARCH:"):
-            query = text.removeprefix("E2E_SEARCH:").strip()
-            await run_tool_prompt(
-                request_id,
-                chat_id,
-                message_id,
-                "nook:web_search",
-                {"query": query},
-                query,
-            )
+        prompt = prompt_for(text, request_id, chat_id, message_id)
+        if prompt is not None:
+            await prompt
             return
 
-        reply = (
-            text.removeprefix("E2E_REPLY:").strip()
-            if text.startswith("E2E_REPLY:")
-            else "E2E deterministic reply"
-        )
+        reply = "E2E deterministic reply"
+        if text.startswith("E2E_REPLY:"):
+            reply = text.removeprefix("E2E_REPLY:").strip()
         await emit_text(request_id, message_id, reply)
         await finish_request(request_id, message_id)
     except asyncio.CancelledError:

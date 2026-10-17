@@ -212,10 +212,10 @@ class AuthorizationManager:
         return request_id in self._denied
 
     def cancel_for_request(self, request_id: UUID) -> None:
-        for (waiting_request_id, _), future in list(self._waiting.items()):
+        for (waiting_request_id, _), future in self._waiting.items():
             if waiting_request_id == request_id and not future.done():
                 future.cancel()
-        for (waiting_request_id, _), result in list(self._waiting_results.items()):
+        for (waiting_request_id, _), result in self._waiting_results.items():
             if waiting_request_id == request_id and not result.done():
                 result.cancel()
 

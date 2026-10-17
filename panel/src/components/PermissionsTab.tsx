@@ -43,7 +43,7 @@ export function PermissionsTab() {
 
       <section>
         <h3 className="text-zinc-300 font-semibold text-[11px] mb-1.5">Always allowed</h3>
-        {permissions && permissions.grants.length === 0 && (
+        {permissions?.grants.length === 0 && (
           <div className="text-[11px] text-zinc-500">No permanent permissions yet.</div>
         )}
         <ul className="space-y-1.5">
@@ -81,8 +81,7 @@ export function PermissionsTab() {
               >
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-zinc-200 text-[11px] font-medium">{tool.display_name}</span>
-                  <div
-                    role="group"
+                  <fieldset
                     aria-label={`Approval for ${tool.display_name}`}
                     className="flex rounded-md border border-white/10 overflow-hidden"
                   >
@@ -102,7 +101,7 @@ export function PermissionsTab() {
                         {choice.label}
                       </button>
                     ))}
-                  </div>
+                  </fieldset>
                 </div>
                 {selected && <div className="mt-1 text-[10px] text-zinc-500">{selected.effect}</div>}
               </li>

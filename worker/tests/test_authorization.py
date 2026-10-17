@@ -205,7 +205,8 @@ async def test_concurrent_calls_in_one_run_resolve_independently():
 
     run.manager.resolve(run.request_id, by_tool["nook:web_search"].call_id, "deny")
     await settle()
-    assert search.done() and not fetch.done()
+    assert search.done()
+    assert not fetch.done()
 
     run.manager.resolve(run.request_id, by_tool["nook:web_fetch"].call_id, "allow")
     assert (await fetch).allowed is True

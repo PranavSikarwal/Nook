@@ -266,8 +266,11 @@ async def test_a_book_entry_with_odd_field_types_still_loads():
     with patch.object(books, "_fetch_json", AsyncMock(return_value={"docs": [odd]})):
         [item] = json.loads(await books.execute_book_search("x"))
 
-    assert item["authors"] == [] and item["isbn"] == "" and item["subjects"] == []
-    assert item["first_published"] is None and item["editions"] is None
+    assert item["authors"] == []
+    assert item["isbn"] == ""
+    assert item["subjects"] == []
+    assert item["first_published"] is None
+    assert item["editions"] is None
 
 
 async def test_the_book_request_goes_to_open_library_only():
@@ -292,16 +295,20 @@ async def test_a_book_redirect_is_not_followed_and_is_an_error():
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(302, headers={"location": "http://169.254.169.254/"})
 
+    transport = open_library(handler)
+
     with pytest.raises(ValueError, match="HTTP 302"):
-        await books._fetch_json("dune", 3, transport=open_library(handler))
+        await books._fetch_json("dune", 3, transport=transport)
 
 
 async def test_a_huge_book_response_is_refused():
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, content=b"x" * (books.MAX_RESPONSE_BYTES + 10))
 
+    transport = open_library(handler)
+
     with pytest.raises(ValueError, match="too large"):
-        await books._fetch_json("dune", 3, transport=open_library(handler))
+        await books._fetch_json("dune", 3, transport=transport)
 
 
 async def test_book_errors_become_a_short_message():

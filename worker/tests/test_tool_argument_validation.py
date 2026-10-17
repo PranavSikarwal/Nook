@@ -220,8 +220,10 @@ async def test_executor_exception_emits_finished_with_error_text_and_raises(fake
 
     agent.default_registry.get("nook:web_fetch").executor = executor  # type: ignore[union-attr]
 
+    runner = _create_registry_runner("nook:web_fetch")
+
     with pytest.raises(RuntimeError, match="boom"):
-        await _create_registry_runner("nook:web_fetch")(url="https://example.com/")
+        await runner(url="https://example.com/")
 
     [_, started, finished] = fake.events
     assert isinstance(started, ToolCallStartedEvent)
@@ -236,8 +238,10 @@ async def test_cancelled_executor_emits_no_finished_event(fake):
 
     agent.default_registry.get("nook:web_fetch").executor = executor  # type: ignore[union-attr]
 
+    runner = _create_registry_runner("nook:web_fetch")
+
     with pytest.raises(asyncio.CancelledError):
-        await _create_registry_runner("nook:web_fetch")(url="https://example.com/")
+        await runner(url="https://example.com/")
 
     assert [e.type for e in fake.events] == ["authorize_tool", "tool_call_started"]
 

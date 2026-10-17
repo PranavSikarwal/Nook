@@ -277,6 +277,11 @@ export function SettingsModal({
   onShortcutsChanged,
 }: SettingsModalProps) {
   const [activeTab, setActiveTab] = useState<'model' | 'shortcuts' | 'permissions'>('model')
+  const tabs = {
+    model: <ModelSettingsTab currentSettings={currentSettings} onSave={onSave} onClose={onClose} />,
+    shortcuts: <ShortcutsTab onShortcutsChanged={onShortcutsChanged} />,
+    permissions: <PermissionsTab />,
+  }
 
   return (
     <div className="flex flex-col h-full bg-[#161618] border-b border-white/10 overflow-hidden text-zinc-200">
@@ -329,17 +334,7 @@ export function SettingsModal({
         </button>
       </div>
 
-      {activeTab === 'model' ? (
-        <ModelSettingsTab
-          currentSettings={currentSettings}
-          onSave={onSave}
-          onClose={onClose}
-        />
-      ) : activeTab === 'shortcuts' ? (
-        <ShortcutsTab onShortcutsChanged={onShortcutsChanged} />
-      ) : (
-        <PermissionsTab />
-      )}
+      {tabs[activeTab]}
     </div>
   )
 }

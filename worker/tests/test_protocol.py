@@ -129,10 +129,12 @@ def test_removed_approval_messages_are_rejected():
         "resource_summary": "query",
         "actions": ["allow_once"],
     }
+    decision_line = json.dumps(decision)
+    requested_line = json.dumps(requested)
     with pytest.raises(ValueError):
-        parse_request(json.dumps(decision))
+        parse_request(decision_line)
     with pytest.raises(ValueError):
-        parse_event(json.dumps(requested))
+        parse_event(requested_line)
 
 
 def test_format_event_round_trip():
@@ -221,5 +223,7 @@ def test_authorization_result_request_reason_is_optional():
 
 
 def test_authorization_result_request_rejects_bad_decision():
+    line = _authorization_result_line(decision="maybe")
+
     with pytest.raises(ValueError):
-        parse_request(_authorization_result_line(decision="maybe"))
+        parse_request(line)

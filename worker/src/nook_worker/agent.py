@@ -325,6 +325,10 @@ def _extract_chunk_call_id(chunk: Any, metadata: Any) -> str | None:
     return None
 
 
+def _is_new_call(previous: str | None, current: str | None) -> bool:
+    return previous is not None and current is not None and current != previous
+
+
 class RealAgentRunner:
     def __init__(
         self,
@@ -361,7 +365,6 @@ class RealAgentRunner:
 
         previous_call_id: str | None = None
         has_emitted_text = False
-        denied = False
 
         async for chunk, _metadata in self._agent.astream(
             {"messages": [input_message]},
@@ -369,7 +372,6 @@ class RealAgentRunner:
             config=stream_config,
         ):
             if default_authorization_manager.was_denied(request.request_id):
-                denied = True
                 break
 
             if _should_skip_chunk(_metadata):
@@ -380,20 +382,14 @@ class RealAgentRunner:
                 continue
 
             chunk_call_id = _extract_chunk_call_id(chunk, _metadata)
-            if (
-                has_emitted_text
-                and previous_call_id is not None
-                and chunk_call_id is not None
-                and chunk_call_id != previous_call_id
-            ):
+            if _is_new_call(previous_call_id, chunk_call_id):
                 yield TextDeltaEvent(
                     request_id=request.request_id,
                     message_id=msg_id,
                     text="\n\n",
                 )
 
-            if chunk_call_id is not None:
-                previous_call_id = chunk_call_id
+            previous_call_id = chunk_call_id or previous_call_id
             has_emitted_text = True
 
             yield TextDeltaEvent(
@@ -402,7 +398,7 @@ class RealAgentRunner:
                 text=delta,
             )
 
-        if denied or default_authorization_manager.was_denied(request.request_id):
+        if default_authorization_manager.was_denied(request.request_id):
             default_authorization_manager.cancel_for_request(request.request_id)
             yield TextDeltaEvent(
                 request_id=request.request_id,

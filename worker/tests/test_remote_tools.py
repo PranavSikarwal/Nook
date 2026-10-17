@@ -148,44 +148,38 @@ async def test_execute_without_a_run_is_denied():
     assert outcome.status == "denied"
 
 
-async def test_the_remote_tool_checks_arguments_before_asking_the_daemon():
+async def test_the_remote_tool_checks_arguments_before_asking_the_daemon(monkeypatch):
     manager = AuthorizationManager()
     run = Run(manager)
     tool = remote_tools.build_remote_tool(READ_TOOL)
-    original = authorization.default_authorization_manager
-    remote_tools.default_authorization_manager = manager
-    try:
-        result = await tool.ainvoke({"path": 5})
-    finally:
-        remote_tools.default_authorization_manager = original
+    monkeypatch.setattr(remote_tools, "default_authorization_manager", manager)
+
+    result = await tool.ainvoke({"path": 5})
 
     assert result.startswith("Error: invalid arguments")
     assert run.lines == []
 
 
-async def test_the_remote_tool_returns_output_and_reports_denials():
+async def test_the_remote_tool_returns_output_and_reports_denials(monkeypatch):
     manager = AuthorizationManager()
     run = Run(manager)
     tool = remote_tools.build_remote_tool(READ_TOOL)
-    original = remote_tools.default_authorization_manager
-    remote_tools.default_authorization_manager = manager
-    try:
-        task = asyncio.create_task(tool.ainvoke({"path": "/work/a.txt"}))
-        await settle()
-        [event] = run.events()
-        assert json.loads(event.arguments) == {"path": "/work/a.txt"}
-        manager.resolve_tool_result(run.request_id, event.call_id, "ok", "contents")
-        assert await task == "contents"
+    monkeypatch.setattr(remote_tools, "default_authorization_manager", manager)
 
-        task = asyncio.create_task(tool.ainvoke({"path": "/work/b.txt"}))
-        await settle()
-        event = run.events()[-1]
-        manager.resolve_tool_result(
-            run.request_id, event.call_id, "denied", "Denied by the user"
-        )
-        assert await task == "Error: request denied: Denied by the user"
-    finally:
-        remote_tools.default_authorization_manager = original
+    task = asyncio.create_task(tool.ainvoke({"path": "/work/a.txt"}))
+    await settle()
+    [event] = run.events()
+    assert json.loads(event.arguments) == {"path": "/work/a.txt"}
+    manager.resolve_tool_result(run.request_id, event.call_id, "ok", "contents")
+    assert await task == "contents"
+
+    task = asyncio.create_task(tool.ainvoke({"path": "/work/b.txt"}))
+    await settle()
+    event = run.events()[-1]
+    manager.resolve_tool_result(
+        run.request_id, event.call_id, "denied", "Denied by the user"
+    )
+    assert await task == "Error: request denied: Denied by the user"
 
 
 def test_the_catalog_builds_one_tool_for_each_descriptor():
