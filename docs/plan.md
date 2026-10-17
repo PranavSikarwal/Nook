@@ -8,6 +8,9 @@ Nook has one active implementation plan. The completed plans and retired version
 [Tool-platform closeout and next phase](plans/tool-platform-closeout-and-next-phase.md)
 tracks the remaining authorization work and future tool providers.
 
+[Tool platform open gaps](plans/tool-platform-open-gaps.md) lists what is not
+done after Stage 2, with the risk and the decision for each item.
+
 ### Close the current web-tool authorization path
 
 **TP1. Load and validate policy assets at Daemon startup.**
