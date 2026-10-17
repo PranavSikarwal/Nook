@@ -102,6 +102,43 @@ A path outside the roots, a path with `..`, and a write to a read-only root are
 refused before any prompt, with a fixed reason such as `Path is outside the
 allowed folders`.
 
+## Command tool
+
+`run_command` runs one command in the sandbox. It exists only when the terminal
+is on, at least one folder is configured, and the sandbox self-test passes:
+
+```toml
+[tools.terminal]
+enabled = true
+network = false
+timeout_seconds = 30
+max_output_bytes = 65536
+```
+
+| Argument | Meaning |
+| --- | --- |
+| `argv` | The program and its arguments, as a list. Up to 64 items of 4096 bytes. No shell runs unless the model starts one. |
+| `cwd` | An absolute folder inside an allowed folder. The default is the first `read_write` folder. |
+| `timeout_seconds` | 1 to 600. The default is `timeout_seconds` from the config. |
+
+The command sees only the folder it runs in. It reads that folder and the system
+directories, and it writes there only if the folder is `read_write`. It also
+gets a private home folder that the Daemon removes after the run. Other
+allowed folders stay closed. The network is off unless the config turns it on.
+
+The environment holds only `PATH`, `HOME`, `TMPDIR`, `LANG`, `TERM`, and
+`NO_COLOR`. No variable of the Daemon passes through.
+
+The result is text with the exit code, then `--- stdout ---` and `--- stderr
+---`. Each stream holds half of `max_output_bytes`, and a marker shows a cut. A
+timeout and a death by signal return an error status. A non-zero exit code does
+not, because the exit code is part of the answer. After the run, and on cancel,
+the Daemon kills the whole process group.
+
+Cedar allows a command only with an `allow_once` grant, so every command asks,
+and the approval shows the full command line. Cedar forbids `sudo`, `su`,
+`doas`, `pkexec`, and `osascript` by program name, even after the user approves.
+
 ## Policy files
 
 - `policy/tools.yaml` contains tool metadata, limits, approval tiers, and

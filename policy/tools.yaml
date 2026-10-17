@@ -104,3 +104,22 @@ tools:
         - id: deny
           label: "Deny"
           description: "Reject this request. The tool does not run."
+
+  nook:run_command:
+    display_name: "Run command"
+    description: "Run one command in a sandbox. It sees only the folder it runs in."
+    capabilities:
+      read_only: false
+      local: true
+    limits:
+      max_timeout_seconds: 600
+      max_output_bytes: 65536
+    approval:
+      tier: ask
+      actions:
+        - id: allow_once
+          label: "Allow once"
+          description: "Run this exact command one time."
+        - id: deny
+          label: "Deny"
+          description: "Reject this command. It does not run."

@@ -1,3 +1,4 @@
+use super::roots::{RootEntry, RootSet};
 use super::{CallContext, Provider, ProviderError, ToolFacts, ToolOutput};
 use crate::config::{FilesystemConfig, RootAccess};
 use crate::protocol::ToolDescriptor;
@@ -7,7 +8,7 @@ use cap_std::fs::{Dir, OpenOptions};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::io::{Read, Write};
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tracing::warn;
 
@@ -17,31 +18,13 @@ pub const WRITE_FILE: &str = "nook:write_local_file";
 
 const MAX_LISTED_ENTRIES: usize = 1000;
 
-const OUTSIDE_ROOTS: &str = "Path is outside the allowed folders";
-const NOT_ABSOLUTE: &str = "Path must be absolute";
-const HAS_PARENT: &str = "Path must not contain ..";
-const BAD_PATH: &str = "Path is not valid";
 const READ_ONLY: &str = "The folder is read-only";
 const WRITE_TOO_LARGE: &str = "Content is larger than the write limit";
 
 #[derive(Debug)]
-struct Root {
-    configured: PathBuf,
-    canonical: PathBuf,
-    access: RootAccess,
-    dir: Arc<Dir>,
-}
-
-#[derive(Debug)]
-struct Resolved<'a> {
-    root: &'a Root,
-    relative: PathBuf,
-    canonical_path: PathBuf,
-}
-
-#[derive(Debug)]
 pub struct FilesystemProvider {
-    roots: Vec<Root>,
+    roots: RootSet,
+    dirs: Vec<Arc<Dir>>,
     max_read_bytes: usize,
     max_write_bytes: usize,
 }
@@ -62,77 +45,29 @@ struct WriteArgs {
 impl FilesystemProvider {
     /// Returns `None` when no configured root is usable.
     pub fn from_config(config: &FilesystemConfig) -> Option<Self> {
-        let mut roots = Vec::new();
-        for entry in &config.roots {
-            let configured = PathBuf::from(&entry.path);
-            if !configured.is_absolute() {
-                warn!("Ignored filesystem root {}: it is not absolute", entry.path);
-                continue;
-            }
-            let opened = configured
-                .canonicalize()
-                .and_then(|canonical| {
-                    Dir::open_ambient_dir(&canonical, ambient_authority())
-                        .map(|dir| (canonical, dir))
-                })
-                .map_err(|error| error.to_string());
-            match opened {
-                Ok((canonical, dir)) => roots.push(Root {
-                    configured,
-                    canonical,
-                    access: entry.access,
-                    dir: Arc::new(dir),
-                }),
-                Err(error) => warn!("Ignored filesystem root {}: {error}", entry.path),
+        let candidates = RootSet::from_config(&config.roots);
+        let mut entries: Vec<RootEntry> = Vec::new();
+        let mut dirs = Vec::new();
+        for entry in candidates.entries() {
+            match Dir::open_ambient_dir(&entry.canonical, ambient_authority()) {
+                Ok(dir) => {
+                    entries.push(entry.clone());
+                    dirs.push(Arc::new(dir));
+                }
+                Err(error) => warn!(
+                    "Ignored filesystem root {}: {error}",
+                    entry.configured.display()
+                ),
             }
         }
-        if roots.is_empty() {
+        if entries.is_empty() {
             return None;
         }
         Some(Self {
-            roots,
+            roots: RootSet::from_entries(entries),
+            dirs,
             max_read_bytes: config.max_read_bytes,
             max_write_bytes: config.max_write_bytes,
-        })
-    }
-
-    fn resolve(&self, raw: &str) -> Result<Resolved<'_>, &'static str> {
-        if raw.contains('\0') {
-            return Err(BAD_PATH);
-        }
-        let path = Path::new(raw);
-        if !path.is_absolute() {
-            return Err(NOT_ABSOLUTE);
-        }
-        let mut normalized = PathBuf::new();
-        for component in path.components() {
-            match component {
-                Component::ParentDir => return Err(HAS_PARENT),
-                Component::CurDir => {}
-                other => normalized.push(other.as_os_str()),
-            }
-        }
-        let mut best: Option<(&Root, &Path)> = None;
-        for root in &self.roots {
-            for prefix in [&root.canonical, &root.configured] {
-                if normalized.starts_with(prefix)
-                    && best
-                        .is_none_or(|(_, known)| prefix.as_os_str().len() > known.as_os_str().len())
-                {
-                    best = Some((root, prefix.as_path()));
-                }
-            }
-        }
-        let (root, prefix) = best.ok_or(OUTSIDE_ROOTS)?;
-        let relative = normalized
-            .strip_prefix(prefix)
-            .map_err(|_| OUTSIDE_ROOTS)?
-            .to_path_buf();
-        let canonical_path = root.canonical.join(&relative);
-        Ok(Resolved {
-            root,
-            relative,
-            canonical_path,
         })
     }
 
@@ -204,11 +139,7 @@ impl Provider for FilesystemProvider {
                 path_schema(),
             ),
         ];
-        if self
-            .roots
-            .iter()
-            .any(|root| root.access == RootAccess::ReadWrite)
-        {
+        if self.roots.has_write_access() {
             tools.push(Self::descriptor(
                 WRITE_FILE,
                 "write_local_file",
@@ -240,7 +171,11 @@ impl Provider for FilesystemProvider {
             }
             _ => return Err(ProviderError::UnknownTool),
         };
-        let resolved = self.resolve(&raw_path).map_err(ProviderError::Rejected)?;
+        let resolved = self
+            .roots
+            .resolve(&raw_path)
+            .map_err(ProviderError::Rejected)?;
+        let root = &self.roots.entries()[resolved.index];
         let path_text = resolved.canonical_path.display().to_string();
         let directory = if tool_id == LIST_DIRECTORY {
             resolved.canonical_path.clone()
@@ -248,12 +183,12 @@ impl Provider for FilesystemProvider {
             resolved
                 .canonical_path
                 .parent()
-                .unwrap_or(&resolved.root.canonical)
+                .unwrap_or(&root.canonical)
                 .to_path_buf()
         };
         let summary = match (&write, tool_id) {
             (Some(args), _) => {
-                if resolved.root.access != RootAccess::ReadWrite {
+                if root.access != RootAccess::ReadWrite {
                     return Err(ProviderError::Rejected(READ_ONLY));
                 }
                 if args.content.len() > self.max_write_bytes {
@@ -271,14 +206,8 @@ impl Provider for FilesystemProvider {
         };
         let mut context = std::collections::BTreeMap::new();
         context.insert("path".to_string(), path_text.clone());
-        context.insert(
-            "root".to_string(),
-            resolved.root.canonical.display().to_string(),
-        );
-        context.insert(
-            "access".to_string(),
-            resolved.root.access.as_str().to_string(),
-        );
+        context.insert("root".to_string(), root.canonical.display().to_string());
+        context.insert("access".to_string(), root.access.as_str().to_string());
         Ok(ToolFacts {
             summary,
             target_host: None,
@@ -325,8 +254,8 @@ impl FilesystemProvider {
             READ_FILE | LIST_DIRECTORY => {
                 let args: PathArgs =
                     serde_json::from_value(arguments.clone()).map_err(|_| "invalid arguments")?;
-                let resolved = self.resolve(&args.path)?;
-                let (dir, relative) = (resolved.root.dir.clone(), resolved.relative);
+                let resolved = self.roots.resolve(&args.path)?;
+                let (dir, relative) = (self.dirs[resolved.index].clone(), resolved.relative);
                 Ok(if tool_id == READ_FILE {
                     Work::Read {
                         dir,
@@ -340,15 +269,15 @@ impl FilesystemProvider {
             WRITE_FILE => {
                 let args: WriteArgs =
                     serde_json::from_value(arguments.clone()).map_err(|_| "invalid arguments")?;
-                let resolved = self.resolve(&args.path)?;
-                if resolved.root.access != RootAccess::ReadWrite {
+                let resolved = self.roots.resolve(&args.path)?;
+                if self.roots.entries()[resolved.index].access != RootAccess::ReadWrite {
                     return Err(READ_ONLY);
                 }
                 if args.content.len() > self.max_write_bytes {
                     return Err(WRITE_TOO_LARGE);
                 }
                 Ok(Work::Write {
-                    dir: resolved.root.dir.clone(),
+                    dir: self.dirs[resolved.index].clone(),
                     shown: resolved.canonical_path.display().to_string(),
                     relative: resolved.relative,
                     content: args.content,

@@ -214,6 +214,16 @@ async def run_message(request: dict[str, Any]) -> None:
                 {"path": path},
             )
             return
+        if text.startswith("E2E_COMMAND:"):
+            argv = text.removeprefix("E2E_COMMAND:").split()
+            await run_execute_prompt(
+                request_id,
+                chat_id,
+                message_id,
+                "nook:run_command",
+                {"argv": argv},
+            )
+            return
         if text.startswith("E2E_FILE_LIST:"):
             path = text.removeprefix("E2E_FILE_LIST:").strip()
             await run_execute_prompt(

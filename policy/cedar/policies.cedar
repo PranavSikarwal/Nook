@@ -66,3 +66,21 @@ forbid (
 ) when {
   context.path like "*/.git" || context.path like "*/.git/*"
 };
+
+// A command runs only with a grant for this exact call
+permit (
+  principal,
+  action == Nook::Action::"run_command",
+  resource
+) when {
+  context.grant_scope == "once"
+};
+
+// Programs that raise privileges or drive other apps stay closed
+forbid (
+  principal,
+  action == Nook::Action::"run_command",
+  resource
+) when {
+  ["sudo", "su", "doas", "pkexec", "osascript"].contains(context.executable_name)
+};

@@ -19,7 +19,7 @@ The active task definitions and acceptance conditions are in `docs/plan.md` and
 - [x] TP7. Define the provider and sandbox contract. See ADR 0007 and `docs/plans/tp7-tp13-tool-providers.md`.
 - [ ] TP8. Add explicit MCP server registration.
 - [x] TP9. Add sandboxed filesystem tools.
-- [ ] TP10. Add sandboxed terminal tools.
+- [x] TP10. Add sandboxed terminal tools.
 - [ ] TP11. Add browser and native-system capability designs.
 - [ ] TP12. Add editable policy and persistent grants.
 - [ ] TP13. Add additional search providers.

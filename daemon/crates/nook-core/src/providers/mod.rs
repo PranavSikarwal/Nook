@@ -104,6 +104,8 @@ pub trait Provider: Send + Sync {
 }
 
 pub mod filesystem;
+pub mod roots;
+pub mod terminal;
 
 pub fn is_valid_tool_name(name: &str) -> bool {
     !name.is_empty()
@@ -253,6 +255,17 @@ pub async fn build_registry(tools: &crate::config::ToolsConfig) -> ProviderRegis
         }
     } else if !tools.filesystem.roots.is_empty() {
         tracing::warn!("File tools are off: this platform has no sandbox");
+    }
+    if tools.terminal.enabled {
+        match crate::sandbox::Sandbox::detect().await {
+            Ok(sandbox) => {
+                tracing::info!(sandbox = sandbox.name(), "The command sandbox works");
+                if let Some(terminal) = terminal::TerminalProvider::new(tools, sandbox) {
+                    providers.push(Arc::new(terminal));
+                }
+            }
+            Err(error) => tracing::warn!("The terminal tool is off: {error}"),
+        }
     }
     match ProviderRegistry::new(providers) {
         Ok(registry) => {

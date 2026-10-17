@@ -42,4 +42,22 @@ namespace Nook {
       argument_digest: String,
     }
   };
+
+  action "run_command" appliesTo {
+    principal: [User],
+    resource: [Tool],
+    context: {
+      chat_id: String,
+      executable: String,
+      executable_name: String,
+      command_line: String,
+      cwd: String,
+      root: String,
+      access: String,
+      network: String,
+      approval_tier: String,
+      grant_scope: String,
+      argument_digest: String,
+    }
+  };
 }

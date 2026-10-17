@@ -258,6 +258,9 @@ async function main() {
             '[tools.filesystem]',
             `roots = [{ path = ${JSON.stringify(filesDir)}, access = "read_write" }]`,
             '',
+            '[tools.terminal]',
+            'enabled = true',
+            '',
           ]
         : []),
     ].join('\n')

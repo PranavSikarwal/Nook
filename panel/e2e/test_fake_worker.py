@@ -417,3 +417,22 @@ def test_a_catalog_request_is_accepted_silently(worker):
     worker.send({"type": "tool_catalog", "tools": []})
 
     worker.expect_silence()
+
+
+def test_command_prompt_splits_the_words_into_argv(worker):
+    run = worker.run("E2E_COMMAND:echo native test")
+    worker.expect("message_started")
+    event = worker.expect("execute_tool")
+
+    assert event["tool_name"] == "nook:run_command"
+    assert json.loads(event["arguments"]) == {"argv": ["echo", "native", "test"]}
+    worker.send(
+        {
+            "type": "tool_result",
+            "request_id": run["request_id"],
+            "call_id": event["call_id"],
+            "status": "ok",
+            "output": "exit code: 0",
+        }
+    )
+    assert joined_text(worker.collect_until_finished()) == "Tool ok: exit code: 0"
