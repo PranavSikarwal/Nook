@@ -7,7 +7,8 @@ Status: proposed. No code exists. Implementation starts only after approval.
 Some actions need the desktop, not a file or a process: put text on the
 clipboard, show a notification, open a link in the default browser. They help
 the assistant finish a task without a copy and paste by the user. They also
-reach private data (the clipboard) and other applications.
+reach other applications. The design leaves out clipboard read. The user can paste
+text into the chat, so a tool that reads the clipboard adds only the risk.
 
 ## The executor is the Panel
 
@@ -37,7 +38,6 @@ in `config.toml` and in Settings.
 | Capability | Operation | Risk |
 | --- | --- | --- |
 | Clipboard write | Put text on the clipboard. | Low. It replaces what the user copied. |
-| Clipboard read | Read the current text. | High. It can hold a password. |
 | Notification | Show a title and a line of text. | Low. Text is cut to a fixed size. |
 | Open link | Open an `http` or `https` link in the default browser. | Medium. It can lead to a harmful page. |
 
@@ -59,9 +59,6 @@ available`.
 
 ## Approval
 
-- **Clipboard read** always asks. The prompt says what will happen and shows no
-  clipboard text. The Panel reads the text only after the user allows it. The
-  Panel cuts the result to 8 KiB. No grant covers it, not even for the chat.
 - **Clipboard write** shows the first 200 characters of the text and its length.
   It offers allow once and allow for the chat.
 - **Notification** shows the title and text. It offers allow once and allow for
@@ -72,11 +69,8 @@ available`.
 
 ## Credentials and data handling
 
-The Daemon never stores clipboard text. It goes into the reply for that call and
-the chat transcript like any tool result. The prompt for a read says so. A
-result that looks like a secret (a long random string, a private key header) is
-not detected or hidden, because detection is unreliable. The prompt is the
-control.
+The Daemon never stores clipboard text. The text of a write goes into the chat
+transcript like any tool argument. No tool reads the clipboard.
 
 ## Isolation
 
@@ -98,16 +92,16 @@ the plugins these operations use.
 ## Tests
 
 - Contracts: schema and examples for `native_request` and `native_result`.
-- Policy: clipboard read has no grant action. An unsafe link is forbidden. The
+- Policy: an unsafe link is forbidden. The
   notification rate limit holds.
 - Panel: an operation outside the list is refused. A wrong or reused nonce is
   refused.
-- Native flow: with a fake clipboard service, the clipboard read returns text
-  only after the user allows it, and a deny returns nothing.
+- Native flow: with a fake clipboard service, the clipboard write puts text on
+  the clipboard only after the user allows it, and a deny leaves it unchanged.
 - Cancel: a cancelled call does not run the operation.
 
 ## Open questions for the approval
 
-1. Is clipboard read worth its risk in the first version?
-2. Does the Daemon or the Panel own the notification rate limit?
-3. Which of the three capabilities ships first?
+1. Does the Daemon or the Panel own the notification rate limit?
+2. Which of the three capabilities ships first?
+3. Is clipboard write worth shipping, since the chat can show text for the user to copy?

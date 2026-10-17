@@ -9,9 +9,11 @@ Recorded on October 17, 2026.
 
 1. **TP11 designs.** `docs/design/browser-automation.md` and
    `docs/design/native-system-tools.md` wait for approval. Each ends with open
-   questions, such as whether clipboard read is worth its risk. Risk: no browser
+   questions. The owner removed clipboard read from the native-system design on
+   October 17, 2026, because the user can paste text into the chat. Risk: no browser
    or native-system tool can start until the designs are approved or changed.
-2. **Image search source.** Image search was removed because DuckDuckGo answers
+2. **Image search source.** The owner chose to leave it out on October 17,
+   2026. Image search was removed because DuckDuckGo answers
    with a bot challenge (HTTP 202) and `ddgs` 9.16.0 cannot pass it. Risk: the
    model cannot find images. Options: leave it out, or add a source with an API,
    such as Brave, Bing or Wikimedia Commons. Brave and Bing need a key.
