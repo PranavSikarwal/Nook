@@ -28,4 +28,18 @@ namespace Nook {
       argument_digest: String,
     }
   };
+
+  action "read_local_file", "list_local_directory", "write_local_file" appliesTo {
+    principal: [User],
+    resource: [Tool],
+    context: {
+      chat_id: String,
+      path: String,
+      root: String,
+      access: String,
+      approval_tier: String,
+      grant_scope: String,
+      argument_digest: String,
+    }
+  };
 }

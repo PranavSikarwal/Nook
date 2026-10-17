@@ -23,6 +23,8 @@ pub enum AuthorizationError {
     UnsupportedScheme(String),
     #[error("The url has no host")]
     MissingHost,
+    #[error("{0}")]
+    Rejected(&'static str),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -83,6 +85,7 @@ impl AuthorizationRequest {
                 ProviderError::InvalidArguments(message) => {
                     AuthorizationError::InvalidArguments(message)
                 }
+                ProviderError::Rejected(reason) => AuthorizationError::Rejected(reason),
                 ProviderError::UnknownTool => {
                     AuthorizationError::UnknownTool(tool_name.to_string())
                 }

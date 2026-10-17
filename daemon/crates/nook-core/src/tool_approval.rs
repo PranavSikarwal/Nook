@@ -61,6 +61,7 @@ fn deny(reason: impl Into<String>) -> Verdict {
 fn argument_denial(error: &AuthorizationError) -> &'static str {
     match error {
         AuthorizationError::UnknownTool(_) => "Unknown tool",
+        AuthorizationError::Rejected(reason) => reason,
         _ => "Invalid arguments",
     }
 }

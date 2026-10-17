@@ -19,6 +19,7 @@ WORKER_EVENT_TYPES = {
     "tool_call_started",
     "tool_call_finished",
     "authorize_tool",
+    "execute_tool",
     "message_finished",
     "title_ready",
     "deleted",
@@ -334,3 +335,85 @@ def test_shutdown_exits_while_waiting_for_authorization(worker):
     worker.expect("authorize_tool")
     worker.send({"type": "shutdown"})
     assert worker.process.wait(timeout=TIMEOUT) == 0
+
+
+def test_file_prompts_ask_the_daemon_to_run_the_tool(worker):
+    cases = [
+        ("E2E_FILE_READ:/work/a.txt", "nook:read_local_file", {"path": "/work/a.txt"}),
+        ("E2E_FILE_LIST:/work", "nook:list_local_directory", {"path": "/work"}),
+        (
+            "E2E_FILE_WRITE:/work/b.txt|hello there",
+            "nook:write_local_file",
+            {"path": "/work/b.txt", "content": "hello there", "overwrite": False},
+        ),
+    ]
+    for text, tool, arguments in cases:
+        run = worker.run(text)
+        started = worker.expect("message_started")
+        event = worker.expect("execute_tool")
+        assert event["request_id"] == run["request_id"] == started["request_id"]
+        assert event["message_id"] == started["message_id"]
+        assert event["chat_id"] == run["chat_id"]
+        assert event["tool_name"] == tool
+        assert json.loads(event["arguments"]) == arguments
+        worker.send(
+            {
+                "type": "tool_result",
+                "request_id": run["request_id"],
+                "call_id": event["call_id"],
+                "status": "ok",
+                "output": "done",
+            }
+        )
+        events = worker.collect_until_finished()
+        assert joined_text(events) == "Tool ok: done"
+
+
+def test_a_denied_tool_result_is_reported_in_the_reply(worker):
+    run = worker.run("E2E_FILE_READ:/work/a.txt")
+    worker.expect("message_started")
+    event = worker.expect("execute_tool")
+    worker.send(
+        {
+            "type": "tool_result",
+            "request_id": run["request_id"],
+            "call_id": event["call_id"],
+            "status": "denied",
+            "output": "Denied by the user",
+        }
+    )
+
+    assert joined_text(worker.collect_until_finished()) == "Tool denied: Denied by the user"
+
+
+def test_a_tool_result_for_another_call_is_ignored(worker):
+    run = worker.run("E2E_FILE_READ:/work/a.txt")
+    worker.expect("message_started")
+    event = worker.expect("execute_tool")
+    worker.send(
+        {
+            "type": "tool_result",
+            "request_id": run["request_id"],
+            "call_id": "call_other",
+            "status": "ok",
+            "output": "wrong",
+        }
+    )
+    worker.expect_silence()
+    worker.send(
+        {
+            "type": "tool_result",
+            "request_id": run["request_id"],
+            "call_id": event["call_id"],
+            "status": "ok",
+            "output": "right",
+        }
+    )
+
+    assert joined_text(worker.collect_until_finished()) == "Tool ok: right"
+
+
+def test_a_catalog_request_is_accepted_silently(worker):
+    worker.send({"type": "tool_catalog", "tools": []})
+
+    worker.expect_silence()

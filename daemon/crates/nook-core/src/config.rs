@@ -1,5 +1,105 @@
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RootAccess {
+    Read,
+    ReadWrite,
+}
+
+impl RootAccess {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Read => "read",
+            Self::ReadWrite => "read_write",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RootConfig {
+    pub path: String,
+    pub access: RootAccess,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FilesystemConfig {
+    #[serde(default)]
+    pub roots: Vec<RootConfig>,
+    #[serde(default = "default_max_file_bytes")]
+    pub max_read_bytes: usize,
+    #[serde(default = "default_max_file_bytes")]
+    pub max_write_bytes: usize,
+}
+
+fn default_max_file_bytes() -> usize {
+    1024 * 1024
+}
+
+impl Default for FilesystemConfig {
+    fn default() -> Self {
+        Self {
+            roots: Vec::new(),
+            max_read_bytes: default_max_file_bytes(),
+            max_write_bytes: default_max_file_bytes(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TerminalConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub network: bool,
+    #[serde(default = "default_command_timeout_seconds")]
+    pub timeout_seconds: u64,
+    #[serde(default = "default_command_output_bytes")]
+    pub max_output_bytes: usize,
+}
+
+fn default_command_timeout_seconds() -> u64 {
+    30
+}
+
+fn default_command_output_bytes() -> usize {
+    64 * 1024
+}
+
+impl Default for TerminalConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            network: false,
+            timeout_seconds: default_command_timeout_seconds(),
+            max_output_bytes: default_command_output_bytes(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct McpServerConfig {
+    pub name: String,
+    pub command: String,
+    #[serde(default)]
+    pub args: Vec<String>,
+    #[serde(default)]
+    pub env: BTreeMap<String, String>,
+    #[serde(default)]
+    pub network: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ToolsConfig {
+    #[serde(default)]
+    pub filesystem: FilesystemConfig,
+    #[serde(default)]
+    pub terminal: TerminalConfig,
+    #[serde(default)]
+    pub mcp_servers: Vec<McpServerConfig>,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Config {
@@ -13,6 +113,8 @@ pub struct Config {
     pub summarize_at_tokens: i64,
     #[serde(default)]
     pub worker_command: Option<String>,
+    #[serde(default)]
+    pub tools: ToolsConfig,
 }
 
 fn default_database_url() -> String {
@@ -36,6 +138,7 @@ impl Default for Config {
             max_input_tokens: default_max_input_tokens(),
             summarize_at_tokens: default_summarize_at_tokens(),
             worker_command: None,
+            tools: ToolsConfig::default(),
         }
     }
 }
@@ -251,6 +354,7 @@ mod tests {
             max_input_tokens: 500_000,
             summarize_at_tokens: 350_000,
             worker_command: None,
+            tools: ToolsConfig::default(),
         };
         cfg.save_to_file(&path).unwrap();
 
@@ -266,5 +370,56 @@ mod tests {
         if std::env::var("NOOK_DATABASE_URL").is_err() {
             assert_eq!(loaded.database_url, "postgres://localhost/test_db");
         }
+    }
+
+    #[test]
+    fn tools_default_to_off_and_empty() {
+        let cfg: Config = toml::from_str("base_url = \"u\"\nmodel = \"m\"\n").unwrap();
+
+        assert!(cfg.tools.filesystem.roots.is_empty());
+        assert!(!cfg.tools.terminal.enabled);
+        assert!(cfg.tools.mcp_servers.is_empty());
+        assert_eq!(cfg.tools.filesystem.max_read_bytes, 1024 * 1024);
+        assert_eq!(cfg.tools.terminal.timeout_seconds, 30);
+    }
+
+    #[test]
+    fn tools_section_round_trips() {
+        let text = r#"
+base_url = "u"
+model = "m"
+
+[tools.filesystem]
+roots = [
+  { path = "/work/a", access = "read" },
+  { path = "/work/b", access = "read_write" },
+]
+
+[tools.terminal]
+enabled = true
+network = true
+timeout_seconds = 10
+
+[[tools.mcp_servers]]
+name = "files"
+command = "npx"
+args = ["-y", "server"]
+env = { TOKEN = "x" }
+"#;
+        let cfg: Config = toml::from_str(text).unwrap();
+
+        assert_eq!(cfg.tools.filesystem.roots[0].access, RootAccess::Read);
+        assert_eq!(cfg.tools.filesystem.roots[1].access, RootAccess::ReadWrite);
+        assert!(cfg.tools.terminal.enabled && cfg.tools.terminal.network);
+        assert_eq!(cfg.tools.mcp_servers[0].args, ["-y", "server"]);
+        let again: Config = toml::from_str(&toml::to_string_pretty(&cfg).unwrap()).unwrap();
+        assert_eq!(again, cfg);
+    }
+
+    #[test]
+    fn an_unknown_root_access_is_rejected() {
+        let text = "base_url = \"u\"\nmodel = \"m\"\n[tools.filesystem]\nroots = [{ path = \"/a\", access = \"admin\" }]\n";
+
+        assert!(toml::from_str::<Config>(text).is_err());
     }
 }

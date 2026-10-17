@@ -40,3 +40,67 @@ tools:
         - id: deny
           label: "Deny"
           description: "Reject this request. The tool does not run."
+
+  nook:read_local_file:
+    display_name: "Read file"
+    description: "Read a text file inside a folder you allowed."
+    capabilities:
+      read_only: true
+      local: true
+    limits:
+      max_read_bytes: 1048576 # 1 MiB
+    approval:
+      tier: ask
+      actions:
+        - id: allow_once
+          label: "Allow once"
+          description: "Allow this exact request one time."
+        - id: allow_for_chat_path
+          label: "Allow this file for this chat"
+          description: "Allow reading this file again for the rest of this chat."
+        - id: allow_for_chat_dir
+          label: "Allow this folder for this chat"
+          description: "Allow reading any file in this folder and the folders below it for the rest of this chat."
+        - id: deny
+          label: "Deny"
+          description: "Reject this request. The tool does not run."
+
+  nook:list_local_directory:
+    display_name: "List folder"
+    description: "List the entries of a folder you allowed."
+    capabilities:
+      read_only: true
+      local: true
+    approval:
+      tier: ask
+      actions:
+        - id: allow_once
+          label: "Allow once"
+          description: "Allow this exact request one time."
+        - id: allow_for_chat_dir
+          label: "Allow this folder for this chat"
+          description: "Allow listing this folder and the folders below it for the rest of this chat."
+        - id: deny
+          label: "Deny"
+          description: "Reject this request. The tool does not run."
+
+  nook:write_local_file:
+    display_name: "Write file"
+    description: "Write a text file inside a folder you allowed to change."
+    capabilities:
+      read_only: false
+      local: true
+    limits:
+      max_write_bytes: 1048576 # 1 MiB
+    approval:
+      tier: ask
+      actions:
+        - id: allow_once
+          label: "Allow once"
+          description: "Allow this exact write one time."
+        - id: allow_for_chat_path
+          label: "Allow this file for this chat"
+          description: "Allow writing to this file again for the rest of this chat."
+        - id: deny
+          label: "Deny"
+          description: "Reject this request. The tool does not run."

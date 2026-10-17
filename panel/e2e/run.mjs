@@ -240,6 +240,12 @@ async function main() {
     await writeFile(manifestPath, JSON.stringify({ runId, databaseName, appDir, mode, port }, null, 2))
     const baseUrl = isLive ? required('NOOK_BASE_URL') : 'http://127.0.0.1:9/v1'
     const model = isLive ? required('NOOK_MODEL') : 'nook-e2e-no-network'
+    const filesDir = path.join(tempRoot, 'files')
+    if (isDeterministic) {
+      await mkdir(filesDir)
+      await writeFile(path.join(filesDir, 'notes.txt'), 'e2e notes')
+      await writeFile(path.join(filesDir, 'more.txt'), 'more notes')
+    }
     const testConfig = [
       `base_url = ${JSON.stringify(baseUrl)}`,
       `model = ${JSON.stringify(model)}`,
@@ -247,6 +253,13 @@ async function main() {
       'max_input_tokens = 1000000',
       'summarize_at_tokens = 750000',
       '',
+      ...(isDeterministic
+        ? [
+            '[tools.filesystem]',
+            `roots = [{ path = ${JSON.stringify(filesDir)}, access = "read_write" }]`,
+            '',
+          ]
+        : []),
     ].join('\n')
     await writeFile(path.join(appDir, 'config.toml'), testConfig)
 
@@ -282,6 +295,7 @@ async function main() {
       NOOK_E2E_REAL_APP_BINARY: path.join(panelDir, 'src-tauri', 'target', 'debug', 'nook-panel'),
       NOOK_E2E_WDIO_PORT: String(port),
       NOOK_E2E_RUN_ID: runId,
+      NOOK_E2E_FILES_DIR: filesDir,
       NOOK_E2E_RUN_DIR: tempRoot,
       NOOK_E2E_MODE: mode,
       NOOK_WORKER_DIR: path.resolve(repoDir, 'worker'),

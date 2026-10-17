@@ -55,6 +55,53 @@ sandbox, so those tools stay off.
 On timeout, cancel, or exit, the Daemon kills the whole process group, so a
 background child cannot outlive the call.
 
+## File tools
+
+Three tools read and write local files. They run in the Daemon, and they exist
+only when `config.toml` lists at least one usable folder:
+
+```toml
+[tools.filesystem]
+roots = [
+  { path = "/Users/me/projects/demo", access = "read_write" },
+  { path = "/Users/me/notes", access = "read" },
+]
+max_read_bytes = 1048576
+max_write_bytes = 1048576
+```
+
+A root path must be absolute and exist. The Daemon logs and skips any other
+entry. `write_local_file` exists only if a `read_write` root exists.
+
+| Tool | Arguments | Result |
+| --- | --- | --- |
+| `read_local_file` | `path` | The file as UTF-8 text. |
+| `list_local_directory` | `path` | One entry per line. Folders end with `/`. |
+| `write_local_file` | `path`, `content`, `overwrite` | A line with the byte count. |
+
+Rules:
+
+- A path must be absolute, inside one root, and free of `..`. The Daemon opens
+  it through a directory handle of the root, so a symlink that points outside
+  the root is an error. A symlink inside the root is followed.
+- A root path may use a symlink. The Daemon matches the configured form and the
+  real form, and it shows the real form in approvals and grants.
+- `write_local_file` replaces an existing file only when `overwrite` is true.
+  The parent folder must exist. Writes to a `read` root are refused.
+- A read fails above `max_read_bytes`, and a write fails above
+  `max_write_bytes`. A file that is not valid UTF-8 is an error.
+- Cedar forbids every file tool on credential paths (`.ssh`, `.gnupg`, `.aws`,
+  `.kube`, `.env`, and `.env.*`) and forbids writes inside `.git`.
+
+Grants are per tool. `allow_for_chat_path` covers one exact path.
+`allow_for_chat_dir` covers a folder and everything below it, but not a sibling
+folder that shares a name prefix. A read grant does not allow a list or a
+write. A write offers only `allow_once` and `allow_for_chat_path`.
+
+A path outside the roots, a path with `..`, and a write to a read-only root are
+refused before any prompt, with a fixed reason such as `Path is outside the
+allowed folders`.
+
 ## Policy files
 
 - `policy/tools.yaml` contains tool metadata, limits, approval tiers, and

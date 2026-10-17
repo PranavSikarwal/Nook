@@ -80,3 +80,19 @@ test('handles unreadable arguments and unknown tool names', () => {
   })
   assert.equal(describeToolCall(call, true), 'Running do thing')
 })
+
+test('a file tool call names its path', () => {
+  const [call] = applyToolEvent([], started('a', 'nook:read_local_file', { path: '/work/notes.txt' }))
+  assert.equal(describeToolCall(call, true), 'Running read local file /work/notes.txt')
+  assert.equal(describeToolCall({ ...call, status: 'finished' }, true), 'Finished read local file')
+})
+
+test('a command call shows the command line', () => {
+  const [call] = applyToolEvent([], started('a', 'nook:run_command', { argv: ['ls', '-la'], cwd: '/work' }))
+  assert.equal(describeToolCall(call, true), 'Running run command ls -la')
+})
+
+test('an MCP call names the server and the tool', () => {
+  const [call] = applyToolEvent([], started('a', 'mcp:files:read_text', {}))
+  assert.equal(describeToolCall(call, true), 'Running files read text')
+})

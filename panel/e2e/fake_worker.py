@@ -6,6 +6,7 @@ from uuid import uuid4
 
 write_lock = asyncio.Lock()
 pending_authorizations: dict[tuple[str, str], asyncio.Future[dict[str, Any]]] = {}
+pending_tool_results: dict[tuple[str, str], asyncio.Future[dict[str, Any]]] = {}
 active_requests: dict[str, asyncio.Task[None]] = {}
 
 
@@ -88,6 +89,47 @@ async def authorize_tool(
         pending_authorizations.pop((request_id, call_id), None)
 
 
+async def execute_tool(
+    request_id: str,
+    chat_id: str,
+    message_id: str,
+    tool_name: str,
+    arguments: dict[str, Any],
+) -> dict[str, Any]:
+    call_id = f"call_{uuid4().hex}"
+    result: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
+    pending_tool_results[(request_id, call_id)] = result
+    try:
+        await write_event(
+            {
+                "type": "execute_tool",
+                "request_id": request_id,
+                "message_id": message_id,
+                "call_id": call_id,
+                "chat_id": chat_id,
+                "tool_name": tool_name,
+                "arguments": json.dumps(arguments),
+            }
+        )
+        return await result
+    finally:
+        pending_tool_results.pop((request_id, call_id), None)
+
+
+async def run_execute_prompt(
+    request_id: str,
+    chat_id: str,
+    message_id: str,
+    tool_name: str,
+    arguments: dict[str, Any],
+) -> None:
+    result = await execute_tool(request_id, chat_id, message_id, tool_name, arguments)
+    await emit_text(
+        request_id, message_id, f"Tool {result['status']}: {result['output']}"
+    )
+    await finish_request(request_id, message_id)
+
+
 async def run_tool_prompt(
     request_id: str,
     chat_id: str,
@@ -162,6 +204,36 @@ async def run_message(request: dict[str, Any]) -> None:
                 request_id, chat_id, message_id, "nook:web_fetch", {"url": url}, url
             )
             return
+        if text.startswith("E2E_FILE_READ:"):
+            path = text.removeprefix("E2E_FILE_READ:").strip()
+            await run_execute_prompt(
+                request_id,
+                chat_id,
+                message_id,
+                "nook:read_local_file",
+                {"path": path},
+            )
+            return
+        if text.startswith("E2E_FILE_LIST:"):
+            path = text.removeprefix("E2E_FILE_LIST:").strip()
+            await run_execute_prompt(
+                request_id,
+                chat_id,
+                message_id,
+                "nook:list_local_directory",
+                {"path": path},
+            )
+            return
+        if text.startswith("E2E_FILE_WRITE:"):
+            path, _, content = text.removeprefix("E2E_FILE_WRITE:").partition("|")
+            await run_execute_prompt(
+                request_id,
+                chat_id,
+                message_id,
+                "nook:write_local_file",
+                {"path": path.strip(), "content": content, "overwrite": False},
+            )
+            return
         if text.startswith("E2E_SEARCH:"):
             query = text.removeprefix("E2E_SEARCH:").strip()
             await run_tool_prompt(
@@ -212,6 +284,13 @@ def handle_authorization_result(request: dict[str, Any]) -> None:
         result.set_result(request)
 
 
+def handle_tool_result(request: dict[str, Any]) -> None:
+    key = (str(request.get("request_id", "")), str(request.get("call_id", "")))
+    result = pending_tool_results.get(key)
+    if result and not result.done():
+        result.set_result(request)
+
+
 async def handle_title(request: dict[str, Any]) -> None:
     await write_event(
         {
@@ -241,6 +320,8 @@ async def handle_request(request: dict[str, Any]) -> None:
         handle_cancel(request)
     elif request_type == "authorization_result":
         handle_authorization_result(request)
+    elif request_type == "tool_result":
+        handle_tool_result(request)
     elif request_type == "title":
         await handle_title(request)
     elif request_type == "delete_chat":

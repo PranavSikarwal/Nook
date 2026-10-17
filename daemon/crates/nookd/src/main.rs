@@ -2,7 +2,7 @@ use nook_core::config::Config;
 use nook_core::db;
 use nook_core::keychain;
 use nook_core::policy_assets::{find_policy_directory, PolicyAssets};
-use nook_core::providers::ProviderRegistry;
+use nook_core::providers::build_registry;
 use nook_core::server::{AppState, Server};
 use nook_core::supervisor::WorkerSupervisor;
 use std::collections::HashMap;
@@ -78,7 +78,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     }
 
     // 6. Start Worker supervisor
-    let providers = Arc::new(ProviderRegistry::empty());
+    let providers = Arc::new(build_registry(&config.tools).await);
     let supervisor = match WorkerSupervisor::with_tools(
         &config,
         api_key,

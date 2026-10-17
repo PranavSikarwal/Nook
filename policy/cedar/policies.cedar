@@ -19,3 +19,50 @@ permit (
   context.grant_scope == "chat_host" ||
   context.grant_scope == "once"
 };
+
+// Reading and listing need a grant for this call, this path, or its folder
+permit (
+  principal,
+  action in [Nook::Action::"read_local_file", Nook::Action::"list_local_directory"],
+  resource
+) when {
+  context.grant_scope == "once" ||
+  context.grant_scope == "chat_path" ||
+  context.grant_scope == "chat_dir"
+};
+
+// Writing needs a read-write folder and a grant for this call or this path
+permit (
+  principal,
+  action == Nook::Action::"write_local_file",
+  resource
+) when {
+  context.access == "read_write" &&
+  (context.grant_scope == "once" || context.grant_scope == "chat_path")
+};
+
+// Credential files stay closed even inside an allowed folder
+forbid (
+  principal,
+  action in [
+    Nook::Action::"read_local_file",
+    Nook::Action::"list_local_directory",
+    Nook::Action::"write_local_file"
+  ],
+  resource
+) when {
+  context.path like "*/.ssh" || context.path like "*/.ssh/*" ||
+  context.path like "*/.gnupg" || context.path like "*/.gnupg/*" ||
+  context.path like "*/.aws" || context.path like "*/.aws/*" ||
+  context.path like "*/.kube" || context.path like "*/.kube/*" ||
+  context.path like "*/.env" || context.path like "*/.env.*"
+};
+
+// Git hooks and config can run code, so writes to .git stay closed
+forbid (
+  principal,
+  action == Nook::Action::"write_local_file",
+  resource
+) when {
+  context.path like "*/.git" || context.path like "*/.git/*"
+};

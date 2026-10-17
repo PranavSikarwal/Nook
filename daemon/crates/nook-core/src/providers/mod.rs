@@ -69,6 +69,9 @@ pub struct CallContext {
 pub enum ProviderError {
     #[error("{0}")]
     InvalidArguments(String),
+    /// A fixed message the model can act on, such as a path outside the roots.
+    #[error("{0}")]
+    Rejected(&'static str),
     #[error("Unknown tool")]
     UnknownTool,
 }
@@ -99,6 +102,8 @@ pub trait Provider: Send + Sync {
     /// Runs one authorized call. The Daemon aborts this future to cancel it.
     async fn call(&self, tool_id: &str, arguments: Value, context: CallContext) -> ToolOutput;
 }
+
+pub mod filesystem;
 
 pub fn is_valid_tool_name(name: &str) -> bool {
     !name.is_empty()
@@ -236,4 +241,203 @@ pub fn truncate_output(text: String, max_bytes: usize) -> String {
         end -= 1;
     }
     format!("{}\n[output truncated]", &text[..end])
+}
+
+/// Builds the registry from the config. A provider that cannot start is left
+/// out and the reason is logged.
+pub async fn build_registry(tools: &crate::config::ToolsConfig) -> ProviderRegistry {
+    let mut providers: Vec<Arc<dyn Provider>> = Vec::new();
+    if cfg!(unix) {
+        if let Some(filesystem) = filesystem::FilesystemProvider::from_config(&tools.filesystem) {
+            providers.push(Arc::new(filesystem));
+        }
+    } else if !tools.filesystem.roots.is_empty() {
+        tracing::warn!("File tools are off: this platform has no sandbox");
+    }
+    match ProviderRegistry::new(providers) {
+        Ok(registry) => {
+            for descriptor in registry.descriptors() {
+                tracing::info!(tool = %descriptor.id, "Registered tool");
+            }
+            registry
+        }
+        Err(error) => {
+            tracing::error!("Tool providers are off: {error}");
+            ProviderRegistry::empty()
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::{FilesystemConfig, RootAccess, RootConfig, ToolsConfig};
+    use serde_json::json;
+
+    struct Fixed(Vec<ToolDescriptor>);
+
+    #[async_trait]
+    impl Provider for Fixed {
+        fn descriptors(&self) -> Vec<ToolDescriptor> {
+            self.0.clone()
+        }
+
+        fn facts(&self, _id: &str, _arguments: &Value) -> Result<ToolFacts, ProviderError> {
+            Ok(ToolFacts::default())
+        }
+
+        async fn call(&self, _id: &str, _arguments: Value, _context: CallContext) -> ToolOutput {
+            ToolOutput::ok("done")
+        }
+    }
+
+    fn descriptor(id: &str, name: &str) -> ToolDescriptor {
+        ToolDescriptor {
+            id: id.to_string(),
+            name: name.to_string(),
+            description: "A tool.".to_string(),
+            input_schema: json!({ "type": "object", "properties": { "a": { "type": "string" } } }),
+        }
+    }
+
+    fn registry(tools: Vec<ToolDescriptor>) -> Result<ProviderRegistry, RegistryError> {
+        ProviderRegistry::new(vec![Arc::new(Fixed(tools))])
+    }
+
+    #[test]
+    fn a_valid_tool_is_registered() {
+        let registry = registry(vec![descriptor("nook:a", "a_tool")]).unwrap();
+
+        assert!(registry.contains("nook:a"));
+        assert_eq!(registry.descriptors().len(), 1);
+    }
+
+    #[test]
+    fn duplicate_ids_and_names_are_rejected() {
+        assert_eq!(
+            registry(vec![
+                descriptor("nook:a", "one"),
+                descriptor("nook:a", "two")
+            ])
+            .err(),
+            Some(RegistryError::DuplicateId("nook:a".to_string()))
+        );
+        assert_eq!(
+            registry(vec![
+                descriptor("nook:a", "same"),
+                descriptor("nook:b", "same")
+            ])
+            .err(),
+            Some(RegistryError::DuplicateName("same".to_string()))
+        );
+    }
+
+    #[test]
+    fn reserved_and_invalid_names_are_rejected() {
+        for reserved in ["web_fetch", "read_file", "execute", "task"] {
+            assert_eq!(
+                registry(vec![descriptor("nook:a", reserved)]).err(),
+                Some(RegistryError::ReservedName(reserved.to_string()))
+            );
+        }
+        for invalid in ["has space", "dot.name", "", &"x".repeat(65)] {
+            assert_eq!(
+                registry(vec![descriptor("nook:a", invalid)]).err(),
+                Some(RegistryError::InvalidName(invalid.to_string()))
+            );
+        }
+    }
+
+    #[test]
+    fn an_empty_description_or_a_bad_schema_is_rejected() {
+        let mut empty = descriptor("nook:a", "a_tool");
+        empty.description = "  ".to_string();
+        assert_eq!(
+            registry(vec![empty]).err(),
+            Some(RegistryError::InvalidDescription("nook:a".to_string()))
+        );
+        for schema in [
+            json!({ "type": "string" }),
+            json!({ "properties": {} }),
+            json!({ "type": "object", "properties": { "a": { "type": "nonsense" } } }),
+        ] {
+            let mut bad = descriptor("nook:a", "a_tool");
+            bad.input_schema = schema;
+            assert_eq!(
+                registry(vec![bad]).err(),
+                Some(RegistryError::InvalidSchema("nook:a".to_string()))
+            );
+        }
+    }
+
+    #[test]
+    fn arguments_are_checked_against_the_schema_before_the_provider_sees_them() {
+        let mut strict = descriptor("nook:a", "a_tool");
+        strict.input_schema = json!({
+            "type": "object",
+            "properties": { "a": { "type": "string" } },
+            "required": ["a"],
+            "additionalProperties": false
+        });
+        let registry = registry(vec![strict]).unwrap();
+
+        assert!(registry.facts("nook:a", &json!({ "a": "x" })).is_ok());
+        for bad in [json!({}), json!({ "a": 1 }), json!({ "a": "x", "b": 1 })] {
+            assert!(matches!(
+                registry.facts("nook:a", &bad),
+                Err(ProviderError::InvalidArguments(_))
+            ));
+        }
+        assert_eq!(
+            registry.facts("nook:missing", &json!({})),
+            Err(ProviderError::UnknownTool)
+        );
+    }
+
+    #[test]
+    fn names_are_made_safe_for_the_model() {
+        assert_eq!(
+            sanitize_tool_name(&["mcp", "my server", "read.file"]),
+            "mcp__my_server__read_file"
+        );
+        assert_eq!(sanitize_tool_name(&[&"x".repeat(100)]).len(), 64);
+        assert!(is_valid_tool_name(&sanitize_tool_name(&["a b", "c/d"])));
+    }
+
+    #[test]
+    fn output_is_cut_on_a_character_boundary() {
+        let cut = truncate_output("héllo wörld".to_string(), 2);
+
+        assert!(cut.starts_with('h'));
+        assert!(cut.ends_with("[output truncated]"));
+        assert_eq!(truncate_output("short".to_string(), 100), "short");
+    }
+
+    #[tokio::test]
+    async fn the_builder_offers_nothing_without_roots() {
+        let registry = build_registry(&ToolsConfig::default()).await;
+
+        assert!(registry.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn the_builder_offers_file_tools_for_a_root() {
+        let dir = tempfile::tempdir().unwrap();
+        let tools = ToolsConfig {
+            filesystem: FilesystemConfig {
+                roots: vec![RootConfig {
+                    path: dir.path().display().to_string(),
+                    access: RootAccess::Read,
+                }],
+                ..FilesystemConfig::default()
+            },
+            ..ToolsConfig::default()
+        };
+
+        let registry = build_registry(&tools).await;
+
+        assert!(registry.contains("nook:read_local_file"));
+        assert!(!registry.contains("nook:write_local_file"));
+    }
 }

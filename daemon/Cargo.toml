@@ -32,4 +32,5 @@ url = "2.5"
 idna = "1.0"
 sha2 = "0.10"
 async-trait = "0.1"
+cap-std = "3"
 jsonschema = { version = "0.30", default-features = false }

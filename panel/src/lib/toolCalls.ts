@@ -10,6 +10,7 @@ function parseArguments(raw: string): Record<string, unknown> {
 }
 
 function toolLabel(name: string): string {
+  if (name.startsWith('mcp:')) return name.split(':').slice(1).join(' ').replaceAll('_', ' ')
   return (name.split(':').pop() ?? name).replaceAll('_', ' ')
 }
 
@@ -22,6 +23,8 @@ function toolTarget(call: ToolCall): string {
       return args.url
     }
   }
+  if (typeof args.path === 'string') return args.path
+  if (Array.isArray(args.argv)) return args.argv.map(String).join(' ')
   return typeof args.query === 'string' ? args.query : ''
 }
 
