@@ -214,6 +214,18 @@ async def run_message(request: dict[str, Any]) -> None:
                 {"path": path},
             )
             return
+        if text.startswith("E2E_MCP:"):
+            tool, _, raw = text.removeprefix("E2E_MCP:").partition("|")
+            await run_execute_prompt(
+                request_id,
+                chat_id,
+                message_id,
+                f"mcp:e2e:{tool.strip()}",
+                json.loads(raw)
+                if raw.startswith("{")
+                else ({"text": raw} if raw else {}),
+            )
+            return
         if text.startswith("E2E_COMMAND:"):
             argv = text.removeprefix("E2E_COMMAND:").split()
             await run_execute_prompt(

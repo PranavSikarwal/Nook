@@ -241,6 +241,7 @@ async function main() {
     const baseUrl = isLive ? required('NOOK_BASE_URL') : 'http://127.0.0.1:9/v1'
     const model = isLive ? required('NOOK_MODEL') : 'nook-e2e-no-network'
     const filesDir = path.join(tempRoot, 'files')
+    const mcpExample = path.join(daemonDir, 'target', 'debug', 'examples', 'fake_mcp_server')
     if (isDeterministic) {
       await mkdir(filesDir)
       await writeFile(path.join(filesDir, 'notes.txt'), 'e2e notes')
@@ -260,6 +261,12 @@ async function main() {
             '',
             '[tools.terminal]',
             'enabled = true',
+            '',
+            '[[tools.mcp_servers]]',
+            'name = "e2e"',
+            `command = ${JSON.stringify(mcpExample)}`,
+            'args = ["normal"]',
+            `read_paths = [${JSON.stringify(path.dirname(mcpExample))}]`,
             '',
           ]
         : []),
@@ -314,6 +321,9 @@ async function main() {
         'build', '-p', 'nookd',
         ...(isDeterministic ? ['--features', 'e2e'] : []),
       ], { cwd: daemonDir, env })
+      if (isDeterministic) {
+        await run('cargo', ['build', '-p', 'nook-core', '--example', 'fake_mcp_server'], { cwd: daemonDir, env })
+      }
       await run('npm', ['exec', '--', 'tauri', 'build', '--debug', '--no-bundle', '--features', 'e2e', '--config', 'src-tauri/tauri.e2e.conf.json'], { cwd: panelDir, env })
       try {
         await run('npm', ['exec', '--', 'wdio', 'run', 'e2e/wdio.conf.mjs'], { cwd: panelDir, env })

@@ -123,3 +123,21 @@ tools:
         - id: deny
           label: "Deny"
           description: "Reject this command. It does not run."
+
+  mcp:*:
+    display_name: "MCP tool"
+    description: "Call a tool of an MCP server that you configured. The server runs in a sandbox."
+    capabilities:
+      local: true
+    approval:
+      tier: ask
+      actions:
+        - id: allow_once
+          label: "Allow once"
+          description: "Allow this exact call one time."
+        - id: allow_for_chat
+          label: "Allow this tool for this chat"
+          description: "Allow this tool of this server for the rest of this chat."
+        - id: deny
+          label: "Deny"
+          description: "Reject this call. The tool does not run."

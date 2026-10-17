@@ -89,6 +89,16 @@ pub struct McpServerConfig {
     pub env: BTreeMap<String, String>,
     #[serde(default)]
     pub network: bool,
+    #[serde(default)]
+    pub read_paths: Vec<String>,
+    #[serde(default)]
+    pub write_paths: Vec<String>,
+    #[serde(default = "default_mcp_timeout_seconds")]
+    pub timeout_seconds: u64,
+}
+
+fn default_mcp_timeout_seconds() -> u64 {
+    60
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -405,6 +415,9 @@ name = "files"
 command = "npx"
 args = ["-y", "server"]
 env = { TOKEN = "x" }
+read_paths = ["/opt/tools"]
+write_paths = ["/work/cache"]
+timeout_seconds = 20
 "#;
         let cfg: Config = toml::from_str(text).unwrap();
 
@@ -412,6 +425,9 @@ env = { TOKEN = "x" }
         assert_eq!(cfg.tools.filesystem.roots[1].access, RootAccess::ReadWrite);
         assert!(cfg.tools.terminal.enabled && cfg.tools.terminal.network);
         assert_eq!(cfg.tools.mcp_servers[0].args, ["-y", "server"]);
+        assert_eq!(cfg.tools.mcp_servers[0].read_paths, ["/opt/tools"]);
+        assert_eq!(cfg.tools.mcp_servers[0].timeout_seconds, 20);
+        assert!(!cfg.tools.mcp_servers[0].network);
         let again: Config = toml::from_str(&toml::to_string_pretty(&cfg).unwrap()).unwrap();
         assert_eq!(again, cfg);
     }

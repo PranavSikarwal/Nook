@@ -436,3 +436,30 @@ def test_command_prompt_splits_the_words_into_argv(worker):
         }
     )
     assert joined_text(worker.collect_until_finished()) == "Tool ok: exit code: 0"
+
+
+def test_mcp_prompt_names_the_server_tool_and_passes_the_arguments(worker):
+    run = worker.run('E2E_MCP:echo|{"text": "hi"}')
+    worker.expect("message_started")
+    event = worker.expect("execute_tool")
+
+    assert event["tool_name"] == "mcp:e2e:echo"
+    assert json.loads(event["arguments"]) == {"text": "hi"}
+    worker.send(
+        {
+            "type": "tool_result",
+            "request_id": run["request_id"],
+            "call_id": event["call_id"],
+            "status": "ok",
+            "output": "echo: hi",
+        }
+    )
+    assert joined_text(worker.collect_until_finished()) == "Tool ok: echo: hi"
+
+
+def test_mcp_prompt_takes_plain_text_for_the_text_argument(worker):
+    worker.run("E2E_MCP:echo|from mcp")
+    worker.expect("message_started")
+    event = worker.expect("execute_tool")
+
+    assert json.loads(event["arguments"]) == {"text": "from mcp"}

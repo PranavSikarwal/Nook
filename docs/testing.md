@@ -67,6 +67,11 @@ The script starts a `rust:1-bookworm` container with bubblewrap and relaxed
 container security options, because bubblewrap needs namespaces and `/proc`.
 Without arguments it runs clippy and the whole Daemon test suite.
 
+`filesystem_tool_tests.rs`, `terminal_tool_tests.rs`, and `mcp_tool_tests.rs` run
+the real policy files, a real provider, and the fake Worker through the whole
+approval flow. The MCP tests start `examples/fake_mcp_server.rs` inside the
+sandbox. Cargo builds that example with `cargo test`.
+
 `provider_execution_tests.rs` runs the Daemon execute path with a test provider
 and the fake Worker. It covers approval, denial, grants, errors, the output
 limit, invalid arguments, the Worker and Daemon tool mix-ups, expiry, and

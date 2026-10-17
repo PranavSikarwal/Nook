@@ -104,6 +104,8 @@ pub trait Provider: Send + Sync {
 }
 
 pub mod filesystem;
+#[cfg(unix)]
+pub mod mcp;
 pub mod roots;
 pub mod terminal;
 
@@ -256,15 +258,28 @@ pub async fn build_registry(tools: &crate::config::ToolsConfig) -> ProviderRegis
     } else if !tools.filesystem.roots.is_empty() {
         tracing::warn!("File tools are off: this platform has no sandbox");
     }
-    if tools.terminal.enabled {
+    let needs_sandbox = tools.terminal.enabled || !tools.mcp_servers.is_empty();
+    if needs_sandbox {
         match crate::sandbox::Sandbox::detect().await {
             Ok(sandbox) => {
                 tracing::info!(sandbox = sandbox.name(), "The command sandbox works");
-                if let Some(terminal) = terminal::TerminalProvider::new(tools, sandbox) {
+                if let Some(terminal) = terminal::TerminalProvider::new(tools, sandbox.clone()) {
                     providers.push(Arc::new(terminal));
                 }
+                #[cfg(unix)]
+                if !tools.mcp_servers.is_empty() {
+                    if let Some(mcp) = mcp::McpProvider::start(
+                        &tools.mcp_servers,
+                        &sandbox,
+                        mcp::StartupLimits::default(),
+                    )
+                    .await
+                    {
+                        providers.push(Arc::new(mcp));
+                    }
+                }
             }
-            Err(error) => tracing::warn!("The terminal tool is off: {error}"),
+            Err(error) => tracing::warn!("Terminal and MCP tools are off: {error}"),
         }
     }
     match ProviderRegistry::new(providers) {

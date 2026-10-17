@@ -84,3 +84,12 @@ forbid (
 ) when {
   ["sudo", "su", "doas", "pkexec", "osascript"].contains(context.executable_name)
 };
+
+// An MCP call needs a grant for this exact call or for this tool in this chat
+permit (
+  principal,
+  action == Nook::Action::"mcp_call",
+  resource
+) when {
+  context.grant_scope == "once" || context.grant_scope == "chat"
+};

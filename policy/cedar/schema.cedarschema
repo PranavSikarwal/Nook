@@ -43,6 +43,19 @@ namespace Nook {
     }
   };
 
+  action "mcp_call" appliesTo {
+    principal: [User],
+    resource: [Tool],
+    context: {
+      chat_id: String,
+      server: String,
+      tool: String,
+      approval_tier: String,
+      grant_scope: String,
+      argument_digest: String,
+    }
+  };
+
   action "run_command" appliesTo {
     principal: [User],
     resource: [Tool],

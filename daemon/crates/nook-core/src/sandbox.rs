@@ -138,14 +138,11 @@ impl Sandbox {
     }
 
     #[cfg(unix)]
-    pub async fn run(&self, spec: SandboxSpec) -> Result<SandboxOutput, SandboxError> {
-        if spec.argv.is_empty() {
-            return Err(SandboxError::Spawn("empty command".to_string()));
-        }
-        let mut command = match self.backend {
+    fn command(&self, spec: &SandboxSpec) -> Command {
+        match self.backend {
             Backend::Seatbelt => {
                 let mut command = Command::new("/usr/bin/sandbox-exec");
-                command.arg("-p").arg(seatbelt_profile(&spec));
+                command.arg("-p").arg(seatbelt_profile(spec));
                 command.args(&spec.argv);
                 command.current_dir(&spec.cwd);
                 command.env_clear();
@@ -154,11 +151,46 @@ impl Sandbox {
             }
             Backend::Bubblewrap { mount_proc } => {
                 let mut command = Command::new("bwrap");
-                command.args(bubblewrap_args(&spec, mount_proc));
+                command.args(bubblewrap_args(spec, mount_proc));
                 command.env_clear();
+                if let Some(path) = spec.env.get("PATH") {
+                    command.env("PATH", path);
+                }
                 command
             }
-        };
+        }
+    }
+
+    /// Starts a long-running process with piped standard streams. Dropping the
+    /// handle kills the whole process group.
+    #[cfg(unix)]
+    pub fn spawn(&self, spec: &SandboxSpec) -> Result<SandboxProcess, SandboxError> {
+        if spec.argv.is_empty() {
+            return Err(SandboxError::Spawn("empty command".to_string()));
+        }
+        let mut command = self.command(spec);
+        command
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true)
+            .process_group(0);
+        let child = command
+            .spawn()
+            .map_err(|e| SandboxError::Spawn(e.to_string()))?;
+        let group = GroupKill(child.id().map(|pid| pid as i32));
+        Ok(SandboxProcess {
+            child,
+            _group: group,
+        })
+    }
+
+    #[cfg(unix)]
+    pub async fn run(&self, spec: SandboxSpec) -> Result<SandboxOutput, SandboxError> {
+        if spec.argv.is_empty() {
+            return Err(SandboxError::Spawn("empty command".to_string()));
+        }
+        let mut command = self.command(&spec);
         command
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -210,6 +242,12 @@ impl Sandbox {
             truncated: stdout_truncated || stderr_truncated,
         })
     }
+}
+
+#[cfg(unix)]
+pub struct SandboxProcess {
+    pub child: tokio::process::Child,
+    _group: GroupKill,
 }
 
 #[cfg(unix)]
