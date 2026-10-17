@@ -232,6 +232,7 @@ def main() -> int:
     parser.add_argument("--resources", required=True, type=Path)
     parser.add_argument("--database-url", required=True)
     args = parser.parse_args()
+    args.resources = args.resources.resolve()
 
     daemon_exe = args.resources / "daemon" / "nookd"
     worker_exe = args.resources / "worker" / "release_entry"
