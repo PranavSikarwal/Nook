@@ -7,7 +7,8 @@ a user-managed dependency.
 
 GitHub Releases publish a macOS Apple Silicon disk image, a Debian package, and
 Windows installer packages. Package verification checks that the bundled Daemon
-and Worker runtime exist in each platform artifact.
+and Worker runtime exist in each platform artifact. On macOS and Ubuntu it also
+runs the staged Daemon and Worker through an allowed and a denied tool call.
 
 The macOS installer places `Nook.app` in the user Applications directory. It
 keeps application data, including `config.toml`, in

@@ -153,6 +153,39 @@ jobs:
           cd "$CHECK_CWD"
           env -u NOOK_POLICY_DIR "$LAYOUT_DIR/daemon/$NOOKD" --check-policy
 
+      - name: Start PostgreSQL for the approval check
+        if: runner.os != 'Windows'
+        shell: bash
+        env:
+          RUNNER_OS: ${{ runner.os }}
+        run: |
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            brew install postgresql@16
+            PG_BIN="$(brew --prefix postgresql@16)/bin"
+            brew services start postgresql@16
+            echo "$PG_BIN" >> "$GITHUB_PATH"
+            export PATH="$PG_BIN:$PATH"
+            echo "NOOK_PKG_DATABASE_URL=postgresql://$USER@localhost:5432/postgres" >> "$GITHUB_ENV"
+          else
+            sudo apt-get install -y postgresql postgresql-client
+            sudo systemctl start postgresql
+            sudo -u postgres createuser --superuser "$USER"
+            echo "NOOK_PKG_DATABASE_URL=postgresql:///postgres?host=/var/run/postgresql" >> "$GITHUB_ENV"
+          fi
+          for _ in $(seq 1 30); do
+            pg_isready -q && break
+            sleep 1
+          done
+          pg_isready
+
+      - name: Run an approval through the staged Daemon and Worker
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          python3 scripts/package-approval-check.py \
+            --resources panel/src-tauri/resources \
+            --database-url "$NOOK_PKG_DATABASE_URL"
+
       - name: Build and package Tauri app
         id: package
         continue-on-error: true

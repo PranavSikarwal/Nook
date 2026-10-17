@@ -113,6 +113,22 @@ The live native test calls your model endpoint. It reads `NOOK_BASE_URL`,
 printing them, then run `rtk npm run test:e2e:live`. It covers a news query and
 the fetch flow: deny, allow once, a chat and host grant, and cancel.
 
+`scripts/package-approval-check.py` runs the staged release Daemon, the staged
+Worker (the PyInstaller build), and the staged policy through two tool calls. It
+plays the Panel and a fake model endpoint. The fake model asks for `web_fetch`
+in each chat. The script allows the first call and denies the second. It checks
+that the allowed reply resumes with the model's answer, that the model received
+the tool result, and that the denied call never starts and never reaches the
+model. It creates and drops one PostgreSQL database. The package workflow runs
+it on macOS and Ubuntu. It does not run on Windows, because it uses a Unix
+socket. Run it by hand from a staged layout:
+
+```sh
+python3 scripts/package-approval-check.py \
+  --resources panel/src-tauri/resources \
+  --database-url postgresql://USER@localhost:5432/postgres
+```
+
 The package workflow runs `nookd --check-policy` on the staged Daemon. It runs
 once with `NOOK_POLICY_DIR` set and once from a copy of the resource layout
 without it. `scripts/bundle.sh` runs the same check on the macOS bundle. These
