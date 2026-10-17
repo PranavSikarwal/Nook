@@ -18,6 +18,7 @@ approval. Items 7 and 9 are settled. Item 8 waits.
 | 9. Image search | Stays out. | none |
 | 10. File write fails when the prompt gives no path | Fixed. The file and command tools now list the allowed folders. A live test with `gpt-6-luna` failed 3 of 4 scenarios before the fix and passed all 4 after. | this change |
 | 11. Notice for rejected calls | Open. The Worker ends a reply with "Request denied. I stopped here." for every rejection, including a path outside the allowed folders. The user never denied anything. Waits for a decision. | none |
+| 12. Daemon stays alive after the Panel quits | Open, found on October 18, 2026. After a normal quit, the installed app's Daemon (process 42719) kept the socket and ignored SIGTERM for over 15 seconds, so a new Panel would have used the old Daemon. It needed SIGKILL. Cause not found. `daemon.log` shows no SIGTERM line, but the Panel stops writing that file when it quits. Needs a repro. | none |
 
 Found on the way: the Panel's Daemon check ignored its socket argument, so a test
 passed only while a real Daemon ran (fixed in `b6c6b71`), and the first native
