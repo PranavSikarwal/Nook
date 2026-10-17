@@ -24,16 +24,17 @@ mkdir -p "$BUNDLE_DIR/Contents/Resources/worker"
 cp "$PANEL_DIR/src-tauri/target/release/nook-panel" "$BUNDLE_DIR/Contents/MacOS/Nook"
 chmod +x "$BUNDLE_DIR/Contents/MacOS/Nook"
 
-# Embed nookd daemon binary into bundle so the app starts it automatically
+echo "Building the Daemon..."
+cargo build --manifest-path "$ROOT_DIR/daemon/Cargo.toml" --release --locked -p nookd
+
 NOOKD_SRC="$ROOT_DIR/daemon/target/release/nookd"
-if [ ! -f "$NOOKD_SRC" ]; then
-    NOOKD_SRC="$ROOT_DIR/daemon/target/debug/nookd"
+if [ ! -x "$NOOKD_SRC" ]; then
+    echo "Error: the Daemon executable is missing at $NOOKD_SRC" >&2
+    exit 1
 fi
-if [ -f "$NOOKD_SRC" ]; then
-    cp "$NOOKD_SRC" "$BUNDLE_DIR/Contents/Resources/daemon/nookd"
-    chmod +x "$BUNDLE_DIR/Contents/Resources/daemon/nookd"
-    echo "Embedded nookd into app bundle at Contents/Resources/daemon/nookd"
-fi
+cp "$NOOKD_SRC" "$BUNDLE_DIR/Contents/Resources/daemon/nookd"
+chmod +x "$BUNDLE_DIR/Contents/Resources/daemon/nookd"
+echo "Embedded nookd into app bundle at Contents/Resources/daemon/nookd"
 
 WORKER_VENV_PYINSTALLER="$ROOT_DIR/worker/.venv/bin/pyinstaller"
 if [ ! -x "$WORKER_VENV_PYINSTALLER" ]; then
