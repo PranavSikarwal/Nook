@@ -37,8 +37,11 @@ use crate::policy_assets::PolicyAssets;
 use crate::protocol::{
     Attachment, ClientMessage, DaemonMessage, DaemonWorkerRequest, ErrorCode, ErrorInfo,
 };
+use crate::providers::ProviderRegistry;
 use crate::supervisor::WorkerSupervisor;
-use crate::tool_approval::{deny_pending_for_request, handle_approval_decision};
+use crate::tool_approval::{
+    abort_running_tools, deny_pending_for_request, handle_approval_decision,
+};
 
 #[derive(Debug, Clone)]
 pub struct PendingApprovalEntry {
@@ -48,6 +51,7 @@ pub struct PendingApprovalEntry {
     pub decision_in_flight: bool,
     pub request: AuthorizationRequest,
     pub offered_actions: Vec<String>,
+    pub execution: Option<crate::tool_approval::Execution>,
 }
 
 pub fn claim_pending_approval(
@@ -89,6 +93,8 @@ pub struct AppState {
     pub pending_approvals: Mutex<HashMap<String, PendingApprovalEntry>>, // maps call_id -> entry
     pub cancelled_requests: Mutex<HashSet<Uuid>>,
     pub approval_timeout: Duration,
+    pub providers: Arc<ProviderRegistry>,
+    pub running_tools: Mutex<HashMap<Uuid, Vec<(String, tokio::task::AbortHandle)>>>,
     pub policy: Arc<PolicyAssets>,
 }
 
@@ -592,6 +598,7 @@ async fn process_client_message(
                 cancelled.insert(target_id);
             }
             deny_pending_for_request(&state, target_id, "Cancelled").await;
+            abort_running_tools(&state, target_id).await;
 
             let worker_req_id = {
                 let open_reqs = state.open_requests.lock().await;

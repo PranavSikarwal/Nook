@@ -97,7 +97,7 @@ def test_daemon_worker_examples_valid() -> None:
     examples = load_ndjson(EXAMPLES_DIR / "daemon-worker.ndjson")
     validator = Draft7Validator(schema, format_checker=format_checker)
 
-    assert len(examples) == 17, f"Expected 17 example lines, found {len(examples)}"
+    assert len(examples) == 21, f"Expected 21 example lines, found {len(examples)}"
 
     for idx, obj in enumerate(examples, 1):
         errors = list(validator.iter_errors(obj))
@@ -306,6 +306,51 @@ def test_panel_daemon_invalid_payloads_rejected(
             "tool_name": "web_fetch",
             "arguments": '{"url":"https://docs.example.com"}',
             "arguments_digest": "abc123",  # Worker must never send a digest
+        },
+        {
+            "type": "execute_tool",
+            "request_id": "11111111-1111-1111-1111-111111111111",
+            "message_id": "22222222-2222-2222-2222-222222222222",
+            "call_id": "call_read_1",
+            "chat_id": "33333333-3333-3333-3333-333333333333",
+            "tool_name": "nook:read_local_file",
+            "arguments": '{"path":"/work/a.txt"}',
+            "digest": "abc123",  # Worker must never send a digest
+        },
+        {
+            "type": "tool_result",
+            "request_id": "11111111-1111-1111-1111-111111111111",
+            "call_id": "call_read_1",
+            "status": "maybe",  # invalid status
+            "output": "x",
+        },
+        {
+            "type": "tool_result",
+            "request_id": "11111111-1111-1111-1111-111111111111",
+            "call_id": "call_read_1",
+            "status": "ok",  # missing "output"
+        },
+        {
+            "type": "tool_catalog",
+            "tools": [
+                {
+                    "id": "nook:bad",
+                    "name": "bad name!",  # invalid model name
+                    "description": "x",
+                    "input_schema": {"type": "object"},
+                }
+            ],
+        },
+        {
+            "type": "tool_catalog",
+            "tools": [
+                {
+                    "id": "nook:bad",
+                    "name": "bad",
+                    "description": "x",
+                    "input_schema": {"type": "string"},  # not an object schema
+                }
+            ],
         },
     ],
 )

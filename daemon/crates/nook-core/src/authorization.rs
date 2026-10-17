@@ -1,6 +1,8 @@
 use crate::policy_assets::ToolCatalog;
+use crate::providers::{ProviderError, ProviderRegistry};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
+use std::collections::BTreeMap;
 use thiserror::Error;
 use url::{Host, Url};
 use uuid::Uuid;
@@ -30,11 +32,18 @@ pub struct AuthorizationRequest {
     pub tool_name: String,
     pub arguments: Value,
     pub target_host: Option<String>,
+    pub target_path: Option<String>,
+    pub target_dir: Option<String>,
+    pub facts: BTreeMap<String, String>,
+    pub summary: Option<String>,
     pub approval_tier: String,
     pub argument_digest: String,
 }
 
 const WEB_FETCH_TOOL: &str = "nook:web_fetch";
+
+/// Tools the Worker runs itself. Every other tool needs a Daemon provider.
+pub const WORKER_TOOLS: &[&str] = &["nook:web_search", "nook:web_fetch"];
 
 impl AuthorizationRequest {
     pub fn normalize(
@@ -44,26 +53,73 @@ impl AuthorizationRequest {
         tool_name: &str,
         arguments_json: &str,
     ) -> Result<Self, AuthorizationError> {
+        Self::normalize_with(catalog, None, chat_id, call_id, tool_name, arguments_json)
+    }
+
+    pub fn normalize_with(
+        catalog: &ToolCatalog,
+        providers: Option<&ProviderRegistry>,
+        chat_id: Uuid,
+        call_id: &str,
+        tool_name: &str,
+        arguments_json: &str,
+    ) -> Result<Self, AuthorizationError> {
         let spec = catalog
-            .tool(tool_name)
+            .resolve(tool_name)
             .ok_or_else(|| AuthorizationError::UnknownTool(tool_name.to_string()))?;
         let arguments: Value = serde_json::from_str(arguments_json)
             .map_err(|e| AuthorizationError::InvalidArguments(e.to_string()))?;
         if !arguments.is_object() {
             return Err(AuthorizationError::ArgumentsNotObject);
         }
-        let target_host = if tool_name == WEB_FETCH_TOOL {
-            Some(fetch_target_host(&arguments)?)
-        } else {
-            None
-        };
         let argument_digest = digest_arguments(&arguments);
+        let mut facts = BTreeMap::new();
+        let mut target_host = None;
+        let mut target_path = None;
+        let mut target_dir = None;
+        let mut summary = None;
+        if let Some(registry) = providers.filter(|registry| registry.contains(tool_name)) {
+            let tool_facts = registry.facts(tool_name, &arguments).map_err(|e| match e {
+                ProviderError::InvalidArguments(message) => {
+                    AuthorizationError::InvalidArguments(message)
+                }
+                ProviderError::UnknownTool => {
+                    AuthorizationError::UnknownTool(tool_name.to_string())
+                }
+            })?;
+            facts = tool_facts.context;
+            target_host = tool_facts.target_host;
+            target_path = tool_facts.target_path;
+            target_dir = tool_facts.target_dir;
+            summary = Some(tool_facts.summary);
+        } else if tool_name == WEB_FETCH_TOOL {
+            let host = fetch_target_host(&arguments)?;
+            facts.insert("host".to_string(), host.clone());
+            facts.insert(
+                "url".to_string(),
+                arguments
+                    .get("url")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string(),
+            );
+            target_host = Some(host);
+        } else if !WORKER_TOOLS.contains(&tool_name) {
+            return Err(AuthorizationError::UnknownTool(tool_name.to_string()));
+        }
+        if tool_name == WEB_FETCH_TOOL || target_host.is_some() || !facts.is_empty() {
+            facts.insert("argument_digest".to_string(), argument_digest.clone());
+        }
         Ok(Self {
             chat_id,
             call_id: call_id.to_string(),
             tool_name: tool_name.to_string(),
             arguments,
             target_host,
+            target_path,
+            target_dir,
+            facts,
+            summary,
             approval_tier: spec.approval.tier.clone(),
             argument_digest,
         })
@@ -74,6 +130,9 @@ impl AuthorizationRequest {
     }
 
     pub fn resource_summary(&self) -> String {
+        if let Some(summary) = &self.summary {
+            return summary.clone();
+        }
         if let (Some(url), Some(host)) = (self.url(), self.target_host.as_deref()) {
             return format!("{url} ({host})");
         }

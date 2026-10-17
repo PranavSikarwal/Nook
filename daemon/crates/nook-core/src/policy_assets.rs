@@ -6,11 +6,16 @@ use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 pub(crate) const TOOL_NAMESPACE: &str = "nook:";
-const KNOWN_TIERS: &[&str] = &["allow", "ask_once_per_host", "deny"];
+pub(crate) const MCP_PREFIX: &str = "mcp:";
+pub(crate) const MCP_ENTRY: &str = "mcp:*";
+pub(crate) const MCP_ACTION: &str = "mcp_call";
+const KNOWN_TIERS: &[&str] = &["allow", "ask", "ask_once_per_host", "deny"];
 pub const APPROVAL_ACTIONS: &[(&str, Option<&str>)] = &[
     ("allow_once", Some("once")),
     ("allow_for_chat", Some("chat")),
     ("allow_for_chat_host", Some("chat_host")),
+    ("allow_for_chat_path", Some("chat_path")),
+    ("allow_for_chat_dir", Some("chat_dir")),
     ("always_allow", Some("persistent")),
     ("deny", None),
 ];
@@ -73,13 +78,25 @@ impl ToolCatalog {
         self.tools.get(name)
     }
 
+    /// Finds the entry for a tool. All MCP tools share the `mcp:*` entry.
+    pub fn resolve(&self, name: &str) -> Option<&ToolSpec> {
+        if name.starts_with(MCP_PREFIX) {
+            return self.tools.get(MCP_ENTRY);
+        }
+        self.tools.get(name)
+    }
+
     fn validate(&self, authorizer: &CedarAuthorizer) -> Result<(), PolicyAssetsError> {
         for (name, spec) in &self.tools {
-            let cedar_action = name.strip_prefix(TOOL_NAMESPACE).ok_or_else(|| {
-                PolicyAssetsError::ToolsInvalid(format!(
-                    "tool {name} must start with {TOOL_NAMESPACE}"
-                ))
-            })?;
+            let cedar_action = if name == MCP_ENTRY {
+                MCP_ACTION
+            } else {
+                name.strip_prefix(TOOL_NAMESPACE).ok_or_else(|| {
+                    PolicyAssetsError::ToolsInvalid(format!(
+                        "tool {name} must start with {TOOL_NAMESPACE}"
+                    ))
+                })?
+            };
             if !authorizer.has_action(cedar_action) {
                 return Err(PolicyAssetsError::ToolsInvalid(format!(
                     "tool {name} has no Cedar action {cedar_action}"

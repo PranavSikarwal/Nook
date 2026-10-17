@@ -1,5 +1,5 @@
 import json
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
@@ -87,13 +87,41 @@ class AuthorizationResultRequest(BaseModel):
     reason: str | None = None
 
 
+class ToolDescriptor(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(min_length=1)
+    name: str = Field(pattern=r"^[A-Za-z0-9_-]{1,64}$")
+    description: str = Field(min_length=1)
+    input_schema: dict[str, Any]
+
+
+class ToolCatalogRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["tool_catalog"] = "tool_catalog"
+    tools: list[ToolDescriptor]
+
+
+class ToolResultRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["tool_result"] = "tool_result"
+    request_id: UUID
+    call_id: str
+    status: Literal["ok", "error", "denied"]
+    output: str
+
+
 RequestMessage = Annotated[
     RunRequest
     | TitleRequest
     | CancelRequest
     | DeleteChatRequest
     | ShutdownRequest
-    | AuthorizationResultRequest,
+    | AuthorizationResultRequest
+    | ToolCatalogRequest
+    | ToolResultRequest,
     Field(discriminator="type"),
 ]
 
@@ -155,6 +183,18 @@ class AuthorizeToolEvent(BaseModel):
     arguments: str
 
 
+class ExecuteToolEvent(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["execute_tool"] = "execute_tool"
+    request_id: UUID
+    message_id: UUID
+    call_id: str
+    chat_id: UUID
+    tool_name: str
+    arguments: str
+
+
 class MessageFinishedEvent(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -195,6 +235,7 @@ EventMessage = Annotated[
     | ToolCallStartedEvent
     | ToolCallFinishedEvent
     | AuthorizeToolEvent
+    | ExecuteToolEvent
     | MessageFinishedEvent
     | TitleReadyEvent
     | DeletedEvent

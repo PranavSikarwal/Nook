@@ -23,6 +23,8 @@ fn state() -> Arc<AppState> {
         pending_approvals: Mutex::new(HashMap::new()),
         cancelled_requests: Mutex::new(HashSet::new()),
         approval_timeout: APPROVAL_TIMEOUT,
+        providers: std::sync::Arc::new(nook_core::providers::ProviderRegistry::empty()),
+        running_tools: tokio::sync::Mutex::new(std::collections::HashMap::new()),
         policy: Arc::new(PolicyAssets::load(&policy_dir).unwrap()),
     })
 }

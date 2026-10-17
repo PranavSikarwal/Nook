@@ -1,5 +1,5 @@
 use crate::authorization::AuthorizationRequest;
-use crate::policy_assets::TOOL_NAMESPACE;
+use crate::policy_assets::{MCP_ACTION, MCP_PREFIX, TOOL_NAMESPACE};
 use cedar_policy::{
     Authorizer, Context, Decision, Entities, Entity, EntityUid, PolicySet, Request, Schema,
     ValidationMode, Validator,
@@ -34,26 +34,45 @@ pub struct ScopedGrant {
     pub tool_name: String,
     pub scope: String,
     pub host: Option<String>,
+    pub path: Option<String>,
     pub argument_digest: Option<String>,
 }
 
 pub fn cedar_action_name(tool_name: &str) -> &str {
+    if tool_name.starts_with(MCP_PREFIX) {
+        return MCP_ACTION;
+    }
     tool_name.strip_prefix(TOOL_NAMESPACE).unwrap_or(tool_name)
+}
+
+/// The name a grant is stored under. MCP grants name the exact tool.
+pub fn grant_key(tool_name: &str) -> &str {
+    if tool_name.starts_with(MCP_PREFIX) {
+        return tool_name;
+    }
+    cedar_action_name(tool_name)
+}
+
+fn path_is_inside(directory: &str, target: &str) -> bool {
+    Path::new(target).starts_with(directory)
 }
 
 impl ScopedGrant {
     pub fn for_request(request: &AuthorizationRequest, scope: &str) -> Option<Self> {
-        let (host, argument_digest) = match scope {
-            "chat" | "persistent" => (None, None),
-            "chat_host" => (Some(request.target_host.clone()?), None),
-            "once" => (None, Some(request.argument_digest.clone())),
+        let (host, path, argument_digest) = match scope {
+            "chat" | "persistent" => (None, None, None),
+            "chat_host" => (Some(request.target_host.clone()?), None, None),
+            "chat_path" => (None, Some(request.target_path.clone()?), None),
+            "chat_dir" => (None, Some(request.target_dir.clone()?), None),
+            "once" => (None, None, Some(request.argument_digest.clone())),
             _ => return None,
         };
         Some(Self {
             chat_id: request.chat_id,
-            tool_name: cedar_action_name(&request.tool_name).to_string(),
+            tool_name: grant_key(&request.tool_name).to_string(),
             scope: scope.to_string(),
             host,
+            path,
             argument_digest,
         })
     }
@@ -63,6 +82,7 @@ impl ScopedGrant {
         chat_id: Uuid,
         tool_name: &str,
         host: Option<&str>,
+        target_path: Option<&str>,
         argument_digest: Option<&str>,
     ) -> bool {
         if self.tool_name != tool_name {
@@ -73,6 +93,16 @@ impl ScopedGrant {
             "chat" => self.chat_id == chat_id,
             "chat_host" => {
                 self.chat_id == chat_id && host.is_some() && self.host.as_deref() == host
+            }
+            "chat_path" => {
+                self.chat_id == chat_id
+                    && target_path.is_some()
+                    && self.path.as_deref() == target_path
+            }
+            "chat_dir" => {
+                self.chat_id == chat_id
+                    && matches!((self.path.as_deref(), target_path),
+                        (Some(directory), Some(target)) if path_is_inside(directory, target))
             }
             "once" => {
                 self.chat_id == chat_id
@@ -114,17 +144,18 @@ impl GrantStore {
         chat_id: Uuid,
         tool_name: &str,
         host: Option<&str>,
+        target_path: Option<&str>,
         argument_digest: Option<&str>,
     ) -> Vec<String> {
         let mut scopes: Vec<String> = self
             .grants
             .iter()
-            .filter(|g| g.matches(chat_id, tool_name, host, argument_digest))
+            .filter(|g| g.matches(chat_id, tool_name, host, target_path, argument_digest))
             .map(|g| g.scope.clone())
             .collect();
         scopes.sort_by_key(|scope| match scope.as_str() {
-            "chat_host" => 0,
-            "chat" => 1,
+            "chat_host" | "chat_path" => 0,
+            "chat_dir" | "chat" => 1,
             "persistent" => 2,
             _ => 3,
         });
@@ -241,11 +272,17 @@ impl CedarAuthorizer {
         if request.approval_tier == "deny" {
             return Ok(false);
         }
-        let action_name = cedar_action_name(&request.tool_name);
+        let key = grant_key(&request.tool_name);
         let host = request.target_host.as_deref();
+        let target_path = request.target_path.as_deref();
         let argument_digest = request.argument_digest.as_str();
-        let mut scopes =
-            store.matching_scopes(request.chat_id, action_name, host, Some(argument_digest));
+        let mut scopes = store.matching_scopes(
+            request.chat_id,
+            key,
+            host,
+            target_path,
+            Some(argument_digest),
+        );
         scopes.push("none".to_string());
         for scope in scopes {
             if self.evaluate(request, &scope)? {
@@ -266,8 +303,6 @@ impl CedarAuthorizer {
         grant_scope: &str,
     ) -> Result<bool, PolicyError> {
         let action_name = cedar_action_name(&request.tool_name);
-        let host = request.target_host.as_deref();
-        let argument_digest = request.argument_digest.as_str();
 
         let principal = EntityUid::from_str("Nook::User::\"local_user\"")
             .map_err(|e| PolicyError::Evaluation(e.to_string()))?;
@@ -288,16 +323,8 @@ impl CedarAuthorizer {
         );
         context_map.insert("grant_scope".to_string(), make_str_expr(grant_scope)?);
 
-        if action_name == "web_fetch" {
-            context_map.insert("host".to_string(), make_str_expr(host.unwrap_or(""))?);
-            context_map.insert(
-                "url".to_string(),
-                make_str_expr(request.url().unwrap_or(""))?,
-            );
-            context_map.insert(
-                "argument_digest".to_string(),
-                make_str_expr(argument_digest)?,
-            );
+        for (name, value) in &request.facts {
+            context_map.insert(name.clone(), make_str_expr(value)?);
         }
 
         let context =
@@ -364,6 +391,7 @@ mod tests {
             tool_name: "web_fetch".to_string(),
             scope: "once".to_string(),
             host: None,
+            path: None,
             argument_digest: Some(req.argument_digest.clone()),
         });
         assert!(auth.authorize_tool(&req).await.unwrap());
@@ -389,6 +417,7 @@ mod tests {
             tool_name: "web_fetch".to_string(),
             scope: "chat_host".to_string(),
             host: Some("docs.example.com".to_string()),
+            path: None,
             argument_digest: None,
         });
 
@@ -405,6 +434,7 @@ mod tests {
             tool_name: tool.to_string(),
             scope: scope.to_string(),
             host: None,
+            path: None,
             argument_digest: None,
         }
     }
@@ -557,7 +587,7 @@ mod tests {
         assert!(store.remove(&chat));
         assert!(!store.remove(&chat));
         assert_eq!(
-            store.matching_scopes(chat_id, "web_search", None, None),
+            store.matching_scopes(chat_id, "web_search", None, None, None),
             vec!["persistent".to_string()]
         );
     }
@@ -580,14 +610,14 @@ mod tests {
         store.add_grant(grant(other_chat, "web_search", "chat"));
         store.remove_chat(chat_id);
         assert_eq!(
-            store.matching_scopes(chat_id, "web_search", None, None),
+            store.matching_scopes(chat_id, "web_search", None, None, None),
             vec!["persistent".to_string()]
         );
         assert!(store
-            .matching_scopes(chat_id, "web_fetch", Some("a.example"), Some("d"))
+            .matching_scopes(chat_id, "web_fetch", Some("a.example"), None, Some("d"))
             .is_empty());
         assert_eq!(
-            store.matching_scopes(other_chat, "web_search", None, None),
+            store.matching_scopes(other_chat, "web_search", None, None, None),
             vec!["chat".to_string(), "persistent".to_string()]
         );
     }
@@ -602,7 +632,7 @@ mod tests {
         });
         store.add_grant(grant(chat_id, "web_search", "chat"));
         assert_eq!(
-            store.matching_scopes(chat_id, "web_search", None, Some("d")),
+            store.matching_scopes(chat_id, "web_search", None, None, Some("d")),
             vec!["chat".to_string(), "once".to_string()]
         );
     }

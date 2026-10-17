@@ -36,6 +36,7 @@ pub(crate) async fn handle_send_message(
             cancelled.remove(&id);
             let mut approvals = st_clone.pending_approvals.lock().await;
             approvals.retain(|_, v| v.client_request_id != id);
+            st_clone.running_tools.lock().await.remove(&id);
         }
     };
 
@@ -263,6 +264,35 @@ pub(crate) async fn handle_send_message(
                         chat_id: event_chat_id,
                         tool_name,
                         arguments,
+                        execute: false,
+                    },
+                    &tx_out,
+                )
+                .await;
+            }
+
+            DaemonWorkerEvent::ExecuteTool {
+                message_id,
+                call_id,
+                chat_id: event_chat_id,
+                tool_name,
+                arguments,
+                ..
+            } => {
+                handle_authorize_tool(
+                    &state,
+                    &AuthorizeContext {
+                        client_request_id: id,
+                        worker_request_id: worker_req_id,
+                        chat_id,
+                    },
+                    AuthorizeToolCall {
+                        message_id,
+                        call_id,
+                        chat_id: event_chat_id,
+                        tool_name,
+                        arguments,
+                        execute: true,
                     },
                     &tx_out,
                 )
@@ -354,6 +384,7 @@ pub(crate) async fn handle_send_message(
         cancelled.remove(&id);
         let mut approvals = state.pending_approvals.lock().await;
         approvals.retain(|_, v| v.client_request_id != id);
+        state.running_tools.lock().await.remove(&id);
     }
 }
 

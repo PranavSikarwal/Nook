@@ -7,6 +7,8 @@ pub mod message_stream;
 pub mod policy;
 pub mod policy_assets;
 pub mod protocol;
+pub mod providers;
+pub mod sandbox;
 pub mod server;
 pub mod supervisor;
 pub mod tool_approval;

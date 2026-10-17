@@ -10,7 +10,9 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::config::Config;
-use crate::protocol::{DaemonWorkerEvent, DaemonWorkerRequest, ErrorCode, ErrorInfo};
+use crate::protocol::{
+    DaemonWorkerEvent, DaemonWorkerRequest, ErrorCode, ErrorInfo, ToolDescriptor,
+};
 
 #[derive(thiserror::Error, Debug)]
 pub enum SupervisorError {
@@ -32,6 +34,7 @@ struct Inner {
 #[derive(Clone)]
 pub struct WorkerSupervisor {
     inner: Arc<Mutex<Inner>>,
+    tools: Arc<Vec<ToolDescriptor>>,
 }
 
 fn find_worker_directory() -> Option<PathBuf> {
@@ -212,6 +215,15 @@ impl WorkerSupervisor {
         api_key: Option<String>,
         custom_command: Option<Vec<String>>,
     ) -> Result<Self, SupervisorError> {
+        Self::with_tools(config, api_key, custom_command, Vec::new()).await
+    }
+
+    pub async fn with_tools(
+        config: &Config,
+        api_key: Option<String>,
+        custom_command: Option<Vec<String>>,
+        tools: Vec<ToolDescriptor>,
+    ) -> Result<Self, SupervisorError> {
         let command_args = resolve_worker_command(config, custom_command);
 
         let mut env_vars = HashMap::new();
@@ -238,7 +250,10 @@ impl WorkerSupervisor {
             shutdown_tx,
         }));
 
-        let supervisor = Self { inner };
+        let supervisor = Self {
+            inner,
+            tools: Arc::new(tools),
+        };
 
         // Start initial process and wait for ready
         let (first_ready_tx, first_ready_rx) = tokio::sync::oneshot::channel();
@@ -426,6 +441,15 @@ impl WorkerSupervisor {
 
         // Stdin writing channel
         let (stdin_tx, mut stdin_rx) = mpsc::channel::<String>(100);
+        if !self.tools.is_empty() {
+            let catalog = DaemonWorkerRequest::ToolCatalog {
+                tools: self.tools.as_ref().clone(),
+            };
+            if let Ok(mut payload) = serde_json::to_string(&catalog) {
+                payload.push('\n');
+                let _ = stdin_tx.send(payload).await;
+            }
+        }
         {
             let mut inner = self.inner.lock().await;
             inner.stdin_tx = Some(stdin_tx);
@@ -484,6 +508,7 @@ impl WorkerSupervisor {
             | DaemonWorkerEvent::ToolCallStarted { request_id, .. }
             | DaemonWorkerEvent::ToolCallFinished { request_id, .. }
             | DaemonWorkerEvent::AuthorizeTool { request_id, .. }
+            | DaemonWorkerEvent::ExecuteTool { request_id, .. }
             | DaemonWorkerEvent::MessageFinished { request_id, .. }
             | DaemonWorkerEvent::TitleReady { request_id, .. }
             | DaemonWorkerEvent::Deleted { request_id, .. }
@@ -544,6 +569,8 @@ impl WorkerSupervisor {
             // A result shares the running reply's request_id. Registering a
             // listener for it would replace the reply's sender.
             DaemonWorkerRequest::AuthorizationResult { .. }
+            | DaemonWorkerRequest::ToolCatalog { .. }
+            | DaemonWorkerRequest::ToolResult { .. }
             | DaemonWorkerRequest::Cancel { .. }
             | DaemonWorkerRequest::Shutdown => None,
         };

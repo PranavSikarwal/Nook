@@ -6,6 +6,7 @@ sys.stdout.write(json.dumps({"type": "ready", "version": "0.1.0"}) + "\n")
 sys.stdout.flush()
 
 tool_on_cancel = {}
+catalog = []
 
 
 def emit(event):
@@ -44,6 +45,50 @@ for line in sys.stdin:
         ):
             sys.stdout.write(json.dumps(event) + "\n")
         sys.stdout.flush()
+    elif req_type == "run" and req.get("text", "").startswith("execute:"):
+        msg_id = "44444444-4444-4444-4444-444444444444"
+        call_id, tool_name, arguments = req["text"][len("execute:") :].split("|", 2)
+        emit({"type": "message_started", "request_id": req_id, "message_id": msg_id})
+        emit(
+            {
+                "type": "execute_tool",
+                "request_id": req_id,
+                "message_id": msg_id,
+                "call_id": call_id,
+                "chat_id": req.get("chat_id"),
+                "tool_name": tool_name,
+                "arguments": arguments,
+            }
+        )
+    elif req_type == "run" and req.get("text") == "catalog?":
+        msg_id = "44444444-4444-4444-4444-444444444444"
+        emit({"type": "message_started", "request_id": req_id, "message_id": msg_id})
+        emit(
+            {
+                "type": "text_delta",
+                "request_id": req_id,
+                "message_id": msg_id,
+                "text": "Catalog: " + json.dumps(catalog),
+            }
+        )
+    elif req_type == "tool_catalog":
+        catalog = req.get("tools", [])
+    elif req_type == "tool_result":
+        emit(
+            {
+                "type": "text_delta",
+                "request_id": req_id,
+                "message_id": "44444444-4444-4444-4444-444444444444",
+                "text": "ToolResult: "
+                + json.dumps(
+                    {
+                        "call_id": req.get("call_id"),
+                        "status": req.get("status"),
+                        "output": req.get("output"),
+                    }
+                ),
+            }
+        )
     elif req_type == "run" and req.get("text", "").startswith("tools:"):
         msg_id = "44444444-4444-4444-4444-444444444444"
         call_id = req["text"][len("tools:") :]

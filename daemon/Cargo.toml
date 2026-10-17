@@ -31,3 +31,5 @@ sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio",
 url = "2.5"
 idna = "1.0"
 sha2 = "0.10"
+async-trait = "0.1"
+jsonschema = { version = "0.30", default-features = false }

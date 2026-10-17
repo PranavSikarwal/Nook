@@ -91,6 +91,41 @@ arguments`, `Unknown tool`, `Denied by the user`, `Authorization failed`, `Appro
 `Cancelled`. It never contains error detail. The Daemon writes the detail to its
 log.
 
+## Tools that the Daemon runs
+
+The Daemon runs tools that can touch the local machine. These tools reach the
+Worker through a catalog, and the Worker asks the Daemon to run each call.
+
+- `tool_catalog` goes from Daemon to Worker once, right after the Worker reports
+  `ready`. It lists each tool with `id`, `name` (the name the model sees),
+  `description`, and `input_schema` (a JSON Schema of type `object`). The
+  Daemon sends no catalog when it has no such tool.
+- `execute_tool` goes from Worker to Daemon. It has the same fields as
+  `authorize_tool`.
+- `tool_result` goes from Daemon to Worker. It carries `request_id`, `call_id`,
+  `status` (`ok`, `error`, or `denied`), and `output`.
+
+The Worker steps:
+
+1. The Worker builds one tool for each catalog entry and rebuilds its agent.
+2. The Worker checks the arguments against `input_schema`. It sends nothing if
+   they do not match.
+3. The Worker sends `execute_tool` and waits for `tool_result` with the same
+   `request_id` and `call_id`.
+4. The Worker returns `output` to the model. If `status` is `denied`, it marks
+   the reply denied, and the reply ends as it does for a web tool.
+
+The Daemon steps are the authorization steps above, with two changes. After an
+allow, the Daemon sends `tool_call_started` to the Panel, runs the tool, sends
+`tool_call_finished`, and then sends `tool_result`. After a deny, it sends
+`tool_result` with `denied` and the fixed reason, and no tool events.
+
+The Daemon rejects a mix-up between the two paths. `authorize_tool` for a tool
+that runs in the Daemon gets `deny` with `Tool runs in the Daemon`.
+`execute_tool` for a tool that runs in the Worker gets `denied` with `Tool runs
+in the Worker`. `output` is cut at 64 KiB. Cancel aborts a running call and
+sends no `tool_result`.
+
 ## Verification
 
 Run the contract test suite after changing a schema or an example:

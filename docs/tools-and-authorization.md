@@ -30,6 +30,31 @@ host in lowercase IDNA ASCII, using the UTS 46 rules of the `idna` crate and the
 `contracts/host-vectors.json` lists accepted and rejected URLs, and a test on
 each side reads it.
 
+## Tools that run in the Daemon
+
+Tools that read files, run commands, or call MCP servers run in the Daemon, not
+in the Worker. [ADR 0007](adr/0007-daemon-runs-privileged-tools-in-a-native-sandbox.md)
+records why. The plan is in
+[plans/tp7-tp13-tool-providers.md](plans/tp7-tp13-tool-providers.md).
+
+A provider groups these tools. At startup the Daemon builds a registry from the
+config, checks every tool descriptor, and gives the Worker the catalog. A
+descriptor is rejected if its name is not `a-z`, `0-9`, `_`, or `-` up to 64
+characters, if it collides with a Worker tool or a Deep Agents tool, if its
+description is empty, or if its input schema is not a valid object schema. The
+Daemon checks the arguments of every call against the schema before it asks
+Cedar.
+
+The sandbox runs commands with explicit read roots, write roots, a network flag,
+a filtered environment, a working directory, a timeout, and an output limit.
+macOS uses Seatbelt (`sandbox-exec`) with a deny-by-default profile. Linux uses
+bubblewrap. The Daemon runs a self-test at startup. If it fails, the Daemon does
+not offer terminal or MCP tools and logs the reason. On Windows there is no
+sandbox, so those tools stay off.
+
+On timeout, cancel, or exit, the Daemon kills the whole process group, so a
+background child cannot outlive the call.
+
 ## Policy files
 
 - `policy/tools.yaml` contains tool metadata, limits, approval tiers, and

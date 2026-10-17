@@ -8,6 +8,7 @@ from uuid import UUID, uuid4
 
 from nook_worker.protocol import (
     AuthorizeToolEvent,
+    ExecuteToolEvent,
     ToolCallFinishedEvent,
     ToolCallStartedEvent,
     format_event,
@@ -18,6 +19,13 @@ logger = logging.getLogger("nook_worker.authorization")
 Decision = Literal["allow", "deny"]
 CallKey = tuple[UUID, str]
 MAX_TOOL_RESULT_CHARS = 2000
+ToolStatus = Literal["ok", "error", "denied"]
+
+
+@dataclass(frozen=True)
+class ToolOutcome:
+    status: ToolStatus
+    output: str
 
 
 @dataclass(frozen=True)
@@ -43,10 +51,14 @@ _current_run_context: ContextVar[RunContext | None] = ContextVar(
 class AuthorizationManager:
     """Asks the Daemon to authorize each tool call and waits for its result."""
 
-    def __init__(self, authorization_timeout: float = 300.0) -> None:
+    def __init__(
+        self, authorization_timeout: float = 300.0, execution_timeout: float = 900.0
+    ) -> None:
         self._waiting: dict[CallKey, asyncio.Future[AuthorizationDecision]] = {}
+        self._waiting_results: dict[CallKey, asyncio.Future[ToolOutcome]] = {}
         self._denied: set[UUID] = set()
         self._authorization_timeout = authorization_timeout
+        self._execution_timeout = execution_timeout
 
     def set_context(
         self,
@@ -105,6 +117,47 @@ class AuthorizationManager:
         finally:
             self._waiting.pop(key, None)
 
+    async def execute(self, tool_name: str, arguments: str) -> ToolOutcome:
+        ctx = _current_run_context.get()
+        if ctx is None:
+            return ToolOutcome(status="denied", output="no active run")
+
+        call_id = f"call_{uuid4().hex}"
+        key = (ctx.request_id, call_id)
+        future: asyncio.Future[ToolOutcome] = asyncio.get_running_loop().create_future()
+        self._waiting_results[key] = future
+        event = ExecuteToolEvent(
+            request_id=ctx.request_id,
+            message_id=ctx.message_id,
+            call_id=call_id,
+            chat_id=ctx.chat_id,
+            tool_name=tool_name,
+            arguments=arguments,
+        )
+        try:
+            await ctx.write_line(format_event(event))
+            outcome = await asyncio.wait_for(future, self._execution_timeout)
+            if outcome.status == "denied":
+                self.mark_denied(ctx.request_id)
+            return outcome
+        except TimeoutError:
+            self.mark_denied(ctx.request_id)
+            return ToolOutcome(status="denied", output="tool timed out")
+        finally:
+            self._waiting_results.pop(key, None)
+
+    def resolve_tool_result(
+        self, request_id: UUID, call_id: str, status: ToolStatus, output: str
+    ) -> bool:
+        future = self._waiting_results.get((request_id, call_id))
+        if future is None or future.done():
+            logger.debug(
+                "ignored tool result: request_id=%s call_id=%s", request_id, call_id
+            )
+            return False
+        future.set_result(ToolOutcome(status=status, output=output))
+        return True
+
     async def emit_tool_started(
         self, call_id: str, tool_name: str, arguments: str
     ) -> None:
@@ -162,6 +215,9 @@ class AuthorizationManager:
         for (waiting_request_id, _), future in list(self._waiting.items()):
             if waiting_request_id == request_id and not future.done():
                 future.cancel()
+        for (waiting_request_id, _), result in list(self._waiting_results.items()):
+            if waiting_request_id == request_id and not result.done():
+                result.cancel()
 
 
 default_authorization_manager = AuthorizationManager()

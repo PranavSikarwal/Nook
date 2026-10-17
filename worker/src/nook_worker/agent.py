@@ -1,5 +1,5 @@
 import json
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable, Sequence
 from typing import Any, Protocol
 from uuid import UUID, uuid4
 
@@ -33,8 +33,10 @@ from nook_worker.protocol import (
     MessageStartedEvent,
     RunRequest,
     TextDeltaEvent,
+    ToolDescriptor,
 )
 from nook_worker.registry import ToolArgumentError, ToolDefinition, default_registry
+from nook_worker.remote_tools import build_remote_tools
 from nook_worker.tools.fetch import (
     StrictWebFetchInput,
     WebFetchInput,
@@ -182,6 +184,7 @@ def build_deep_agent(
     model: ChatOpenAI,
     config: WorkerConfig,
     checkpointer: BaseCheckpointSaver | None = None,
+    remote_tools: Sequence[StructuredTool] = (),
 ) -> Any:
     register_agent_profile(config.model)
     backend = StateBackend()
@@ -236,7 +239,7 @@ def build_deep_agent(
 
     return create_deep_agent(
         model=model,
-        tools=tools,
+        tools=[*tools, *remote_tools],
         backend=backend,
         checkpointer=checkpointer,
         middleware=[custom_summarization],
@@ -279,8 +282,17 @@ def _extract_chunk_call_id(chunk: Any, metadata: Any) -> str | None:
 
 
 class RealAgentRunner:
-    def __init__(self, agent: Any) -> None:
+    def __init__(
+        self,
+        agent: Any,
+        rebuild: Callable[[list[StructuredTool]], Any] | None = None,
+    ) -> None:
         self._agent = agent
+        self._rebuild = rebuild
+
+    def apply_catalog(self, descriptors: list[ToolDescriptor]) -> None:
+        if self._rebuild is not None:
+            self._agent = self._rebuild(build_remote_tools(descriptors))
 
     async def run(
         self, request: RunRequest, message_id: UUID | None = None

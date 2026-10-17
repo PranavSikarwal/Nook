@@ -2,6 +2,7 @@ use nook_core::config::Config;
 use nook_core::db;
 use nook_core::keychain;
 use nook_core::policy_assets::{find_policy_directory, PolicyAssets};
+use nook_core::providers::ProviderRegistry;
 use nook_core::server::{AppState, Server};
 use nook_core::supervisor::WorkerSupervisor;
 use std::collections::HashMap;
@@ -77,7 +78,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     }
 
     // 6. Start Worker supervisor
-    let supervisor = match WorkerSupervisor::new(&config, api_key, e2e_worker_command()).await {
+    let providers = Arc::new(ProviderRegistry::empty());
+    let supervisor = match WorkerSupervisor::with_tools(
+        &config,
+        api_key,
+        e2e_worker_command(),
+        providers.descriptors().to_vec(),
+    )
+    .await
+    {
         Ok(sup) => {
             info!("Worker supervisor initialized");
             Some(sup)
@@ -98,6 +107,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         pending_approvals: Mutex::new(HashMap::new()),
         cancelled_requests: Mutex::new(std::collections::HashSet::new()),
         approval_timeout: approval_timeout(),
+        providers,
+        running_tools: tokio::sync::Mutex::new(std::collections::HashMap::new()),
         policy,
     });
 

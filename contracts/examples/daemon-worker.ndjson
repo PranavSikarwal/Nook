@@ -5,12 +5,16 @@
 {"type":"shutdown"}
 {"type":"authorization_result","request_id":"55555555-5555-5555-5555-555555555551","call_id":"call_fetch_1","decision":"allow"}
 {"type":"authorization_result","request_id":"55555555-5555-5555-5555-555555555551","call_id":"call_fetch_2","decision":"deny","reason":"Host is not allowed by policy"}
+{"type":"tool_catalog","tools":[{"id":"nook:read_local_file","name":"read_local_file","description":"Read a text file inside an allowed folder.","input_schema":{"type":"object","properties":{"path":{"type":"string"}},"required":["path"]}}]}
+{"type":"tool_result","request_id":"55555555-5555-5555-5555-555555555551","call_id":"call_read_1","status":"ok","output":"hello"}
+{"type":"tool_result","request_id":"55555555-5555-5555-5555-555555555551","call_id":"call_read_2","status":"denied","output":"Denied by the user"}
 {"type":"ready","version":"0.1.0"}
 {"type":"message_started","request_id":"55555555-5555-5555-5555-555555555551","message_id":"44444444-4444-4444-4444-444444444444"}
 {"type":"text_delta","request_id":"55555555-5555-5555-5555-555555555551","message_id":"44444444-4444-4444-4444-444444444444","text":"The capital is Paris."}
 {"type":"tool_call_started","request_id":"55555555-5555-5555-5555-555555555551","message_id":"44444444-4444-4444-4444-444444444444","call_id":"call_123","name":"get_weather","arguments":"{\"city\":\"Paris\"}"}
 {"type":"tool_call_finished","request_id":"55555555-5555-5555-5555-555555555551","message_id":"44444444-4444-4444-4444-444444444444","call_id":"call_123","result":"{\"temp\":20}"}
 {"type":"authorize_tool","request_id":"55555555-5555-5555-5555-555555555551","message_id":"44444444-4444-4444-4444-444444444444","call_id":"call_fetch_1","chat_id":"22222222-2222-2222-2222-222222222222","tool_name":"nook:web_fetch","arguments":"{\"url\":\"https://docs.example.com\"}"}
+{"type":"execute_tool","request_id":"55555555-5555-5555-5555-555555555551","message_id":"44444444-4444-4444-4444-444444444444","call_id":"call_read_1","chat_id":"22222222-2222-2222-2222-222222222222","tool_name":"nook:read_local_file","arguments":"{\"path\":\"/work/notes.txt\"}"}
 {"type":"message_finished","request_id":"55555555-5555-5555-5555-555555555551","message_id":"44444444-4444-4444-4444-444444444444","status":"complete"}
 {"type":"title_ready","request_id":"55555555-5555-5555-5555-555555555552","title":"Capital of France"}
 {"type":"deleted","request_id":"55555555-5555-5555-5555-555555555553","chat_id":"22222222-2222-2222-2222-222222222222"}

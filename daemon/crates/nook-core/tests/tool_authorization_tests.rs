@@ -92,6 +92,8 @@ impl Harness {
             pending_approvals: Mutex::new(HashMap::new()),
             cancelled_requests: Mutex::new(HashSet::new()),
             approval_timeout,
+            providers: std::sync::Arc::new(nook_core::providers::ProviderRegistry::empty()),
+            running_tools: tokio::sync::Mutex::new(std::collections::HashMap::new()),
             policy,
         });
         let (panel_tx, panel_rx) = mpsc::channel(32);
@@ -163,6 +165,7 @@ impl Harness {
                 chat_id,
                 tool_name,
                 arguments,
+                execute: false,
             },
             &self.panel_tx,
         )
@@ -216,7 +219,7 @@ impl Harness {
             .grant_store()
             .lock()
             .await
-            .matching_scopes(chat_id, tool, host, None)
+            .matching_scopes(chat_id, tool, host, None, None)
             .len()
     }
 }

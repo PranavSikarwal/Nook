@@ -53,6 +53,25 @@ policy loading and for host and digest normalization.
 Worker tests in `worker/tests/test_authorization.py` cover the wait for a
 Daemon result, mismatched ids, timeout, and cancel.
 
+Sandbox tests in `daemon/crates/nook-core/tests/sandbox_tests.rs` prove the
+boundary on the real OS sandbox: reads and writes outside the roots, network
+access, environment leaks, working directory, timeout, output limit, and process
+group cleanup. They skip with a message when the sandbox is missing, unless
+`NOOK_REQUIRE_SANDBOX` is set. Run them on Linux from the repository root:
+
+```sh
+scripts/test-linux.sh --test sandbox_tests
+```
+
+The script starts a `rust:1-bookworm` container with bubblewrap and relaxed
+container security options, because bubblewrap needs namespaces and `/proc`.
+Without arguments it runs clippy and the whole Daemon test suite.
+
+`provider_execution_tests.rs` runs the Daemon execute path with a test provider
+and the fake Worker. It covers approval, denial, grants, errors, the output
+limit, invalid arguments, the Worker and Daemon tool mix-ups, expiry, and
+cancel.
+
 The deterministic native tests use `panel/e2e/fake_worker.py`. It sends
 `authorize_tool`, waits for `authorization_result`, and sends tool events only
 after `allow`. `panel/e2e/test_fake_worker.py` checks every message it sends

@@ -34,6 +34,8 @@ from nook_worker.protocol import (
     ShutdownRequest,
     TitleReadyEvent,
     TitleRequest,
+    ToolCatalogRequest,
+    ToolResultRequest,
     format_event,
     parse_request,
 )
@@ -181,6 +183,16 @@ def _dispatch_request(
             request_id=req_id, call_id=call_id, decision=decision, reason=reason
         ):
             default_authorization_manager.resolve(req_id, call_id, decision, reason)
+        case ToolCatalogRequest(tools=tools):
+            apply_catalog = getattr(runner, "apply_catalog", None)
+            if apply_catalog is not None:
+                apply_catalog(tools)
+        case ToolResultRequest(
+            request_id=req_id, call_id=call_id, status=status, output=output
+        ):
+            default_authorization_manager.resolve_tool_result(
+                req_id, call_id, status, output
+            )
         case RunRequest(request_id=req_id):
             _spawn_tracked_task(
                 handle_run(req, runner, write_line), req_id, active_tasks
@@ -297,7 +309,12 @@ async def _async_main() -> None:
         checkpointer = await setup_checkpointer(pool)
         model = create_model(config)
         agent = build_deep_agent(model, config, checkpointer)
-        runner = RealAgentRunner(agent)
+        runner = RealAgentRunner(
+            agent,
+            rebuild=lambda remote_tools: build_deep_agent(
+                model, config, checkpointer, remote_tools
+            ),
+        )
 
         async def title_fn(first_message: str) -> str:
             return await generate_title(model, first_message)

@@ -270,6 +270,8 @@
             "allow_once",
             "allow_for_chat",
             "allow_for_chat_host",
+            "allow_for_chat_path",
+            "allow_for_chat_dir",
             "always_allow",
             "deny"
           ]
@@ -293,6 +295,8 @@
             "allow_once",
             "allow_for_chat",
             "allow_for_chat_host",
+            "allow_for_chat_path",
+            "allow_for_chat_dir",
             "always_allow",
             "deny"
           ]

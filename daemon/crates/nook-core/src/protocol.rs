@@ -225,6 +225,22 @@ pub enum AuthorizationDecision {
     Deny,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolStatus {
+    Ok,
+    Error,
+    Denied,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ToolDescriptor {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub input_schema: serde_json::Value,
+}
+
 /// Requests sent from the Daemon to the Worker.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -252,6 +268,15 @@ pub enum DaemonWorkerRequest {
         call_id: String,
         decision: AuthorizationDecision,
         reason: Option<String>,
+    },
+    ToolCatalog {
+        tools: Vec<ToolDescriptor>,
+    },
+    ToolResult {
+        request_id: Uuid,
+        call_id: String,
+        status: ToolStatus,
+        output: String,
     },
     Shutdown,
 }
@@ -286,6 +311,14 @@ pub enum DaemonWorkerEvent {
         result: String,
     },
     AuthorizeTool {
+        request_id: Uuid,
+        message_id: Uuid,
+        call_id: String,
+        chat_id: Uuid,
+        tool_name: String,
+        arguments: String,
+    },
+    ExecuteTool {
         request_id: Uuid,
         message_id: Uuid,
         call_id: String,
