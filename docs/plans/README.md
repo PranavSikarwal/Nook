@@ -8,6 +8,7 @@ plan identifies its scope, dependencies, verification work, and open decisions.
 - [Tool-platform closeout and next phase](tool-platform-closeout-and-next-phase.md)
 - [Tool platform open gaps](tool-platform-open-gaps.md)
 - [App integrations: Notes and Google Docs](app-integrations.md)
+- [Fixes for the open items](open-items-fixes.md)
 
 ## Archived plans
 

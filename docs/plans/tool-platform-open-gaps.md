@@ -61,10 +61,9 @@ Recorded on October 17, 2026.
 
 ## Clean-up for the owner
 
-12. **Stale Daemon.** Process `51038` of the installed app runs with a missing
-    socket. The installed Panel can attach to it. Quit and reopen the app, or run
-    `kill 51038`.
-13. **Test rows in the `nook` database.** Thread
+12. **Stale Daemon.** Closed on October 17, 2026. The owner stopped process `51038`.
+13. **Test rows in the `nook` database.** The owner chose to ignore them on
+    October 17, 2026. Thread
     `59103bac-6fc6-4425-bf97-673264f2ad8f` sits in `worker.checkpoint_writes`,
     `worker.checkpoint_blobs` and `worker.checkpoints`. It is not a chat. Delete
     the rows with that `thread_id` from the three tables.
