@@ -13,6 +13,15 @@ The macOS installer places `Nook.app` in the user Applications directory. It
 keeps application data, including `config.toml`, in
 `~/Library/Application Support/Nook` during upgrades.
 
+## Linux requirements
+
+The Debian package recommends `bubblewrap`. The command tool and MCP servers
+need it, and the Daemon checks it at startup. Without `bubblewrap`, or where the
+system blocks user namespaces, those tools are off and the Daemon logs why. The
+file tools, web tools, and search tools work without it. macOS needs nothing
+extra, because it ships `sandbox-exec`. Windows has no sandbox, so file access
+beyond the web tools stays off there.
+
 ## Configuration
 
 `database_url` identifies the PostgreSQL database. The installer does not

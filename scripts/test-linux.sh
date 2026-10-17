@@ -15,6 +15,8 @@ docker run --rm -i \
     --security-opt systempaths=unconfined \
     -e NOOK_REQUIRE_SANDBOX=1 \
     -e CARGO_TARGET_DIR=/tmp/target \
+    -e CARGO_PROFILE_DEV_DEBUG=0 \
+    -e CARGO_INCREMENTAL=0 \
     rust:1-bookworm sh -s -- "$@" <<'INNER'
 set -eu
 apt-get update -qq >/dev/null

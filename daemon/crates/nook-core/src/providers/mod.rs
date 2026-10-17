@@ -299,7 +299,7 @@ pub async fn build_registry(tools: &crate::config::ToolsConfig) -> ProviderRegis
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{FilesystemConfig, RootAccess, RootConfig, ToolsConfig};
+    use crate::config::ToolsConfig;
     use serde_json::json;
 
     struct Fixed(Vec<ToolDescriptor>);
@@ -451,6 +451,8 @@ mod tests {
     #[cfg(unix)]
     #[tokio::test]
     async fn the_builder_offers_file_tools_for_a_root() {
+        use crate::config::{FilesystemConfig, RootAccess, RootConfig};
+
         let dir = tempfile::tempdir().unwrap();
         let tools = ToolsConfig {
             filesystem: FilesystemConfig {

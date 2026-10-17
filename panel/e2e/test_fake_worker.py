@@ -383,7 +383,10 @@ def test_a_denied_tool_result_is_reported_in_the_reply(worker):
         }
     )
 
-    assert joined_text(worker.collect_until_finished()) == "Tool denied: Denied by the user"
+    assert (
+        joined_text(worker.collect_until_finished())
+        == "Tool denied: Denied by the user"
+    )
 
 
 def test_a_tool_result_for_another_call_is_ignored(worker):

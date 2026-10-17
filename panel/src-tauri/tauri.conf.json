@@ -48,6 +48,11 @@
     "macOS": {
       "minimumSystemVersion": "14.0",
       "signingIdentity": "-"
+    },
+    "linux": {
+      "deb": {
+        "recommends": ["bubblewrap"]
+      }
     }
   }
 }
