@@ -1,6 +1,25 @@
 # Plan: fixes for the open items
 
-Status: proposed. Items 1 to 5 need no decision. Items 6 to 9 wait for the owner.
+Status: items 1 to 5 and 4B are done. Items 6 to 9 follow the recommendations
+that the owner accepted on October 17, 2026. Item 6 has a design that waits for
+approval. Items 7 and 9 are settled. Item 8 waits.
+
+| Item | State | Commit |
+| --- | --- | --- |
+| 1. Close TP6 | Done. Package run 39016561692 passed on all three platforms. | `7ebf6bd` |
+| 2. Keep `config.toml` intact | Done. | `9848f31` |
+| 3. Links in replies | Done. The bug was real: a click replaced the Panel. | `b6c6b71` |
+| 4A. Daemon log file | Done. | `40a2521` |
+| 4B. Tools tab | Done. | `5bbfde1` |
+| 5. Hugging Face hang | Not reproducible. Waits for the live checklist. | none |
+| 6. Notes route | Design written, waits for approval. | `a194561` |
+| 7. Native-system design | Replaced by the Notes design. | `a194561` |
+| 8. Secrets in `env` | Waits, as recommended. | none |
+| 9. Image search | Stays out. | none |
+
+Found on the way: the Panel's Daemon check ignored its socket argument, so a test
+passed only while a real Daemon ran (fixed in `b6c6b71`), and the first native
+test raced the Panel's own readiness check (fixed in `5bbfde1`).
 
 Written on October 17, 2026, after the Stage 2 work on PR #32. Each item names
 the evidence, the cause, the fix, the test that fails first, and the check.
