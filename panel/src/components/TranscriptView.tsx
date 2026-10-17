@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { ApprovalRequest, ChatMessage } from '../lib/types'
 import { ApprovalCard } from './ApprovalCard'
 import { MarkdownRenderer } from './MarkdownRenderer'
+import { ToolCallStatus } from './ToolCallStatus'
 
 interface TranscriptViewProps {
   readonly messages: readonly ChatMessage[]
@@ -131,6 +132,8 @@ export function TranscriptView({
               className="max-w-[95%] w-full bg-white/4 border border-white/8 px-4 py-3 rounded-2xl rounded-tl-sm text-sm select-text"
             >
               {renderAssistantContent(msg)}
+
+              <ToolCallStatus calls={msg.tool_calls ?? []} replyIsActive={msg.status === 'streaming'} />
 
               {msg.status === 'streaming' && !activeApproval && (
                 <div className="flex items-center gap-1.5 mt-2 text-xs text-purple-400 font-medium select-none">

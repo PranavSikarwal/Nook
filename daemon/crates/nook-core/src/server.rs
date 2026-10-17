@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 #[cfg(windows)]
 use tokio::net::windows::named_pipe::{NamedPipeServer, ServerOptions};
@@ -24,14 +25,23 @@ use windows_sys::Win32::Security::{
 #[cfg(windows)]
 use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 
+use crate::authorization::AuthorizationRequest;
 use crate::config::Config;
 use crate::db;
 use crate::keychain;
-use crate::protocol::{
-    Attachment, ClientMessage, DaemonMessage, DaemonWorkerEvent, DaemonWorkerRequest, ErrorCode,
-    ErrorInfo, FinishStatus, MessageStatus,
+use crate::message_stream::handle_send_message;
+pub use crate::message_stream::{
+    forward_text_delta, forward_tool_call_event, forward_unless_cancelled,
 };
+use crate::policy_assets::PolicyAssets;
+use crate::protocol::{
+    Attachment, ClientMessage, DaemonMessage, DaemonWorkerRequest, ErrorCode, ErrorInfo,
+};
+use crate::providers::ProviderRegistry;
 use crate::supervisor::WorkerSupervisor;
+use crate::tool_approval::{
+    abort_running_tools, deny_pending_for_request, handle_approval_decision,
+};
 
 #[derive(Debug, Clone)]
 pub struct PendingApprovalEntry {
@@ -39,13 +49,17 @@ pub struct PendingApprovalEntry {
     pub client_request_id: Uuid,
     pub worker_request_id: Uuid,
     pub decision_in_flight: bool,
+    pub request: AuthorizationRequest,
+    pub offered_actions: Vec<String>,
+    pub execution: Option<crate::tool_approval::Execution>,
 }
 
 pub fn claim_pending_approval(
     approvals: &mut HashMap<String, PendingApprovalEntry>,
     call_id: &str,
     chat_id: Uuid,
-) -> Result<Uuid, &'static str> {
+    action: &str,
+) -> Result<PendingApprovalEntry, &'static str> {
     match approvals.get_mut(call_id) {
         Some(entry) if entry.chat_id != chat_id => {
             Err("Approval call ID does not belong to the specified chat")
@@ -53,27 +67,60 @@ pub fn claim_pending_approval(
         Some(entry) if entry.decision_in_flight => {
             Err("Approval decision is already being forwarded")
         }
+        Some(entry)
+            if !entry
+                .offered_actions
+                .iter()
+                .any(|offered| offered == action) =>
+        {
+            Err("Approval action was not offered for this call")
+        }
         Some(entry) => {
             entry.decision_in_flight = true;
-            Ok(entry.worker_request_id)
+            Ok(entry.clone())
         }
         None => Err("Unknown or invalid approval call id"),
+    }
+}
+
+/// The database pool. It is empty when the Daemon starts without a database
+/// and holds the pool once a later connection attempt works.
+#[derive(Default)]
+pub struct DbPool(std::sync::RwLock<Option<PgPool>>);
+
+impl DbPool {
+    pub fn new(pool: Option<PgPool>) -> Self {
+        Self(std::sync::RwLock::new(pool))
+    }
+
+    pub fn get(&self) -> Option<PgPool> {
+        self.0.read().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    pub fn set(&self, pool: PgPool) {
+        *self.0.write().unwrap_or_else(|e| e.into_inner()) = Some(pool);
     }
 }
 
 pub struct AppState {
     pub config: RwLock<Config>,
     pub config_path: PathBuf,
-    pub pool: Option<PgPool>,
+    pub pool: DbPool,
     pub supervisor: Mutex<Option<WorkerSupervisor>>,
     pub preserve_worker_on_settings_update: bool,
     pub open_requests: Mutex<HashMap<Uuid, Uuid>>, // maps client id -> worker request_id
     pub pending_approvals: Mutex<HashMap<String, PendingApprovalEntry>>, // maps call_id -> entry
     pub cancelled_requests: Mutex<HashSet<Uuid>>,
+    pub approval_timeout: Duration,
+    pub providers: Arc<ProviderRegistry>,
+    pub running_tools: Mutex<HashMap<Uuid, Vec<(String, tokio::task::AbortHandle)>>>,
+    pub policy: Arc<PolicyAssets>,
 }
 
 pub struct Server {
     socket_path: PathBuf,
+    #[cfg(unix)]
+    socket_inode: u64,
     #[cfg(unix)]
     listener: UnixListener,
     #[cfg(windows)]
@@ -151,6 +198,13 @@ impl Server {
         #[cfg(unix)]
         {
             if socket_path.exists() {
+                if std::os::unix::net::UnixStream::connect(socket_path).is_ok() {
+                    return Err(format!(
+                        "Another daemon is already listening on {}",
+                        socket_path.display()
+                    )
+                    .into());
+                }
                 fs::remove_file(socket_path)?;
             } else if let Some(parent) = socket_path.parent() {
                 fs::create_dir_all(parent)?;
@@ -167,6 +221,7 @@ impl Server {
 
             Ok(Self {
                 socket_path: socket_path.to_path_buf(),
+                socket_inode: std::os::unix::fs::MetadataExt::ino(&fs::metadata(socket_path)?),
                 listener,
                 shutdown_rx,
                 state,
@@ -212,7 +267,9 @@ impl Server {
                 }
             }
 
-            if self.socket_path.exists() {
+            let still_ours = fs::metadata(&self.socket_path)
+                .is_ok_and(|meta| std::os::unix::fs::MetadataExt::ino(&meta) == self.socket_inode);
+            if still_ours {
                 let _ = fs::remove_file(&self.socket_path);
             }
 
@@ -391,7 +448,11 @@ async fn process_client_message(
                 let mut cfg = state.config.write().await;
                 cfg.base_url = base_url.clone();
                 cfg.model = model.clone();
-                let _ = cfg.save_to_file(&state.config_path);
+                if let Err(error) =
+                    Config::update_model_settings(&state.config_path, &base_url, &model)
+                {
+                    warn!("Could not save the settings to config.toml: {error}");
+                }
             }
 
             // Restart supervisor with updated settings without holding mutex across shutdown
@@ -399,7 +460,14 @@ async fn process_client_message(
                 let old_sup_to_shutdown = {
                     let cfg = state.config.read().await;
                     let key = keychain::get_api_key();
-                    match WorkerSupervisor::new(&cfg, key, None).await {
+                    match WorkerSupervisor::with_tools(
+                        &cfg,
+                        key,
+                        None,
+                        state.providers.descriptors().to_vec(),
+                    )
+                    .await
+                    {
                         Ok(new_sup) => {
                             let mut sup_guard = state.supervisor.lock().await;
                             sup_guard.replace(new_sup)
@@ -429,8 +497,8 @@ async fn process_client_message(
         }
 
         ClientMessage::ListChats { id } => {
-            if let Some(ref pool) = state.pool {
-                match db::list_chats(pool).await {
+            if let Some(pool) = state.pool.get() {
+                match db::list_chats(&pool).await {
                     Ok(chats) => {
                         let _ = tx_out.send(DaemonMessage::Chats { id, chats }).await;
                     }
@@ -462,8 +530,8 @@ async fn process_client_message(
         }
 
         ClientMessage::GetChat { id, chat_id } => {
-            if let Some(ref pool) = state.pool {
-                match db::get_chat(pool, chat_id).await {
+            if let Some(pool) = state.pool.get() {
+                match db::get_chat(&pool, chat_id).await {
                     Ok(Some((title, messages))) => {
                         let _ = tx_out
                             .send(DaemonMessage::Chat {
@@ -514,6 +582,14 @@ async fn process_client_message(
         }
 
         ClientMessage::DeleteChat { id, chat_id } => {
+            state
+                .policy
+                .authorizer
+                .grant_store()
+                .lock()
+                .await
+                .remove_chat(chat_id);
+
             // 1. Tell worker to delete thread memory
             let sup_opt = { state.supervisor.lock().await.clone() };
             if let Some(sup) = sup_opt {
@@ -531,8 +607,8 @@ async fn process_client_message(
             }
 
             // 2. Delete database row
-            if let Some(ref pool) = state.pool {
-                if let Err(e) = db::delete_chat(pool, chat_id).await {
+            if let Some(pool) = state.pool.get() {
+                if let Err(e) = db::delete_chat(&pool, chat_id).await {
                     error!("Failed to delete chat {chat_id} from database: {e}");
                 }
             }
@@ -551,10 +627,8 @@ async fn process_client_message(
                 let mut cancelled = state.cancelled_requests.lock().await;
                 cancelled.insert(target_id);
             }
-            {
-                let mut approvals = state.pending_approvals.lock().await;
-                approvals.retain(|_, v| v.client_request_id != target_id);
-            }
+            deny_pending_for_request(&state, target_id, "Cancelled").await;
+            abort_running_tools(&state, target_id).await;
 
             let worker_req_id = {
                 let open_reqs = state.open_requests.lock().await;
@@ -584,490 +658,58 @@ async fn process_client_message(
             handle_send_message(id, chat_id, text, attachments, state, tx_out).await;
         }
 
+        ClientMessage::ListPermissions { id } => {
+            send_permissions(&state, id, &tx_out).await;
+        }
+
+        ClientMessage::ListToolSources { id } => {
+            let sources = state.providers.sources();
+            let _ = tx_out
+                .send(DaemonMessage::ToolSources { id, sources })
+                .await;
+        }
+
+        ClientMessage::RevokeGrant { id, grant_id } => {
+            match crate::permissions::revoke_grant(&state, &grant_id).await {
+                Ok(()) => send_permissions(&state, id, &tx_out).await,
+                Err(message) => send_invalid_request(id, message, &tx_out).await,
+            }
+        }
+
+        ClientMessage::SetToolPreference { id, tool_id, tier } => {
+            match crate::permissions::set_preference(&state, &tool_id, &tier).await {
+                Ok(()) => send_permissions(&state, id, &tx_out).await,
+                Err(message) => send_invalid_request(id, message, &tx_out).await,
+            }
+        }
+
         ClientMessage::ApprovalDecision {
             id,
             chat_id,
             call_id,
             action,
         } => {
-            let decision_target = {
-                let mut approvals = state.pending_approvals.lock().await;
-                claim_pending_approval(&mut approvals, &call_id, chat_id)
-            };
-
-            match decision_target {
-                Ok(worker_req_id) => {
-                    let supervisor = state.supervisor.lock().await.clone();
-                    let decision_result = match supervisor {
-                        Some(supervisor) => supervisor
-                            .send_request(DaemonWorkerRequest::ApprovalDecision {
-                                request_id: worker_req_id,
-                                call_id: call_id.clone(),
-                                action,
-                            })
-                            .await
-                            .map(|_| ())
-                            .map_err(|error| {
-                                format!("Failed to forward approval decision: {error}")
-                            }),
-                        None => Err("Worker supervisor is not available".to_string()),
-                    };
-
-                    match decision_result {
-                        Ok(()) => {
-                            state.pending_approvals.lock().await.remove(&call_id);
-                        }
-                        Err(message) => {
-                            if let Some(entry) =
-                                state.pending_approvals.lock().await.get_mut(&call_id)
-                            {
-                                entry.decision_in_flight = false;
-                            }
-                            let _ = tx_out
-                                .send(DaemonMessage::Error {
-                                    id,
-                                    error: ErrorInfo {
-                                        code: ErrorCode::InvalidRequest,
-                                        message,
-                                        retryable: true,
-                                    },
-                                })
-                                .await;
-                        }
-                    }
-                }
-                Err(message) => {
-                    let _ = tx_out
-                        .send(DaemonMessage::Error {
-                            id,
-                            error: ErrorInfo {
-                                code: ErrorCode::InvalidRequest,
-                                message: message.to_string(),
-                                retryable: false,
-                            },
-                        })
-                        .await;
-                }
-            }
+            handle_approval_decision(&state, id, chat_id, call_id, action, &tx_out).await;
         }
     }
 }
 
-async fn handle_send_message(
-    id: Uuid,
-    chat_id: Uuid,
-    text: String,
-    attachments: Vec<Attachment>,
-    state: Arc<AppState>,
-    tx_out: mpsc::Sender<DaemonMessage>,
-) {
-    let worker_req_id = Uuid::new_v4();
-    {
-        let mut open_reqs = state.open_requests.lock().await;
-        open_reqs.insert(id, worker_req_id);
-    }
-
-    // Helper macro/closure to clean up on early exit
-    let cleanup = |st: &Arc<AppState>| {
-        let st_clone = st.clone();
-        async move {
-            let mut open_reqs = st_clone.open_requests.lock().await;
-            open_reqs.remove(&id);
-            let mut cancelled = st_clone.cancelled_requests.lock().await;
-            cancelled.remove(&id);
-            let mut approvals = st_clone.pending_approvals.lock().await;
-            approvals.retain(|_, v| v.client_request_id != id);
-        }
-    };
-
-    // 1. Validate
-    if text.trim().is_empty() && attachments.is_empty() {
-        cleanup(&state).await;
-        let _ = tx_out
-            .send(DaemonMessage::Error {
-                id,
-                error: ErrorInfo {
-                    code: ErrorCode::InvalidRequest,
-                    message: "Message text and attachments cannot both be empty".to_string(),
-                    retryable: false,
-                },
-            })
-            .await;
-        return;
-    }
-
-    if attachments.len() > 5 {
-        cleanup(&state).await;
-        let _ = tx_out
-            .send(DaemonMessage::Error {
-                id,
-                error: ErrorInfo {
-                    code: ErrorCode::AttachmentInvalid,
-                    message: "Attachments count exceeds maximum limit of 5".to_string(),
-                    retryable: false,
-                },
-            })
-            .await;
-        return;
-    }
-
-    for att in &attachments {
-        if let Err(msg) = validate_attachment(att) {
-            cleanup(&state).await;
-            let _ = tx_out
-                .send(DaemonMessage::Error {
-                    id,
-                    error: ErrorInfo {
-                        code: ErrorCode::AttachmentInvalid,
-                        message: msg,
-                        retryable: false,
-                    },
-                })
-                .await;
-            return;
-        }
-    }
-
-    let pool = match state.pool {
-        Some(ref p) => p.clone(),
-        None => {
-            cleanup(&state).await;
-            let _ = tx_out
-                .send(DaemonMessage::Error {
-                    id,
-                    error: ErrorInfo {
-                        code: ErrorCode::DatabaseUnavailable,
-                        message: "Database connection not available".to_string(),
-                        retryable: true,
-                    },
-                })
-                .await;
-            return;
-        }
-    };
-
-    let user_msg_id = Uuid::new_v4();
-    if let Err(e) = db::ensure_chat(&pool, chat_id, "New Chat").await {
-        cleanup(&state).await;
-        let _ = tx_out
-            .send(DaemonMessage::Error {
-                id,
-                error: ErrorInfo {
-                    code: ErrorCode::DatabaseUnavailable,
-                    message: e.to_string(),
-                    retryable: true,
-                },
-            })
-            .await;
-        return;
-    }
-
-    if let Err(e) = db::save_user_message(&pool, user_msg_id, chat_id, &text, &attachments).await {
-        cleanup(&state).await;
-        let _ = tx_out
-            .send(DaemonMessage::Error {
-                id,
-                error: ErrorInfo {
-                    code: ErrorCode::DatabaseUnavailable,
-                    message: e.to_string(),
-                    retryable: true,
-                },
-            })
-            .await;
-        return;
-    }
-
-    let supervisor = match state.supervisor.lock().await.clone() {
-        Some(s) => s,
-        None => {
-            cleanup(&state).await;
-            let _ = tx_out
-                .send(DaemonMessage::Error {
-                    id,
-                    error: ErrorInfo {
-                        code: ErrorCode::WorkerCrashed,
-                        message: "Worker supervisor not running".to_string(),
-                        retryable: true,
-                    },
-                })
-                .await;
-            return;
-        }
-    };
-
-    // Check if cancel was already requested
-    let was_cancelled = {
-        let cancelled = state.cancelled_requests.lock().await;
-        cancelled.contains(&id)
-    };
-
-    if was_cancelled {
-        cleanup(&state).await;
-        let asst_message_id = Uuid::new_v4();
-        let _ = db::save_assistant_message(
-            &pool,
-            asst_message_id,
-            chat_id,
-            "",
-            MessageStatus::Cancelled,
-            None,
-        )
-        .await;
-        let _ = tx_out
-            .send(DaemonMessage::MessageFinished {
-                id,
-                chat_id,
-                message_id: asst_message_id,
-                status: FinishStatus::Cancelled,
-            })
-            .await;
-        return;
-    }
-
-    let mut event_rx = match supervisor
-        .send_request(DaemonWorkerRequest::Run {
-            request_id: worker_req_id,
-            chat_id,
-            text: text.clone(),
-            attachments,
-        })
-        .await
-    {
-        Ok(rx) => rx,
-        Err(e) => {
-            cleanup(&state).await;
-            let _ = tx_out
-                .send(DaemonMessage::Error {
-                    id,
-                    error: ErrorInfo {
-                        code: ErrorCode::WorkerCrashed,
-                        message: e.to_string(),
-                        retryable: true,
-                    },
-                })
-                .await;
-            return;
-        }
-    };
-
-    let mut full_text = String::new();
-    let mut asst_message_id = Uuid::new_v4();
-
-    while let Some(ev) = event_rx.recv().await {
-        match ev {
-            DaemonWorkerEvent::MessageStarted { message_id, .. } => {
-                asst_message_id = message_id;
-                let _ = tx_out
-                    .send(DaemonMessage::MessageStarted {
-                        id,
-                        chat_id,
-                        message_id,
-                    })
-                    .await;
-            }
-
-            DaemonWorkerEvent::TextDelta { text: delta, .. } => {
-                full_text.push_str(&delta);
-                let _ = tx_out
-                    .send(DaemonMessage::TextDelta {
-                        id,
-                        chat_id,
-                        message_id: asst_message_id,
-                        text: delta,
-                    })
-                    .await;
-            }
-
-            DaemonWorkerEvent::ToolCallStarted {
-                call_id,
-                name,
-                arguments,
-                ..
-            } => {
-                let _ = tx_out
-                    .send(DaemonMessage::ToolCallStarted {
-                        id,
-                        chat_id,
-                        message_id: asst_message_id,
-                        call_id,
-                        name,
-                        arguments,
-                    })
-                    .await;
-            }
-
-            DaemonWorkerEvent::ToolCallFinished {
-                call_id, result, ..
-            } => {
-                let _ = tx_out
-                    .send(DaemonMessage::ToolCallFinished {
-                        id,
-                        chat_id,
-                        message_id: asst_message_id,
-                        call_id,
-                        result,
-                    })
-                    .await;
-            }
-
-            DaemonWorkerEvent::ApprovalRequested {
-                call_id,
-                tool_name,
-                arguments,
-                explanation,
-                resource_summary,
-                actions,
-                ..
-            } => {
-                {
-                    let mut approvals = state.pending_approvals.lock().await;
-                    approvals.insert(
-                        call_id.clone(),
-                        PendingApprovalEntry {
-                            chat_id,
-                            client_request_id: id,
-                            worker_request_id: worker_req_id,
-                            decision_in_flight: false,
-                        },
-                    );
-                }
-                let _ = tx_out
-                    .send(DaemonMessage::ApprovalRequested {
-                        id,
-                        chat_id,
-                        message_id: asst_message_id,
-                        call_id,
-                        tool_name,
-                        arguments,
-                        explanation,
-                        resource_summary,
-                        actions,
-                    })
-                    .await;
-            }
-
-            DaemonWorkerEvent::MessageFinished { status, .. } => {
-                let msg_status = match status {
-                    FinishStatus::Complete => MessageStatus::Complete,
-                    FinishStatus::Cancelled => MessageStatus::Cancelled,
-                    FinishStatus::Error => MessageStatus::Error,
-                };
-                let _ = db::save_assistant_message(
-                    &pool,
-                    asst_message_id,
-                    chat_id,
-                    &full_text,
-                    msg_status,
-                    None,
-                )
-                .await;
-
-                let _ = tx_out
-                    .send(DaemonMessage::MessageFinished {
-                        id,
-                        chat_id,
-                        message_id: asst_message_id,
-                        status,
-                    })
-                    .await;
-
-                // Dispatch title request only after successful completion if chat is untitled
-                if status == FinishStatus::Complete {
-                    let chat_row = db::get_chat(&pool, chat_id).await.ok().flatten();
-                    if let Some((current_title, _)) = chat_row {
-                        if current_title == "New Chat" || current_title.is_empty() {
-                            let pool_clone = pool.clone();
-                            let sup_clone = supervisor.clone();
-                            let tx_out_clone = tx_out.clone();
-                            let first_msg = text.clone();
-                            tokio::spawn(async move {
-                                request_title(
-                                    chat_id,
-                                    first_msg,
-                                    sup_clone,
-                                    pool_clone,
-                                    tx_out_clone,
-                                )
-                                .await;
-                            });
-                        }
-                    }
-                }
-                break;
-            }
-
-            DaemonWorkerEvent::Error { error, .. } => {
-                let _ = db::save_assistant_message(
-                    &pool,
-                    asst_message_id,
-                    chat_id,
-                    &full_text,
-                    MessageStatus::Error,
-                    Some(&error),
-                )
-                .await;
-
-                let _ = tx_out.send(DaemonMessage::Error { id, error }).await;
-                let _ = tx_out
-                    .send(DaemonMessage::MessageFinished {
-                        id,
-                        chat_id,
-                        message_id: asst_message_id,
-                        status: FinishStatus::Error,
-                    })
-                    .await;
-                break;
-            }
-
-            _ => {}
-        }
-    }
-
-    {
-        let mut open_reqs = state.open_requests.lock().await;
-        open_reqs.remove(&id);
-        let mut cancelled = state.cancelled_requests.lock().await;
-        cancelled.remove(&id);
-    }
-}
-
-async fn request_title(
-    chat_id: Uuid,
-    first_message: String,
-    supervisor: WorkerSupervisor,
-    pool: PgPool,
-    tx_out: mpsc::Sender<DaemonMessage>,
-) {
-    let title_req_id = Uuid::new_v4();
-    if let Ok(mut rx) = supervisor
-        .send_request(DaemonWorkerRequest::Title {
-            request_id: title_req_id,
-            chat_id,
-            first_message: first_message.clone(),
-        })
-        .await
-    {
-        if let Some(DaemonWorkerEvent::TitleReady { title, .. }) = rx.recv().await {
-            let _ = db::update_chat_title(&pool, chat_id, &title).await;
-            let _ = tx_out
-                .send(DaemonMessage::ChatTitled { chat_id, title })
-                .await;
-            return;
-        }
-    }
-
-    // Fallback: safely take up to 40 characters
-    let fallback = if first_message.chars().count() > 40 {
-        let truncated: String = first_message.chars().take(37).collect();
-        format!("{truncated}...")
-    } else {
-        first_message
-    };
-    let _ = db::update_chat_title(&pool, chat_id, &fallback).await;
+async fn send_permissions(state: &AppState, id: Uuid, tx_out: &mpsc::Sender<DaemonMessage>) {
+    let (grants, tools) = crate::permissions::snapshot(state).await;
     let _ = tx_out
-        .send(DaemonMessage::ChatTitled {
-            chat_id,
-            title: fallback,
+        .send(DaemonMessage::Permissions { id, grants, tools })
+        .await;
+}
+
+async fn send_invalid_request(id: Uuid, message: &str, tx_out: &mpsc::Sender<DaemonMessage>) {
+    let _ = tx_out
+        .send(DaemonMessage::Error {
+            id,
+            error: ErrorInfo {
+                code: ErrorCode::InvalidRequest,
+                message: message.to_string(),
+                retryable: false,
+            },
         })
         .await;
 }

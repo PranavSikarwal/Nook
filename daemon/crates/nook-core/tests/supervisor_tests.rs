@@ -1,5 +1,5 @@
 use nook_core::config::Config;
-use nook_core::protocol::{DaemonWorkerEvent, DaemonWorkerRequest};
+use nook_core::protocol::{AuthorizationDecision, DaemonWorkerEvent, DaemonWorkerRequest};
 use nook_core::supervisor::WorkerSupervisor;
 use std::path::PathBuf;
 use uuid::Uuid;
@@ -54,7 +54,7 @@ async fn test_supervisor_routes_events() {
 }
 
 #[tokio::test]
-async fn test_supervisor_approval_decision_keeps_reply_listener() {
+async fn test_supervisor_authorization_result_keeps_reply_listener() {
     let script = fake_worker_script();
     let config = Config::default();
 
@@ -69,7 +69,7 @@ async fn test_supervisor_approval_decision_keeps_reply_listener() {
     let run_req = DaemonWorkerRequest::Run {
         request_id: req_id,
         chat_id,
-        text: "needs approval".to_string(),
+        text: "authorize:call_fake|nook:web_search|{}".to_string(),
         attachments: vec![],
     };
 
@@ -83,33 +83,25 @@ async fn test_supervisor_approval_decision_keeps_reply_listener() {
         matches!(ev1, DaemonWorkerEvent::MessageStarted { request_id, .. } if request_id == req_id)
     );
 
-    let ev2 = rx.recv().await.expect("Expected ApprovalRequested");
+    let ev2 = rx.recv().await.expect("Expected AuthorizeTool");
     assert!(
-        matches!(ev2, DaemonWorkerEvent::ApprovalRequested { request_id, call_id, .. } if request_id == req_id && call_id == "call_fake")
+        matches!(ev2, DaemonWorkerEvent::AuthorizeTool { request_id, call_id, chat_id: event_chat, .. } if request_id == req_id && call_id == "call_fake" && event_chat == chat_id)
     );
 
-    // Send decision
-    let decision_req = DaemonWorkerRequest::ApprovalDecision {
-        request_id: req_id,
-        call_id: "call_fake".to_string(),
-        action: "allow_once".to_string(),
-    };
     let _ = supervisor
-        .send_request(decision_req)
+        .send_request(DaemonWorkerRequest::AuthorizationResult {
+            request_id: req_id,
+            call_id: "call_fake".to_string(),
+            decision: AuthorizationDecision::Allow,
+            reason: None,
+        })
         .await
-        .expect("Failed to send decision");
+        .expect("Failed to send authorization result");
 
-    // Events after decision must arrive on original receiver rx
-    let ev3 = rx.recv().await.expect("Expected TextDelta after decision");
+    let ev3 = rx.recv().await.expect("Expected TextDelta after result");
     assert!(
-        matches!(ev3, DaemonWorkerEvent::TextDelta { text, .. } if text == "Decision: allow_once")
+        matches!(ev3, DaemonWorkerEvent::TextDelta { text, .. } if text.contains(r#""decision": "allow""#))
     );
-
-    let ev4 = rx
-        .recv()
-        .await
-        .expect("Expected MessageFinished after decision");
-    assert!(matches!(ev4, DaemonWorkerEvent::MessageFinished { .. }));
 
     supervisor.shutdown().await;
 }

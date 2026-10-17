@@ -1,0 +1,64 @@
+{
+  "accepted": [
+    {
+      "url": "https://EXAMPLE.com./x",
+      "host": "example.com"
+    },
+    {
+      "url": "https://Docs.Example.COM/a?b=1#c",
+      "host": "docs.example.com"
+    },
+    {
+      "url": "https://Bücher.example/",
+      "host": "xn--bcher-kva.example"
+    },
+    {
+      "url": "https://faß.de/",
+      "host": "xn--fa-hia.de"
+    },
+    {
+      "url": "https://fass.de/",
+      "host": "fass.de"
+    },
+    {
+      "url": "http://example.com:8080/x",
+      "host": "example.com"
+    },
+    {
+      "url": "http://127.0.0.1:3000/",
+      "host": "127.0.0.1"
+    },
+    {
+      "url": "http://[::1]:3000/",
+      "host": "[::1]"
+    },
+    {
+      "url": "http://good.com#@evil.com/",
+      "host": "good.com"
+    },
+    {
+      "url": "http://good.com?@evil.com/",
+      "host": "good.com"
+    },
+    {
+      "url": "http://93.184.215.14:8080/x",
+      "host": "93.184.215.14"
+    }
+  ],
+  "rejected": [
+    "http://good.com\\@evil.com/",
+    "http://good.com:80@evil.com/",
+    "http://user@good.com/",
+    "http://user:secret@good.com/",
+    "http://good.com\t.evil.com/",
+    "http://good.com\n.evil.com/",
+    "http://good.com /",
+    "file:///etc/passwd",
+    "ftp://example.com/",
+    "https://xn--a-.example/",
+    "http://2130706433/",
+    "http://0x7f.1/",
+    "http://127.1/",
+    "http://1.2.3.4.5/"
+  ]
+}

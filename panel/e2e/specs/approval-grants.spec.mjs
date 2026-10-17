@@ -12,10 +12,13 @@ describe('native approval and grant scope', () => {
     return card
   }
 
-  const waitForLatestComplete = async () => {
+  const waitForLatestComplete = async (containing = '') => {
     await browser.waitUntil(async () => {
       const assistants = await $$('[data-message-role="assistant"]')
-      return assistants.length > 0 && await assistants.at(-1).getAttribute('data-message-status') === 'complete'
+      if (assistants.length === 0) return false
+      const latest = assistants.at(-1)
+      return await latest.getAttribute('data-message-status') === 'complete' &&
+        (await latest.getText()).includes(containing)
     }, { timeout: 20_000, interval: 100 })
     const assistants = await $$('[data-message-role="assistant"]')
     return assistants[assistants.length - 1]
@@ -31,44 +34,89 @@ describe('native approval and grant scope', () => {
   it('denies a request and allows a later request once', async () => {
     await submitUrl('https://deny.example.test/page')
     await (await waitForApproval()).$('button=Deny').click()
-    if (!(await (await waitForLatestComplete()).getText()).includes('Approval denied')) {
+    if (!(await (await waitForLatestComplete('Approval denied')).getText()).includes('Approval denied')) {
       throw new Error('Deny did not produce a denied result.')
     }
 
     await submitUrl('https://once.example.test/page')
     await (await waitForApproval()).$('button=Allow once').click()
-    if (!(await (await waitForLatestComplete()).getText()).includes('Approved deterministic fetch')) {
+    const resumed = await waitForLatestComplete('Approved deterministic fetch')
+    if (!(await resumed.getText()).includes('once.example.test')) {
       throw new Error('Allow once did not resume the requested action.')
     }
+    await resumed.$('[data-testid="tool-call"][data-tool-status="finished"]').waitForExist({
+      timeout: 10_000,
+      timeoutMsg: 'No finished tool call appeared after Allow once.',
+    })
+
+    await submitUrl('https://once.example.test/page')
+    await waitForApproval()
+    await (await $('[data-testid="approval-card"]')).$('button=Deny').click()
+    await waitForLatestComplete('Approval denied')
+  })
+
+  it('ends the reply as cancelled when Escape is pressed during an approval', async () => {
+    await submitUrl('https://escape.example.test/page')
+    await waitForApproval()
+
+    await browser.keys('Escape')
+
+    await browser.waitUntil(async () => {
+      const assistants = await $$('[data-message-role="assistant"]')
+      return assistants.length > 0 &&
+        await assistants.at(-1).getAttribute('data-message-status') === 'cancelled'
+    }, { timeout: 10_000, interval: 100, timeoutMsg: 'Escape did not end the reply as cancelled.' })
+    if (await $('[data-testid="approval-card"]').isExisting()) {
+      throw new Error('The approval card stayed after Escape.')
+    }
+    const cancelled = (await $$('[data-message-role="assistant"]')).at(-1)
+    if (await cancelled.$('[data-testid="tool-call"]').isExisting()) {
+      throw new Error('A tool call appeared for a request that was cancelled.')
+    }
+
+    const prompt = 'E2E_REPLY:after escape'
+    await $('[aria-label="Ask anything"]').setValue(prompt)
+    await $('[aria-label="Send question"]').click()
+    await waitForLatestComplete('after escape')
   })
 
   it('limits host grants by chat and host', async () => {
     await submitUrl('https://host-grant.example.test/first')
     await (await waitForApproval()).$('button=Allow for this chat & host').click()
-    await waitForLatestComplete()
+    await waitForLatestComplete('host-grant.example.test/first')
     await submitUrl('https://host-grant.example.test/second')
-    await waitForLatestComplete()
+    const granted = await waitForLatestComplete('host-grant.example.test/second')
+    if (!(await granted.getText()).includes('Approved deterministic fetch')) {
+      throw new Error('The host grant did not apply to a second request for the same host.')
+    }
+    if (await $('[data-testid="approval-card"]').isExisting()) {
+      throw new Error('An approval card appeared for a host that already had a grant.')
+    }
     await submitUrl('https://different-host.example.test/page')
     await waitForApproval()
     await (await $('[data-testid="approval-card"]')).$('button=Deny').click()
-    await waitForLatestComplete()
+    await waitForLatestComplete('Approval denied')
   })
 
-  it('limits chat-only grants to the current chat', async () => {
+  it('limits a host grant to the current chat and offers no chat-wide grant', async () => {
     await submitUrl('https://chat-grant.example.test/first')
-    await (await waitForApproval()).$('button=Allow for this chat').click()
-    await waitForLatestComplete()
-    await submitUrl('https://other-host.example.test/page')
-    if (!(await (await waitForLatestComplete()).getText()).includes('Previously approved')) {
-      throw new Error('The chat-only grant did not apply to another host in the same chat.')
+    const card = await waitForApproval()
+    if (await card.$('button=Allow for this chat').isExisting()) {
+      throw new Error('The fetch approval offered a chat-wide grant that the policy does not list.')
     }
+    const descriptions = await card.$('[data-testid="approval-action-descriptions"]').getText()
+    if (!descriptions.includes('for the rest of this chat')) {
+      throw new Error('The approval card did not show the action descriptions from the policy.')
+    }
+    await card.$('button=Allow for this chat & host').click()
+    await waitForLatestComplete('chat-grant.example.test/first')
 
     await $('[aria-label="Start new chat"]').click()
     await browser.waitUntil(async () => (await $$('[data-message-role="user"]')).length === 0, { timeout: 10_000 })
     await submitUrl('https://chat-grant.example.test/new-chat')
     await waitForApproval()
     await (await $('[data-testid="approval-card"]')).$('button=Deny').click()
-    await waitForLatestComplete()
+    await waitForLatestComplete('Approval denied')
   })
 
   it('keeps approval attached to the original message and blocks new chat', async () => {
@@ -79,7 +127,27 @@ describe('native approval and grant scope', () => {
     }
     if (!(await approval.isDisplayed())) throw new Error('The pending approval card disappeared.')
     await approval.$('button=Deny').click()
-    await waitForLatestComplete()
+    await waitForLatestComplete('Approval denied')
+  })
+
+  it('removes the approval card and ends the reply when nobody answers in time', async () => {
+    await submitUrl('https://expire.example.test/page')
+    await waitForApproval()
+
+    await browser.waitUntil(async () => !(await $('[data-testid="approval-card"]').isExisting()), {
+      timeout: 60_000,
+      interval: 250,
+      timeoutMsg: 'The approval card stayed on screen after the approval timed out.',
+    })
+    const reply = await waitForLatestComplete('Approval denied')
+    if (!(await reply.getText()).includes('Approval timed out')) {
+      throw new Error('The reply did not say that the approval timed out.')
+    }
+
+    const prompt = 'E2E_REPLY:after expiry'
+    await $('[aria-label="Ask anything"]').setValue(prompt)
+    await $('[aria-label="Send question"]').click()
+    await waitForLatestComplete('after expiry')
   })
 
   it('keeps a second URL unsent while the first approval is pending', async () => {

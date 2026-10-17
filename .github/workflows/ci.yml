@@ -59,15 +59,23 @@ jobs:
           cd daemon
           cargo clippy --workspace --all-targets -- -D warnings
 
+      - name: Install bubblewrap for the sandbox tests
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bubblewrap
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          bwrap --unshare-all --ro-bind /usr /usr --symlink usr/bin /bin --symlink usr/lib /lib --symlink usr/lib64 /lib64 --proc /proc --dev /dev true
+
       - name: Run Cargo tests
         env:
           NOOK_DATABASE_URL: postgresql://postgres:password@localhost:5432/nook
+          NOOK_REQUIRE_SANDBOX: "1"
         run: |
           cd daemon
           cargo test --workspace
 
       - name: Run contract tests
-        run: pytest tests/contracts
+        run: pytest tests/contracts panel/e2e/test_fake_worker.py
 
       - name: Set up Worker environment and run tests
         env:
@@ -97,6 +105,7 @@ jobs:
           cd panel
           npm ci --ignore-scripts
           npm run lint
+          npm run test:unit
           npm run build
 
       - name: Run Tauri cargo check
@@ -126,6 +135,9 @@ jobs:
         run: |
           npm ci --ignore-scripts
           npm run build
+
+      - name: Check the Daemon builds on Windows
+        run: cargo check --manifest-path daemon/Cargo.toml --workspace --all-targets
 
       - name: Test daemon named-pipe transport
         run: cargo test --manifest-path daemon/Cargo.toml -p nook-core --test server_windows_tests

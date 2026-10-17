@@ -5,9 +5,9 @@ from typing import Any
 from uuid import uuid4
 
 write_lock = asyncio.Lock()
-pending_approvals: dict[str, dict[str, str]] = {}
+pending_authorizations: dict[tuple[str, str], asyncio.Future[dict[str, Any]]] = {}
+pending_tool_results: dict[tuple[str, str], asyncio.Future[dict[str, Any]]] = {}
 active_requests: dict[str, asyncio.Task[None]] = {}
-approved_hosts: set[tuple[str, str]] = set()
 
 
 async def write_event(event: dict[str, Any]) -> None:
@@ -55,47 +55,203 @@ async def emit_error(request_id: str, text: str) -> None:
     )
 
 
-def approval_host(url: str) -> str:
+def url_host(url: str) -> str:
     if url.startswith(("http://", "https://")):
         return url.split("/")[2].lower()
     return url
 
 
-async def request_approval(
-    request_id: str, chat_id: str, message_id: str, url: str
+async def authorize_tool(
+    request_id: str,
+    chat_id: str,
+    message_id: str,
+    tool_name: str,
+    arguments: dict[str, str],
+) -> tuple[str, dict[str, Any]]:
+    call_id = f"call_{uuid4().hex}"
+    arguments_text = json.dumps(arguments)
+    result: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
+    pending_authorizations[(request_id, call_id)] = result
+    try:
+        await write_event(
+            {
+                "type": "authorize_tool",
+                "request_id": request_id,
+                "message_id": message_id,
+                "call_id": call_id,
+                "chat_id": chat_id,
+                "tool_name": tool_name,
+                "arguments": arguments_text,
+            }
+        )
+        return call_id, await result
+    finally:
+        pending_authorizations.pop((request_id, call_id), None)
+
+
+async def execute_tool(
+    request_id: str,
+    chat_id: str,
+    message_id: str,
+    tool_name: str,
+    arguments: dict[str, Any],
+) -> dict[str, Any]:
+    call_id = f"call_{uuid4().hex}"
+    result: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
+    pending_tool_results[(request_id, call_id)] = result
+    try:
+        await write_event(
+            {
+                "type": "execute_tool",
+                "request_id": request_id,
+                "message_id": message_id,
+                "call_id": call_id,
+                "chat_id": chat_id,
+                "tool_name": tool_name,
+                "arguments": json.dumps(arguments),
+            }
+        )
+        return await result
+    finally:
+        pending_tool_results.pop((request_id, call_id), None)
+
+
+async def run_execute_prompt(
+    request_id: str,
+    chat_id: str,
+    message_id: str,
+    tool_name: str,
+    arguments: dict[str, Any],
 ) -> None:
-    host = approval_host(url)
-    if (chat_id, host) in approved_hosts or (chat_id, "*") in approved_hosts:
-        await emit_text(request_id, message_id, f"Previously approved {host}")
+    result = await execute_tool(request_id, chat_id, message_id, tool_name, arguments)
+    await emit_text(
+        request_id, message_id, f"Tool {result['status']}: {result['output']}"
+    )
+    await finish_request(request_id, message_id)
+
+
+async def run_tool_prompt(
+    request_id: str,
+    chat_id: str,
+    message_id: str,
+    tool_name: str,
+    arguments: dict[str, str],
+    subject: str,
+) -> None:
+    call_id, result = await authorize_tool(
+        request_id, chat_id, message_id, tool_name, arguments
+    )
+    if result["decision"] != "allow":
+        reason = result.get("reason")
+        detail = f": {reason}" if reason else ""
+        await emit_text(
+            request_id,
+            message_id,
+            f"Approval denied for {url_host(subject)}{detail}",
+        )
         await finish_request(request_id, message_id)
         return
 
-    call_id = f"call_{uuid4().hex}"
-    pending_approvals[call_id] = {
-        "request_id": request_id,
-        "chat_id": chat_id,
-        "message_id": message_id,
-        "host": host,
-        "url": url,
-    }
     await write_event(
         {
-            "type": "approval_requested",
+            "type": "tool_call_started",
             "request_id": request_id,
             "message_id": message_id,
             "call_id": call_id,
-            "tool_name": "nook:web_fetch",
-            "arguments": json.dumps({"url": url}),
-            "explanation": "Deterministic test approval",
-            "resource_summary": url,
-            "actions": [
-                "allow_once",
-                "allow_for_chat_host",
-                "allow_for_chat",
-                "deny",
-            ],
+            "name": tool_name,
+            "arguments": json.dumps(arguments),
         }
     )
+    await write_event(
+        {
+            "type": "tool_call_finished",
+            "request_id": request_id,
+            "message_id": message_id,
+            "call_id": call_id,
+            "result": f"Deterministic result for {subject}",
+        }
+    )
+    for chunk in ("Approved ", "deterministic ", f"fetch for {subject}."):
+        await emit_text(request_id, message_id, chunk)
+    await finish_request(request_id, message_id)
+
+
+def mcp_arguments(raw: str) -> dict[str, Any]:
+    if raw.startswith("{"):
+        return json.loads(raw)
+    return {"text": raw} if raw else {}
+
+
+def prompt_approval(request_id: str, chat_id: str, message_id: str, rest: str):
+    url = rest.strip()
+    return run_tool_prompt(
+        request_id, chat_id, message_id, "nook:web_fetch", {"url": url}, url
+    )
+
+
+def prompt_search(request_id: str, chat_id: str, message_id: str, rest: str):
+    query = rest.strip()
+    return run_tool_prompt(
+        request_id, chat_id, message_id, "nook:web_search", {"query": query}, query
+    )
+
+
+def prompt_file_read(request_id: str, chat_id: str, message_id: str, rest: str):
+    return run_execute_prompt(
+        request_id, chat_id, message_id, "nook:read_local_file", {"path": rest.strip()}
+    )
+
+
+def prompt_file_list(request_id: str, chat_id: str, message_id: str, rest: str):
+    return run_execute_prompt(
+        request_id,
+        chat_id,
+        message_id,
+        "nook:list_local_directory",
+        {"path": rest.strip()},
+    )
+
+
+def prompt_file_write(request_id: str, chat_id: str, message_id: str, rest: str):
+    path, _, content = rest.partition("|")
+    return run_execute_prompt(
+        request_id,
+        chat_id,
+        message_id,
+        "nook:write_local_file",
+        {"path": path.strip(), "content": content, "overwrite": False},
+    )
+
+
+def prompt_command(request_id: str, chat_id: str, message_id: str, rest: str):
+    return run_execute_prompt(
+        request_id, chat_id, message_id, "nook:run_command", {"argv": rest.split()}
+    )
+
+
+def prompt_mcp(request_id: str, chat_id: str, message_id: str, rest: str):
+    tool, _, raw = rest.partition("|")
+    return run_execute_prompt(
+        request_id, chat_id, message_id, f"mcp:e2e:{tool.strip()}", mcp_arguments(raw)
+    )
+
+
+PROMPTS = {
+    "E2E_APPROVAL:": prompt_approval,
+    "E2E_FILE_READ:": prompt_file_read,
+    "E2E_MCP:": prompt_mcp,
+    "E2E_COMMAND:": prompt_command,
+    "E2E_FILE_LIST:": prompt_file_list,
+    "E2E_FILE_WRITE:": prompt_file_write,
+    "E2E_SEARCH:": prompt_search,
+}
+
+
+def prompt_for(text: str, request_id: str, chat_id: str, message_id: str):
+    for prefix, build in PROMPTS.items():
+        if text.startswith(prefix):
+            return build(request_id, chat_id, message_id, text.removeprefix(prefix))
+    return None
 
 
 async def run_message(request: dict[str, Any]) -> None:
@@ -120,20 +276,14 @@ async def run_message(request: dict[str, Any]) -> None:
         if text.startswith("E2E_ERROR:"):
             await emit_error(request_id, text)
             return
-        if text.startswith("E2E_APPROVAL:"):
-            await request_approval(
-                request_id,
-                chat_id,
-                message_id,
-                text.removeprefix("E2E_APPROVAL:").strip(),
-            )
+        prompt = prompt_for(text, request_id, chat_id, message_id)
+        if prompt is not None:
+            await prompt
             return
 
-        reply = (
-            text.removeprefix("E2E_REPLY:").strip()
-            if text.startswith("E2E_REPLY:")
-            else "E2E deterministic reply"
-        )
+        reply = "E2E deterministic reply"
+        if text.startswith("E2E_REPLY:"):
+            reply = text.removeprefix("E2E_REPLY:").strip()
         await emit_text(request_id, message_id, reply)
         await finish_request(request_id, message_id)
     except asyncio.CancelledError:
@@ -155,32 +305,23 @@ def handle_run(request: dict[str, Any]) -> None:
 
 
 def handle_cancel(request: dict[str, Any]) -> None:
-    target_id = str(request.get("target_id", ""))
-    for call_id, pending in tuple(pending_approvals.items()):
-        if pending["request_id"] == target_id:
-            pending_approvals.pop(call_id, None)
-    task = active_requests.get(target_id)
+    task = active_requests.get(str(request.get("request_id", "")))
     if task and not task.done():
         task.cancel()
 
 
-async def handle_approval_decision(request: dict[str, Any]) -> None:
-    approval = pending_approvals.pop(str(request.get("call_id", "")), None)
-    if not approval:
-        return
+def handle_authorization_result(request: dict[str, Any]) -> None:
+    key = (str(request.get("request_id", "")), str(request.get("call_id", "")))
+    result = pending_authorizations.get(key)
+    if result and not result.done():
+        result.set_result(request)
 
-    action = str(request.get("action", "deny"))
-    if action == "allow_for_chat_host":
-        approved_hosts.add((approval["chat_id"], approval["host"]))
-    elif action == "allow_for_chat":
-        approved_hosts.add((approval["chat_id"], "*"))
-    response = (
-        f"Approval denied for {approval['host']}"
-        if action == "deny"
-        else f"Approved deterministic fetch for {approval['url']}."
-    )
-    await emit_text(approval["request_id"], approval["message_id"], response)
-    await finish_request(approval["request_id"], approval["message_id"])
+
+def handle_tool_result(request: dict[str, Any]) -> None:
+    key = (str(request.get("request_id", "")), str(request.get("call_id", "")))
+    result = pending_tool_results.get(key)
+    if result and not result.done():
+        result.set_result(request)
 
 
 async def handle_title(request: dict[str, Any]) -> None:
@@ -195,11 +336,6 @@ async def handle_title(request: dict[str, Any]) -> None:
 
 async def handle_delete_chat(request: dict[str, Any]) -> None:
     chat_id = str(request.get("chat_id", ""))
-    approved_hosts.difference_update(
-        (grant_chat, host)
-        for grant_chat, host in approved_hosts
-        if grant_chat == chat_id
-    )
     await write_event(
         {
             "type": "deleted",
@@ -215,8 +351,10 @@ async def handle_request(request: dict[str, Any]) -> None:
         handle_run(request)
     elif request_type == "cancel":
         handle_cancel(request)
-    elif request_type == "approval_decision":
-        await handle_approval_decision(request)
+    elif request_type == "authorization_result":
+        handle_authorization_result(request)
+    elif request_type == "tool_result":
+        handle_tool_result(request)
     elif request_type == "title":
         await handle_title(request)
     elif request_type == "delete_chat":

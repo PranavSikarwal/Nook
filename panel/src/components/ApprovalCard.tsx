@@ -8,28 +8,11 @@ interface ApprovalCardProps {
 }
 
 export function ApprovalCard({ request, onDecide, disabled = false }: ApprovalCardProps) {
-  const formatActionLabel = (action: string): string => {
-    switch (action) {
-      case 'allow_once':
-        return 'Allow once'
-      case 'allow_for_chat_host':
-        return 'Allow for this chat & host'
-      case 'allow_for_chat':
-        return 'Allow for this chat'
-      case 'always_allow':
-        return 'Always allow'
-      case 'deny':
-        return 'Deny'
-      default:
-        return action.replaceAll('_', ' ')
-    }
-  }
-
   const getActionColor = (action: string): string => {
     if (action === 'deny') {
       return 'bg-red-500/20 hover:bg-red-500/30 text-red-300 border-red-500/30'
     }
-    if (action.includes('chat') || action === 'always_allow') {
+    if (action.includes('chat') || action.startsWith('always_allow')) {
       return 'bg-purple-600/30 hover:bg-purple-600/50 text-purple-200 border-purple-500/40'
     }
     return 'bg-white/10 hover:bg-white/20 text-zinc-200 border-white/20'
@@ -54,18 +37,27 @@ export function ApprovalCard({ request, onDecide, disabled = false }: ApprovalCa
         <span>{request.resource_summary}</span>
       </div>
 
+      <dl data-testid="approval-action-descriptions" className="mb-3 space-y-0.5 text-[10px] text-zinc-400">
+        {request.actions.map((act) => (
+          <div key={act.id} className="flex gap-1.5">
+            <dt className="font-medium text-zinc-300 shrink-0">{act.label}:</dt>
+            <dd>{act.description}</dd>
+          </div>
+        ))}
+      </dl>
+
       <div className="flex flex-wrap gap-1.5 justify-end pt-1 border-t border-white/10">
         {request.actions.map((act) => (
           <button
-            key={act}
+            key={act.id}
             type="button"
             disabled={disabled}
-            onClick={() => onDecide(act)}
+            onClick={() => onDecide(act.id)}
             className={`px-2.5 py-1 rounded-md text-xs font-medium border transition-colors disabled:opacity-50 ${getActionColor(
-              act
+              act.id
             )}`}
           >
-            {formatActionLabel(act)}
+            {act.label}
           </button>
         ))}
       </div>

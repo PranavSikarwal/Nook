@@ -12,7 +12,7 @@ from nook_worker.agent import (
     create_model,
     map_exception_to_error_info,
 )
-from nook_worker.approval import default_approval_manager
+from nook_worker.authorization import default_authorization_manager
 from nook_worker.checkpointer import (
     create_pool,
     delete_thread_memory,
@@ -20,7 +20,7 @@ from nook_worker.checkpointer import (
 )
 from nook_worker.config import WorkerConfig
 from nook_worker.protocol import (
-    ApprovalDecisionRequest,
+    AuthorizationResultRequest,
     CancelRequest,
     DeleteChatRequest,
     DeletedEvent,
@@ -34,6 +34,8 @@ from nook_worker.protocol import (
     ShutdownRequest,
     TitleReadyEvent,
     TitleRequest,
+    ToolCatalogRequest,
+    ToolResultRequest,
     format_event,
     parse_request,
 )
@@ -46,7 +48,7 @@ async def handle_run(
     write_line: Callable[[str], Awaitable[None]],
 ) -> None:
     message_id = uuid4()
-    default_approval_manager.set_context(
+    default_authorization_manager.set_context(
         request_id=request.request_id,
         message_id=message_id,
         chat_id=request.chat_id,
@@ -56,7 +58,7 @@ async def handle_run(
         async for event in runner.run(request, message_id=message_id):
             if isinstance(event, MessageStartedEvent):
                 message_id = event.message_id
-                default_approval_manager.set_context(
+                default_authorization_manager.set_context(
                     request_id=request.request_id,
                     message_id=message_id,
                     chat_id=request.chat_id,
@@ -64,7 +66,7 @@ async def handle_run(
                 )
             await write_line(format_event(event))
     except asyncio.CancelledError:
-        default_approval_manager.cancel_for_request(request.request_id)
+        default_authorization_manager.cancel_for_request(request.request_id)
         finished_event = MessageFinishedEvent(
             request_id=request.request_id,
             message_id=message_id,
@@ -73,7 +75,7 @@ async def handle_run(
         await write_line(format_event(finished_event))
         raise
     except Exception as err:  # noqa: BLE001
-        default_approval_manager.cancel_for_request(request.request_id)
+        default_authorization_manager.cancel_for_request(request.request_id)
         err_info = map_exception_to_error_info(err)
         err_event = ErrorEvent(
             request_id=request.request_id,
@@ -81,7 +83,7 @@ async def handle_run(
         )
         await write_line(format_event(err_event))
     finally:
-        default_approval_manager.clear_context(request.request_id)
+        default_authorization_manager.clear_context(request.request_id)
 
 
 async def handle_title(
@@ -173,12 +175,24 @@ def _dispatch_request(
         case ShutdownRequest():
             return False
         case CancelRequest(request_id=req_id):
-            default_approval_manager.cancel_for_request(req_id)
+            default_authorization_manager.cancel_for_request(req_id)
             active_task = active_tasks.get(req_id)
             if active_task and not active_task.done():
                 active_task.cancel()
-        case ApprovalDecisionRequest(request_id=req_id, call_id=call_id, action=action):
-            default_approval_manager.resolve_decision(req_id, call_id, action)
+        case AuthorizationResultRequest(
+            request_id=req_id, call_id=call_id, decision=decision, reason=reason
+        ):
+            default_authorization_manager.resolve(req_id, call_id, decision, reason)
+        case ToolCatalogRequest(tools=tools):
+            apply_catalog = getattr(runner, "apply_catalog", None)
+            if apply_catalog is not None:
+                apply_catalog(tools)
+        case ToolResultRequest(
+            request_id=req_id, call_id=call_id, status=status, output=output
+        ):
+            default_authorization_manager.resolve_tool_result(
+                req_id, call_id, status, output
+            )
         case RunRequest(request_id=req_id):
             _spawn_tracked_task(
                 handle_run(req, runner, write_line), req_id, active_tasks
@@ -196,8 +210,7 @@ def _dispatch_request(
                     req_id,
                     active_tasks,
                 )
-        case DeleteChatRequest(request_id=req_id, chat_id=c_id):
-            default_approval_manager.clear_chat(str(c_id))
+        case DeleteChatRequest(request_id=req_id):
             if delete_handler is not None:
                 _spawn_tracked_task(
                     handle_delete(req, delete_handler, write_line),
@@ -296,7 +309,12 @@ async def _async_main() -> None:
         checkpointer = await setup_checkpointer(pool)
         model = create_model(config)
         agent = build_deep_agent(model, config, checkpointer)
-        runner = RealAgentRunner(agent)
+        runner = RealAgentRunner(
+            agent,
+            rebuild=lambda remote_tools: build_deep_agent(
+                model, config, checkpointer, remote_tools
+            ),
+        )
 
         async def title_fn(first_message: str) -> str:
             return await generate_title(model, first_message)

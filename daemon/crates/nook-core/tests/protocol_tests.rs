@@ -23,24 +23,24 @@ fn test_panel_daemon_examples() {
     let lines: Vec<&str> = content.lines().filter(|l| !l.trim().is_empty()).collect();
     assert_eq!(
         lines.len(),
-        23,
-        "Expected 23 examples in panel-daemon.ndjson"
+        29,
+        "Expected 29 examples in panel-daemon.ndjson"
     );
 
-    // Lines 0..9 are ClientRequests
-    for (i, line) in lines[..9].iter().enumerate() {
+    // Lines 0..13 are ClientRequests
+    for (i, line) in lines[..13].iter().enumerate() {
         let msg: ClientMessage = serde_json::from_str(line)
             .unwrap_or_else(|e| panic!("Line {i} failed to parse as ClientMessage: {e}\n{line}"));
         let round_trip = serde_json::to_string(&msg).unwrap();
         let _: ClientMessage = serde_json::from_str(&round_trip).unwrap();
     }
 
-    // Lines 9..23 are DaemonReplies
-    for (i, line) in lines[9..].iter().enumerate() {
+    // Lines 13..29 are DaemonReplies
+    for (i, line) in lines[13..].iter().enumerate() {
         let msg: DaemonMessage = serde_json::from_str(line).unwrap_or_else(|e| {
             panic!(
                 "Line {} failed to parse as DaemonMessage: {e}\n{line}",
-                i + 9
+                i + 13
             )
         });
         let round_trip = serde_json::to_string(&msg).unwrap();
@@ -55,14 +55,14 @@ fn test_daemon_worker_examples() {
         .unwrap_or_else(|e| panic!("Failed to read {}: {e}", path.display()));
 
     let lines: Vec<&str> = content.lines().filter(|l| !l.trim().is_empty()).collect();
-    assert_eq!(
-        lines.len(),
-        16,
-        "Expected 16 examples in daemon-worker.ndjson"
-    );
+    let split = lines
+        .iter()
+        .position(|l| l.contains(r#""type":"ready""#))
+        .expect("daemon-worker.ndjson has a ready event");
+    assert!(split > 0, "requests come before events");
 
-    // Lines 0..6 are DaemonWorkerRequest
-    for (i, line) in lines[..6].iter().enumerate() {
+    // Lines before the ready event are DaemonWorkerRequest
+    for (i, line) in lines[..split].iter().enumerate() {
         let msg: DaemonWorkerRequest = serde_json::from_str(line).unwrap_or_else(|e| {
             panic!("Line {i} failed to parse as DaemonWorkerRequest: {e}\n{line}")
         });
@@ -70,12 +70,12 @@ fn test_daemon_worker_examples() {
         let _: DaemonWorkerRequest = serde_json::from_str(&round_trip).unwrap();
     }
 
-    // Lines 6..16 are DaemonWorkerEvent
-    for (i, line) in lines[6..].iter().enumerate() {
+    // Lines from the ready event on are DaemonWorkerEvent
+    for (i, line) in lines[split..].iter().enumerate() {
         let msg: DaemonWorkerEvent = serde_json::from_str(line).unwrap_or_else(|e| {
             panic!(
                 "Line {} failed to parse as DaemonWorkerEvent: {e}\n{line}",
-                i + 6
+                i + split
             )
         });
         let round_trip = serde_json::to_string(&msg).unwrap();

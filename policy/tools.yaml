@@ -3,6 +3,7 @@ version: 1
 
 tools:
   nook:web_search:
+    display_name: "Web search"
     description: "Search the web using DuckDuckGo. Returns titles, links, and snippets."
     capabilities:
       network: true
@@ -11,12 +12,22 @@ tools:
     approval:
       tier: allow
       actions:
-        - allow_once
-        - allow_for_chat
-        - always_allow
+        - id: allow_once
+          label: "Allow once"
+          description: "Allow this exact search one time."
+        - id: allow_for_chat
+          label: "Allow for this chat"
+          description: "Allow this tool for the rest of this chat."
+        - id: always_allow
+          label: "Always allow"
+          description: "Allow this tool in every chat until you revoke it in Settings."
+        - id: deny
+          label: "Deny"
+          description: "Reject this request. The tool does not run."
 
   nook:web_fetch:
-    description: "Fetch a public web page over HTTP or HTTPS and extract readable text."
+    display_name: "Web fetch"
+    description: "Fetch a public web page over HTTP or HTTPS and extract readable text. Redirects to another host are not followed. Each host needs its own approval."
     capabilities:
       network: true
       read_only: true
@@ -33,6 +44,188 @@ tools:
     approval:
       tier: ask_once_per_host
       actions:
-        - allow_once
-        - allow_for_chat_host
-        - deny
+        - id: allow_once
+          label: "Allow once"
+          description: "Allow this exact request one time."
+        - id: allow_for_chat_host
+          label: "Allow for this chat & host"
+          description: "Allow this tool to fetch from this host for the rest of this chat."
+        - id: always_allow_host
+          label: "Always allow this host"
+          description: "Allow this tool to fetch from this host in every chat until you revoke it in Settings."
+        - id: deny
+          label: "Deny"
+          description: "Reject this request. The tool does not run."
+
+  nook:read_local_file:
+    display_name: "Read file"
+    description: "Read a text file inside a folder you allowed."
+    capabilities:
+      read_only: true
+      local: true
+    limits:
+      max_read_bytes: 1048576 # 1 MiB
+    approval:
+      tier: ask
+      actions:
+        - id: allow_once
+          label: "Allow once"
+          description: "Allow this exact request one time."
+        - id: allow_for_chat_path
+          label: "Allow this file for this chat"
+          description: "Allow reading this file again for the rest of this chat."
+        - id: allow_for_chat_dir
+          label: "Allow this folder for this chat"
+          description: "Allow reading any file in this folder and the folders below it for the rest of this chat."
+        - id: deny
+          label: "Deny"
+          description: "Reject this request. The tool does not run."
+
+  nook:list_local_directory:
+    display_name: "List folder"
+    description: "List the entries of a folder you allowed."
+    capabilities:
+      read_only: true
+      local: true
+    approval:
+      tier: ask
+      actions:
+        - id: allow_once
+          label: "Allow once"
+          description: "Allow this exact request one time."
+        - id: allow_for_chat_dir
+          label: "Allow this folder for this chat"
+          description: "Allow listing this folder and the folders below it for the rest of this chat."
+        - id: deny
+          label: "Deny"
+          description: "Reject this request. The tool does not run."
+
+  nook:write_local_file:
+    display_name: "Write file"
+    description: "Write a text file inside a folder you allowed to change."
+    capabilities:
+      read_only: false
+      local: true
+    limits:
+      max_write_bytes: 1048576 # 1 MiB
+    approval:
+      tier: ask
+      actions:
+        - id: allow_once
+          label: "Allow once"
+          description: "Allow this exact write one time."
+        - id: allow_for_chat_path
+          label: "Allow this file for this chat"
+          description: "Allow writing to this file again for the rest of this chat."
+        - id: deny
+          label: "Deny"
+          description: "Reject this request. The tool does not run."
+
+  nook:run_command:
+    display_name: "Run command"
+    description: "Run one command in a sandbox. It sees only the folder it runs in."
+    capabilities:
+      read_only: false
+      local: true
+    limits:
+      max_timeout_seconds: 600
+      max_output_bytes: 65536
+    approval:
+      tier: ask
+      actions:
+        - id: allow_once
+          label: "Allow once"
+          description: "Run this exact command one time."
+        - id: deny
+          label: "Deny"
+          description: "Reject this command. It does not run."
+
+  mcp:*:
+    display_name: "MCP tool"
+    description: "Call a tool of an MCP server that you configured. The server runs in a sandbox."
+    capabilities:
+      local: true
+    approval:
+      tier: ask
+      actions:
+        - id: allow_once
+          label: "Allow once"
+          description: "Allow this exact call one time."
+        - id: allow_for_chat
+          label: "Allow this tool for this chat"
+          description: "Allow this tool of this server for the rest of this chat."
+        - id: always_allow
+          label: "Always allow this tool"
+          description: "Allow this tool of this server in every chat until you revoke it in Settings."
+        - id: deny
+          label: "Deny"
+          description: "Reject this call. The tool does not run."
+
+  nook:news_search:
+    display_name: "News search"
+    description: "Search recent news articles with DuckDuckGo. Returns titles, sources, dates, links, and snippets."
+    capabilities:
+      network: true
+      read_only: true
+      requires_approval: false
+    approval:
+      tier: allow
+      actions:
+        - id: allow_once
+          label: "Allow once"
+          description: "Allow this exact search one time."
+        - id: allow_for_chat
+          label: "Allow for this chat"
+          description: "Allow this tool for the rest of this chat."
+        - id: always_allow
+          label: "Always allow"
+          description: "Allow this tool in every chat until you revoke it in Settings."
+        - id: deny
+          label: "Deny"
+          description: "Reject this request. The tool does not run."
+
+  nook:video_search:
+    display_name: "Video search"
+    description: "Search videos with DuckDuckGo. Returns titles, links, descriptions, and publishers."
+    capabilities:
+      network: true
+      read_only: true
+      requires_approval: false
+    approval:
+      tier: allow
+      actions:
+        - id: allow_once
+          label: "Allow once"
+          description: "Allow this exact search one time."
+        - id: allow_for_chat
+          label: "Allow for this chat"
+          description: "Allow this tool for the rest of this chat."
+        - id: always_allow
+          label: "Always allow"
+          description: "Allow this tool in every chat until you revoke it in Settings."
+        - id: deny
+          label: "Deny"
+          description: "Reject this request. The tool does not run."
+
+  nook:book_search:
+    display_name: "Book search"
+    description: "Search books in the Open Library catalog. Returns titles, authors, years, and catalog links."
+    capabilities:
+      network: true
+      read_only: true
+      requires_approval: false
+    approval:
+      tier: allow
+      actions:
+        - id: allow_once
+          label: "Allow once"
+          description: "Allow this exact search one time."
+        - id: allow_for_chat
+          label: "Allow for this chat"
+          description: "Allow this tool for the rest of this chat."
+        - id: always_allow
+          label: "Always allow"
+          description: "Allow this tool in every chat until you revoke it in Settings."
+        - id: deny
+          label: "Deny"
+          description: "Reject this request. The tool does not run."

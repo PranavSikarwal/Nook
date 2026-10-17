@@ -10,9 +10,17 @@ const specsByMode = {
   deterministic: [
     'e2e/specs/deterministic.spec.mjs',
     'e2e/specs/approval-grants.spec.mjs',
+    'e2e/specs/file-tools.spec.mjs',
+    'e2e/specs/terminal-tool.spec.mjs',
+    'e2e/specs/mcp-tool.spec.mjs',
+    'e2e/specs/permissions.spec.mjs',
     'e2e/specs/history-settings.spec.mjs',
+    'e2e/specs/links.spec.mjs',
+    'e2e/specs/tools.spec.mjs',
   ],
-  live: ['e2e/specs/live-news.spec.mjs'],
+  live: process.env.NOOK_E2E_LIVE_TOOLS === '1'
+    ? ['e2e/specs/live-tools.spec.mjs']
+    : ['e2e/specs/live-news.spec.mjs', 'e2e/specs/live-fetch.spec.mjs'],
 }
 const specs = specsByMode[process.env.NOOK_E2E_MODE]
 const appArgs = [
@@ -67,6 +75,14 @@ export const config = {
   mochaOpts: {
     ui: 'bdd',
     timeout: 480_000,
+  },
+  async before() {
+    if (process.env.NOOK_E2E_MODE === 'smoke') return
+    await browser.tauri.switchWindow('main')
+    await browser.waitUntil(async () => {
+      const input = await $('[aria-label="Ask anything"]')
+      return await input.isExisting() && await input.isEnabled()
+    }, { timeout: 90_000, interval: 100, timeoutMsg: 'The Panel did not enable its input.' })
   },
   onPrepare() {
     if (!process.env.NOOK_E2E_REAL_APP_BINARY) {

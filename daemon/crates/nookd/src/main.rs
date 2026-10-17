@@ -1,6 +1,8 @@
 use nook_core::config::Config;
 use nook_core::db;
 use nook_core::keychain;
+use nook_core::policy_assets::{find_policy_directory, PolicyAssets};
+use nook_core::providers::build_registry;
 use nook_core::server::{AppState, Server};
 use nook_core::supervisor::WorkerSupervisor;
 use std::collections::HashMap;
@@ -11,7 +13,19 @@ use tracing::{error, info, warn};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    tracing_subscriber::fmt::init();
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    match args.as_slice() {
+        [] => {}
+        [flag] if flag == "--check-policy" => std::process::exit(check_policy()),
+        _ => {
+            eprintln!("Usage: nookd [--check-policy]");
+            std::process::exit(2);
+        }
+    }
+
+    tracing_subscriber::fmt()
+        .with_writer(std::io::stderr)
+        .init();
 
     // 0. Load .env if present
     Config::load_env_file();
@@ -25,11 +39,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         "Loaded configuration"
     );
 
+    // 1b. Load and validate tool policy before accepting any tool work
+    let policy = Arc::new(PolicyAssets::load_default().map_err(|e| {
+        error!("Policy assets failed to load: {e}");
+        e
+    })?);
+    info!(tools = policy.catalog.tools.len(), "Loaded tool policy");
+
     // 2. Read Keychain / env
     let api_key = keychain::get_api_key();
 
     // 3. Connect to Postgres with 30s retry
-    let pool = connect_db_with_retry(&config.database_url, Duration::from_secs(30)).await;
+    let pool = db::connect_with_retry(
+        &config.database_url,
+        Duration::from_secs(30),
+        db::CONNECT_ATTEMPT_TIMEOUT,
+    )
+    .await;
 
     // 4. Run migrations & 5. Repair open replies
     if let Some(ref p) = pool {
@@ -48,11 +74,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             }
         }
     } else {
-        warn!("Starting daemon without database: requests will receive database_unavailable");
+        warn!("Starting daemon without database: requests receive database_unavailable until it connects");
     }
 
     // 6. Start Worker supervisor
-    let supervisor = match WorkerSupervisor::new(&config, api_key, e2e_worker_command()).await {
+    let providers = Arc::new(build_registry(&config.tools).await);
+    let supervisor = match WorkerSupervisor::with_tools(
+        &config,
+        api_key,
+        e2e_worker_command(),
+        providers.descriptors().to_vec(),
+    )
+    .await
+    {
         Ok(sup) => {
             info!("Worker supervisor initialized");
             Some(sup)
@@ -66,13 +100,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let state = Arc::new(AppState {
         config: RwLock::new(config),
         config_path,
-        pool,
+        pool: nook_core::server::DbPool::new(pool),
         supervisor: Mutex::new(supervisor),
         preserve_worker_on_settings_update: deterministic_worker_enabled(),
         open_requests: Mutex::new(HashMap::new()),
         pending_approvals: Mutex::new(HashMap::new()),
         cancelled_requests: Mutex::new(std::collections::HashSet::new()),
+        approval_timeout: approval_timeout(),
+        providers,
+        running_tools: tokio::sync::Mutex::new(std::collections::HashMap::new()),
+        policy,
     });
+
+    nook_core::permissions::restore(&state).await;
+    if state.pool.get().is_none() {
+        let database_url = state.config.read().await.database_url.clone();
+        tokio::spawn(nook_core::reconnect::reconnect_database(
+            state.clone(),
+            database_url,
+            nook_core::reconnect::RECONNECT_INTERVAL,
+            db::CONNECT_ATTEMPT_TIMEOUT,
+        ));
+    }
 
     // 7. Bind socket with permissions 0600
     let socket_path = Config::default_socket_path();
@@ -114,6 +163,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     Ok(())
 }
 
+fn check_policy() -> i32 {
+    match PolicyAssets::load_default() {
+        Ok(policy) => {
+            let dir = find_policy_directory().unwrap_or_default();
+            println!(
+                "policy ok: {} tools from {}",
+                policy.catalog.tools.len(),
+                dir.display()
+            );
+            0
+        }
+        Err(e) => {
+            eprintln!("policy check failed: {e}");
+            1
+        }
+    }
+}
+
 #[cfg(feature = "e2e")]
 fn e2e_worker_command() -> Option<Vec<String>> {
     let command = std::env::var("NOOK_E2E_WORKER_COMMAND").ok()?;
@@ -126,6 +193,20 @@ fn e2e_worker_command() -> Option<Vec<String>> {
 }
 
 #[cfg(feature = "e2e")]
+fn approval_timeout() -> Duration {
+    std::env::var("NOOK_E2E_APPROVAL_TIMEOUT_MS")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .map(Duration::from_millis)
+        .unwrap_or(nook_core::tool_approval::APPROVAL_TIMEOUT)
+}
+
+#[cfg(not(feature = "e2e"))]
+fn approval_timeout() -> Duration {
+    nook_core::tool_approval::APPROVAL_TIMEOUT
+}
+
+#[cfg(feature = "e2e")]
 fn deterministic_worker_enabled() -> bool {
     std::env::var("NOOK_E2E_WORKER_COMMAND").is_ok()
 }
@@ -133,20 +214,4 @@ fn deterministic_worker_enabled() -> bool {
 #[cfg(not(feature = "e2e"))]
 fn deterministic_worker_enabled() -> bool {
     false
-}
-
-async fn connect_db_with_retry(db_url: &str, timeout_dur: Duration) -> Option<sqlx::PgPool> {
-    let start = std::time::Instant::now();
-    loop {
-        match db::create_pool(db_url).await {
-            Ok(pool) => return Some(pool),
-            Err(e) => {
-                if start.elapsed() >= timeout_dur {
-                    warn!("Database connection failed after 30s timeout: {e}");
-                    return None;
-                }
-                tokio::time::sleep(Duration::from_secs(1)).await;
-            }
-        }
-    }
 }

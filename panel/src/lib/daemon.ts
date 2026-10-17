@@ -5,8 +5,10 @@ import type {
   ChatSummary,
   ChatTranscript,
   DaemonEvent,
+  Permissions,
   SettingsInfo,
   SettingsPayload,
+  ToolSource,
 } from './types'
 
 const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
@@ -113,7 +115,15 @@ export async function sendMessage(
           arguments: JSON.stringify({ url }),
           explanation: `Web fetch requires approval to access ${host}`,
           resource_summary: url,
-          actions: ['allow_once', 'allow_for_chat_host', 'deny'],
+          actions: [
+            { id: 'allow_once', label: 'Allow once', description: 'Allow this exact request one time.' },
+            {
+              id: 'allow_for_chat_host',
+              label: 'Allow for this chat & host',
+              description: 'Allow this tool to fetch from this host for the rest of this chat.',
+            },
+            { id: 'deny', label: 'Deny', description: 'Reject this request. The tool does not run.' },
+          ],
         })
 
         mockPendingApproval = (action: string) => {
@@ -126,6 +136,23 @@ export async function sendMessage(
               text: `*(User denied permission to access ${host}.)*`,
             })
           } else {
+            onEvent?.({
+              type: 'tool_call_started',
+              id: reqId,
+              chat_id: chatId,
+              message_id: msgId,
+              call_id: 'call_preview_1',
+              name: 'nook:web_fetch',
+              arguments: JSON.stringify({ url }),
+            })
+            onEvent?.({
+              type: 'tool_call_finished',
+              id: reqId,
+              chat_id: chatId,
+              message_id: msgId,
+              call_id: 'call_preview_1',
+              result: 'Preview page text',
+            })
             onEvent?.({
               type: 'text_delta',
               id: reqId,
@@ -212,6 +239,70 @@ export async function sendApprovalDecision(
   await invoke('send_approval_decision', { chatId, callId, action })
 }
 
+const previewPermissions: Permissions = {
+  grants: [
+    {
+      grant_id: 'preview-grant',
+      tool_id: 'web_fetch',
+      tool_name: 'Web fetch',
+      scope: 'persistent_host',
+      description: 'Always allow Web fetch for docs.example.com, in every chat',
+    },
+  ],
+  tools: [
+    {
+      tool_id: 'nook:web_search',
+      display_name: 'Web search',
+      default_tier: 'allow',
+      tier: 'default',
+      choices: [
+        { tier: 'default', label: 'Default', effect: 'Nook runs this tool without asking.' },
+        { tier: 'ask', label: 'Ask every time', effect: 'Nook asks before it uses this tool.' },
+        { tier: 'deny', label: 'Never allow', effect: 'Nook never runs this tool.' },
+      ],
+    },
+  ],
+}
+
+const previewToolSources: ToolSource[] = [
+  { source_id: 'filesystem', display_name: 'File tools', state: 'ready', tools: 2 },
+  {
+    source_id: 'mcp:notes',
+    display_name: 'MCP server notes',
+    state: 'off',
+    tools: 0,
+    reason: 'The server did not answer initialize in 10 seconds',
+  },
+]
+
+export async function getToolSources(): Promise<ToolSource[]> {
+  if (isBrowserMock) return structuredClone(previewToolSources)
+  return await invoke<ToolSource[]>('get_tool_sources')
+}
+
+export async function getPermissions(): Promise<Permissions> {
+  if (isBrowserMock) return structuredClone(previewPermissions)
+  return await invoke<Permissions>('get_permissions')
+}
+
+export async function revokeGrant(grantId: string): Promise<Permissions> {
+  if (isBrowserMock) {
+    previewPermissions.grants = previewPermissions.grants.filter((grant) => grant.grant_id !== grantId)
+    return structuredClone(previewPermissions)
+  }
+  return await invoke<Permissions>('revoke_grant', { grantId })
+}
+
+export async function setToolPreference(toolId: string, tier: string): Promise<Permissions> {
+  if (isBrowserMock) {
+    previewPermissions.tools = previewPermissions.tools.map((tool) =>
+      tool.tool_id === toolId ? { ...tool, tier } : tool,
+    )
+    return structuredClone(previewPermissions)
+  }
+  return await invoke<Permissions>('set_tool_preference', { toolId, tier })
+}
+
 export async function getSettings(): Promise<SettingsInfo> {
   if (isBrowserMock) return { ...previewSettings }
   return await invoke<SettingsInfo>('get_settings')
@@ -250,4 +341,17 @@ export function subscribeToDaemonEvents(
   return listen<DaemonEvent>('daemon_event', (event) => {
     callback(event.payload)
   })
+}
+
+export function isWebLink(href: string | undefined): href is string {
+  return typeof href === 'string' && /^https?:\/\/[^\s/]/i.test(href)
+}
+
+export async function openExternalLink(url: string): Promise<void> {
+  if (!isWebLink(url)) return
+  if (isTauri) {
+    await invoke('open_external_link', { url })
+  } else {
+    window.open(url, '_blank', 'noopener,noreferrer')
+  }
 }

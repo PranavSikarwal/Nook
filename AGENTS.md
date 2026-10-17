@@ -1,13 +1,14 @@
 # Nook
 
-Nook is a macOS overlay app. It has a SwiftUI panel, a Rust daemon, and a Python Deep Agents worker. The worker talks to a self-hosted OpenAI-compatible model.
+Nook is a cross-platform desktop overlay app. It has a Tauri Panel, a Rust Daemon, and a Python Deep Agents Worker. The Worker talks to a self-hosted OpenAI-compatible model.
 
 ## Where things are
 
-- `docs/spec/` holds the v1 specs, starting at `00-overview.md`.
-- `docs/plan.md` holds the tasks, and `CHECKLIST.md` tracks them.
-- `docs/plans/` holds implementation and execution plans for all work.
-- `docs/adr/` holds the decisions that are hard to reverse.
+- `docs/architecture.md`, `docs/contracts.md`, `docs/tools-and-authorization.md`, `docs/mcp-servers.md`, `docs/release.md`, and `docs/testing.md` describe current behavior.
+- `docs/plan.md` holds the active work, and `CHECKLIST.md` tracks it.
+- `docs/plans/` holds active implementation plans. `docs/archive/plans/` holds completed plans.
+- `docs/design/` holds proposed designs that wait for approval.
+- `docs/adr/` holds decisions that are hard to reverse. `docs/archive/` holds retired specifications and historical records.
 - `model-check/` holds the script that tests the model endpoint with Deep Agents.
 
 ## Agent skills

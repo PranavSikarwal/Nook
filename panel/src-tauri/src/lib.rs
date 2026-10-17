@@ -1,6 +1,7 @@
 use nook_core::config::Config;
 use nook_core::protocol::{
-    Attachment, AttachmentKind, ChatMessage, ChatSummary, ClientMessage, DaemonMessage,
+    Attachment, AttachmentKind, ChatMessage, ChatSummary, ClientMessage, DaemonMessage, GrantInfo,
+    ToolPolicyInfo, ToolSourceInfo,
 };
 #[cfg(windows)]
 use nook_core::windows_pipe_name;
@@ -49,6 +50,23 @@ async fn capture_daemon_stderr(
         });
         if file.write_all(line.as_bytes()).await.is_err() || file.write_all(b"\n").await.is_err() {
             return;
+        }
+    }
+}
+
+/// Keeps the Daemon's log in the application folder, with secrets removed, so a
+/// user can see why an MCP server or the database did not start.
+async fn capture_daemon_log(stderr: tokio::process::ChildStderr) {
+    use nook_core::daemon_log::{capture, secrets_to_redact, RotatingLog, MAX_LOG_BYTES};
+    let config = Config::read_only(&Config::default_config_path()).unwrap_or_default();
+    let secrets = secrets_to_redact(&config, std::env::var("NOOK_API_KEY").ok().as_deref());
+    let path = Config::app_dir().join("daemon.log");
+    match RotatingLog::open(path, MAX_LOG_BYTES).await {
+        Ok(log) => capture(stderr, log, secrets).await,
+        Err(error) => {
+            eprintln!("Could not open the Daemon log: {error}");
+            let mut stderr = stderr;
+            let _ = tokio::io::copy(&mut stderr, &mut tokio::io::stderr()).await;
         }
     }
 }
@@ -186,7 +204,7 @@ pub async fn wait_for_daemon_ready(socket_path: &Path, timeout: std::time::Durat
         let start = std::time::Instant::now();
         while start.elapsed() < timeout {
             #[cfg(unix)]
-            let ready = socket_path.exists() && connect_local_daemon().await.is_ok();
+            let ready = UnixStream::connect(socket_path).await.is_ok();
             #[cfg(windows)]
             let ready = {
                 let _ = socket_path;
@@ -285,26 +303,30 @@ pub async fn ensure_daemon_started(state: &DaemonState) {
                 }
             }
             #[cfg(feature = "e2e")]
-            if let Some(value) = std::env::var_os("NOOK_E2E_WORKER_COMMAND") {
-                cmd.env("NOOK_E2E_WORKER_COMMAND", value);
+            for env_key in ["NOOK_E2E_WORKER_COMMAND", "NOOK_E2E_APPROVAL_TIMEOUT_MS"] {
+                if let Some(value) = std::env::var_os(env_key) {
+                    cmd.env(env_key, value);
+                }
             }
 
-            let daemon_log_path = std::env::var_os("NOOK_E2E_RUN_DIR")
+            let e2e_log_path = std::env::var_os("NOOK_E2E_RUN_DIR")
                 .map(|dir| PathBuf::from(dir).join("daemon-stderr.log"));
-            if daemon_log_path.is_some() {
-                cmd.stderr(Stdio::piped());
-            }
+            cmd.stderr(Stdio::piped());
 
             match cmd.spawn() {
                 Ok(mut child) => {
-                    if let (Some(stderr), Some(path)) = (child.stderr.take(), daemon_log_path) {
-                        let redactions = ["NOOK_BASE_URL", "NOOK_MODEL", "NOOK_API_KEY"]
-                            .into_iter()
-                            .filter_map(|name| std::env::var(name).ok())
-                            .collect();
-                        tauri::async_runtime::spawn(capture_daemon_stderr(
-                            stderr, path, redactions,
-                        ));
+                    if let Some(stderr) = child.stderr.take() {
+                        if let Some(path) = e2e_log_path {
+                            let redactions = ["NOOK_BASE_URL", "NOOK_MODEL", "NOOK_API_KEY"]
+                                .into_iter()
+                                .filter_map(|name| std::env::var(name).ok())
+                                .collect();
+                            tauri::async_runtime::spawn(capture_daemon_stderr(
+                                stderr, path, redactions,
+                            ));
+                        } else {
+                            tauri::async_runtime::spawn(capture_daemon_log(stderr));
+                        }
                     }
                     {
                         let mut proc_guard = state.spawned_process.lock().await;
@@ -796,6 +818,138 @@ async fn set_settings<R: Runtime>(
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PermissionsPayload {
+    pub grants: Vec<GrantInfo>,
+    pub tools: Vec<ToolPolicyInfo>,
+}
+
+async fn ask_daemon<R: Runtime>(
+    app: &AppHandle<R>,
+    msg: ClientMessage,
+) -> Result<DaemonMessage, String> {
+    let stream = connect_to_daemon(app).await?;
+    let (reader, mut writer) = tokio::io::split(stream);
+    let mut lines = BufReader::new(reader).lines();
+
+    let mut payload = serde_json::to_string(&msg).map_err(|e| e.to_string())?;
+    payload.push('\n');
+    writer
+        .write_all(payload.as_bytes())
+        .await
+        .map_err(|e| e.to_string())?;
+    writer.flush().await.map_err(|e| e.to_string())?;
+
+    let Some(line) = lines.next_line().await.map_err(|e| e.to_string())? else {
+        return Err("Daemon closed connection unexpectedly".to_string());
+    };
+    match serde_json::from_str::<DaemonMessage>(&line).map_err(|e| e.to_string())? {
+        DaemonMessage::Error { error, .. } => Err(error.message),
+        reply => Ok(reply),
+    }
+}
+
+async fn ask_for_permissions<R: Runtime>(
+    app: &AppHandle<R>,
+    msg: ClientMessage,
+) -> Result<PermissionsPayload, String> {
+    match ask_daemon(app, msg).await? {
+        DaemonMessage::Permissions { grants, tools, .. } => {
+            Ok(PermissionsPayload { grants, tools })
+        }
+        _ => Err("Unexpected response from daemon".to_string()),
+    }
+}
+
+#[tauri::command]
+async fn get_tool_sources<R: Runtime>(app: AppHandle<R>) -> Result<Vec<ToolSourceInfo>, String> {
+    match ask_daemon(&app, ClientMessage::ListToolSources { id: Uuid::new_v4() }).await? {
+        DaemonMessage::ToolSources { sources, .. } => Ok(sources),
+        _ => Err("Unexpected response from daemon".to_string()),
+    }
+}
+
+#[tauri::command]
+async fn get_permissions<R: Runtime>(app: AppHandle<R>) -> Result<PermissionsPayload, String> {
+    ask_for_permissions(&app, ClientMessage::ListPermissions { id: Uuid::new_v4() }).await
+}
+
+#[tauri::command]
+async fn revoke_grant<R: Runtime>(
+    app: AppHandle<R>,
+    grant_id: String,
+) -> Result<PermissionsPayload, String> {
+    ask_for_permissions(
+        &app,
+        ClientMessage::RevokeGrant {
+            id: Uuid::new_v4(),
+            grant_id,
+        },
+    )
+    .await
+}
+
+const MAX_LINK_LENGTH: usize = 2048;
+
+/// A link the Panel may hand to the system browser: `http` or `https`, no spaces
+/// or control characters, and a host.
+fn is_web_link(url: &str) -> bool {
+    let lower = url.to_ascii_lowercase();
+    let rest = lower
+        .strip_prefix("https://")
+        .or_else(|| lower.strip_prefix("http://"));
+    url.len() <= MAX_LINK_LENGTH
+        && !url.chars().any(|c| c.is_control() || c.is_whitespace())
+        && rest.is_some_and(|rest| !rest.is_empty() && !rest.starts_with('/'))
+}
+
+#[cfg(not(feature = "e2e"))]
+fn open_in_system_browser(app: &tauri::AppHandle, url: String) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    app.opener()
+        .open_url(url, None::<&str>)
+        .map_err(|error| error.to_string())
+}
+
+/// Test builds never start a browser. They append the link to a file in the run
+/// folder, and the native tests read it.
+#[cfg(feature = "e2e")]
+fn open_in_system_browser(_app: &tauri::AppHandle, url: String) -> Result<(), String> {
+    use std::io::Write;
+    let dir = std::env::var_os("NOOK_E2E_RUN_DIR").ok_or("NOOK_E2E_RUN_DIR is not set")?;
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(PathBuf::from(dir).join("opened-links.log"))
+        .map_err(|error| error.to_string())?;
+    writeln!(file, "{url}").map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn open_external_link(app: tauri::AppHandle, url: String) -> Result<(), String> {
+    if !is_web_link(&url) {
+        return Err("Only http and https links can be opened".to_string());
+    }
+    open_in_system_browser(&app, url)
+}
+
+#[tauri::command]
+async fn set_tool_preference<R: Runtime>(
+    app: AppHandle<R>,
+    tool_id: String,
+    tier: String,
+) -> Result<PermissionsPayload, String> {
+    ask_for_permissions(
+        &app,
+        ClientMessage::SetToolPreference {
+            id: Uuid::new_v4(),
+            tool_id,
+            tier,
+        },
+    )
+    .await
+}
+
 #[tauri::command]
 async fn set_window_size<R: Runtime>(
     app: AppHandle<R>,
@@ -840,6 +994,7 @@ pub fn run() {
 
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_opener::init())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(move |app, s, event| {
@@ -893,6 +1048,11 @@ pub fn run() {
             send_approval_decision,
             get_settings,
             set_settings,
+            get_permissions,
+            get_tool_sources,
+            revoke_grant,
+            set_tool_preference,
+            open_external_link,
             set_window_size,
             toggle_window,
             start_drag,
@@ -974,5 +1134,66 @@ mod tests {
         }
         let proc = state.spawned_process.lock().await;
         assert!(proc.is_none() || proc.is_some());
+    }
+}
+
+#[cfg(test)]
+mod link_tests {
+    use super::is_web_link;
+
+    #[test]
+    fn only_web_links_may_be_opened() {
+        for good in [
+            "https://example.com/docs",
+            "http://example.com",
+            "HTTPS://Example.com/Path?q=1#top",
+        ] {
+            assert!(is_web_link(good), "{good}");
+        }
+        for bad in [
+            "",
+            "javascript:alert(1)",
+            "file:///etc/passwd",
+            "ftp://example.com",
+            "mailto:a@example.com",
+            "https://",
+            "https:///etc/passwd",
+            "https://example.com/a b",
+            "https://example.com/\nHost: x",
+            "//example.com",
+            "example.com",
+        ] {
+            assert!(!is_web_link(bad), "{bad:?}");
+        }
+        let long = format!("https://example.com/{}", "a".repeat(2100));
+        assert!(!is_web_link(&long));
+    }
+}
+
+#[cfg(all(test, unix))]
+mod daemon_log_tests {
+    #[tokio::test]
+    async fn the_daemon_output_lands_in_the_app_folder_without_secrets() {
+        let dir = tempfile::tempdir().unwrap();
+        std::env::set_var("NOOK_APP_DIR", dir.path());
+        std::fs::write(
+            dir.path().join("config.toml"),
+            "base_url = \"u\"\nmodel = \"m\"\ndatabase_url = \"postgres://nook:hunter22@localhost/nook\"\n",
+        )
+        .unwrap();
+        let mut child = tokio::process::Command::new("/bin/sh")
+            .args([
+                "-c",
+                "echo 'connect nook:hunter22@localhost failed' >&2; echo second >&2",
+            ])
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+
+        super::capture_daemon_log(child.stderr.take().unwrap()).await;
+        child.wait().await.unwrap();
+
+        let log = std::fs::read_to_string(dir.path().join("daemon.log")).unwrap();
+        assert_eq!(log, "connect ***@localhost failed\nsecond\n");
     }
 }

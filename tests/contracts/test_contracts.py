@@ -82,7 +82,7 @@ def test_panel_daemon_examples_valid() -> None:
     examples = load_ndjson(EXAMPLES_DIR / "panel-daemon.ndjson")
     validator = Draft7Validator(schema, format_checker=format_checker)
 
-    assert len(examples) == 23, f"Expected 23 example lines, found {len(examples)}"
+    assert len(examples) == 29, f"Expected 29 example lines, found {len(examples)}"
 
     for idx, obj in enumerate(examples, 1):
         errors = list(validator.iter_errors(obj))
@@ -97,7 +97,7 @@ def test_daemon_worker_examples_valid() -> None:
     examples = load_ndjson(EXAMPLES_DIR / "daemon-worker.ndjson")
     validator = Draft7Validator(schema, format_checker=format_checker)
 
-    assert len(examples) == 16, f"Expected 16 example lines, found {len(examples)}"
+    assert len(examples) == 21, f"Expected 21 example lines, found {len(examples)}"
 
     for idx, obj in enumerate(examples, 1):
         errors = list(validator.iter_errors(obj))
@@ -144,6 +144,131 @@ def test_daemon_worker_all_types_covered() -> None:
                     "chat_id": "22222222-2222-2222-2222-222222222222",
                     "title": "Title",
                     "updated_at": "not-a-valid-datetime",
+                }
+            ],
+        },
+        {
+            "type": "approval_requested",
+            "id": "11111111-1111-1111-1111-111111111111",
+            "chat_id": "22222222-2222-2222-2222-222222222222",
+            "message_id": "44444444-4444-4444-4444-444444444444",
+            "call_id": "call_fetch_1",
+            "tool_name": "nook:web_fetch",
+            "arguments": "{}",
+            "explanation": "Fetch",
+            "resource_summary": "https://docs.example.com",
+            "actions": ["allow_once"],  # actions must be objects
+        },
+        {
+            "type": "approval_requested",
+            "id": "11111111-1111-1111-1111-111111111111",
+            "chat_id": "22222222-2222-2222-2222-222222222222",
+            "message_id": "44444444-4444-4444-4444-444444444444",
+            "call_id": "call_fetch_1",
+            "tool_name": "nook:web_fetch",
+            "arguments": "{}",
+            "explanation": "Fetch",
+            "resource_summary": "https://docs.example.com",
+            "actions": [{"id": "allow_once", "label": "Allow once"}],  # no description
+        },
+        {
+            "type": "approval_requested",
+            "id": "11111111-1111-1111-1111-111111111111",
+            "chat_id": "22222222-2222-2222-2222-222222222222",
+            "message_id": "44444444-4444-4444-4444-444444444444",
+            "call_id": "call_fetch_1",
+            "tool_name": "nook:web_fetch",
+            "arguments": "{}",
+            "explanation": "Fetch",
+            "resource_summary": "https://docs.example.com",
+            "actions": [{"id": "grant_forever", "label": "x", "description": "y"}],
+        },
+        {"type": "revoke_grant", "id": "11111111-1111-1111-1111-111111111111"},
+        {
+            "type": "revoke_grant",
+            "id": "11111111-1111-1111-1111-111111111111",
+            "grant_id": "",
+        },
+        {
+            "type": "set_tool_preference",
+            "id": "11111111-1111-1111-1111-111111111111",
+            "tool_id": "nook:web_search",
+            "tier": "allow",  # a preference can never loosen a tool
+        },
+        {
+            "type": "set_tool_preference",
+            "id": "11111111-1111-1111-1111-111111111111",
+            "tool_id": "nook:web_search",
+            "tier": "deny",
+            "extra": True,
+        },
+        {
+            "type": "permissions",
+            "id": "11111111-1111-1111-1111-111111111111",
+            "grants": [
+                {
+                    "grant_id": "abc",
+                    "tool_id": "web_fetch",
+                    "tool_name": "Web fetch",
+                    "scope": "chat_host",  # chat grants are not permanent
+                    "description": "x",
+                }
+            ],
+            "tools": [],
+        },
+        {
+            "type": "tool_sources",
+            "id": "11111111-1111-1111-1111-111111111111",
+            "sources": [
+                {
+                    "source_id": "mcp:notes",
+                    "display_name": "MCP server notes",
+                    "state": "broken",  # only ready, off, or stopped
+                    "tools": 0,
+                }
+            ],
+        },
+        {
+            "type": "tool_sources",
+            "id": "11111111-1111-1111-1111-111111111111",
+            "sources": [
+                {
+                    "source_id": "mcp:notes",
+                    "display_name": "MCP server notes",
+                    "state": "off",
+                    "tools": -1,  # a count is never negative
+                }
+            ],
+        },
+        {
+            "type": "tool_sources",
+            "id": "11111111-1111-1111-1111-111111111111",
+            "sources": [
+                {
+                    "source_id": "mcp:notes",
+                    "display_name": "MCP server notes",
+                    "state": "off",
+                    "tools": 0,
+                    "reason": "x" * 201,  # a reason stays short
+                }
+            ],
+        },
+        {
+            "type": "list_tool_sources",
+            "id": "11111111-1111-1111-1111-111111111111",
+            "extra": 1,
+        },
+        {
+            "type": "permissions",
+            "id": "11111111-1111-1111-1111-111111111111",
+            "grants": [],
+            "tools": [
+                {
+                    "tool_id": "nook:web_search",
+                    "display_name": "Web search",
+                    "default_tier": "allow",
+                    "tier": "default",
+                    "choices": [],  # at least the default choice
                 }
             ],
         },
@@ -204,6 +329,115 @@ def test_panel_daemon_invalid_payloads_rejected(
                     "mime": "image/png",
                     "size_bytes": 20000000,  # exceeds 10MB limit (10485760 bytes)
                     "path": "/path/to/large.png",
+                }
+            ],
+        },
+        {
+            "type": "approval_decision",
+            "request_id": "11111111-1111-1111-1111-111111111111",
+            "call_id": "call_fetch_1",
+            "action": "allow_once",
+        },
+        {
+            "type": "approval_requested",
+            "request_id": "11111111-1111-1111-1111-111111111111",
+            "message_id": "44444444-4444-4444-4444-444444444444",
+            "call_id": "call_fetch_1",
+            "tool_name": "nook:web_fetch",
+            "arguments": "{}",
+            "explanation": "Fetch",
+            "resource_summary": "https://docs.example.com",
+            "actions": ["allow_once"],
+        },
+        {
+            "type": "authorization_result",
+            "request_id": "11111111-1111-1111-1111-111111111111",
+            "call_id": "call_fetch_1",
+            "decision": "maybe",  # invalid decision
+        },
+        {
+            "type": "authorization_result",
+            "request_id": "11111111-1111-1111-1111-111111111111",
+            "call_id": "call_fetch_1",
+            "decision": "allow",
+            "extra": "not allowed",
+        },
+        {
+            "type": "authorization_result",
+            "request_id": "11111111-1111-1111-1111-111111111111",
+            # missing "call_id"
+            "decision": "allow",
+        },
+        {
+            "type": "authorize_tool",
+            "request_id": "11111111-1111-1111-1111-111111111111",
+            "message_id": "22222222-2222-2222-2222-222222222222",
+            # missing "call_id"
+            "chat_id": "33333333-3333-3333-3333-333333333333",
+            "tool_name": "web_fetch",
+            "arguments": '{"url":"https://docs.example.com"}',
+        },
+        {
+            "type": "authorize_tool",
+            "request_id": "not-a-uuid",
+            "message_id": "22222222-2222-2222-2222-222222222222",
+            "call_id": "call_fetch_1",
+            "chat_id": "33333333-3333-3333-3333-333333333333",
+            "tool_name": "web_fetch",
+            "arguments": '{"url":"https://docs.example.com"}',
+        },
+        {
+            "type": "authorize_tool",
+            "request_id": "11111111-1111-1111-1111-111111111111",
+            "message_id": "22222222-2222-2222-2222-222222222222",
+            "call_id": "call_fetch_1",
+            "chat_id": "33333333-3333-3333-3333-333333333333",
+            "tool_name": "web_fetch",
+            "arguments": '{"url":"https://docs.example.com"}',
+            "arguments_digest": "abc123",  # Worker must never send a digest
+        },
+        {
+            "type": "execute_tool",
+            "request_id": "11111111-1111-1111-1111-111111111111",
+            "message_id": "22222222-2222-2222-2222-222222222222",
+            "call_id": "call_read_1",
+            "chat_id": "33333333-3333-3333-3333-333333333333",
+            "tool_name": "nook:read_local_file",
+            "arguments": '{"path":"/work/a.txt"}',
+            "digest": "abc123",  # Worker must never send a digest
+        },
+        {
+            "type": "tool_result",
+            "request_id": "11111111-1111-1111-1111-111111111111",
+            "call_id": "call_read_1",
+            "status": "maybe",  # invalid status
+            "output": "x",
+        },
+        {
+            "type": "tool_result",
+            "request_id": "11111111-1111-1111-1111-111111111111",
+            "call_id": "call_read_1",
+            "status": "ok",  # missing "output"
+        },
+        {
+            "type": "tool_catalog",
+            "tools": [
+                {
+                    "id": "nook:bad",
+                    "name": "bad name!",  # invalid model name
+                    "description": "x",
+                    "input_schema": {"type": "object"},
+                }
+            ],
+        },
+        {
+            "type": "tool_catalog",
+            "tools": [
+                {
+                    "id": "nook:bad",
+                    "name": "bad",
+                    "description": "x",
+                    "input_schema": {"type": "string"},  # not an object schema
                 }
             ],
         },
