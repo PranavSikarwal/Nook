@@ -1,0 +1,91 @@
+# Nook contracts
+
+The JSON Schema files in `contracts/` are the protocol authority. This page
+routes readers to those files and identifies the transports that use them.
+
+## Schema authority
+
+- `contracts/panel-daemon.schema.json` defines Panel and Daemon messages.
+- `contracts/daemon-worker.schema.json` defines Daemon and Worker messages.
+- `contracts/examples/` contains newline-delimited examples checked by contract
+  tests.
+
+A schema change must update the matching examples and every implementation that
+encodes or decodes the changed message.
+
+## Transports
+
+The Panel and Daemon use newline-delimited JSON over a user-local IPC endpoint.
+macOS and Linux use a Unix socket. Windows uses a named pipe. The Daemon starts
+the Worker and exchanges newline-delimited JSON through the Worker's standard
+input and output.
+
+## Tool messages
+
+The Panel and Daemon exchange `approval_requested` and `approval_decision`. The
+Daemon sends `approval_requested` to the Panel only when a tool call needs the
+user. The Panel answers with `approval_decision`.
+
+The Daemon and Worker no longer use `approval_requested` or `approval_decision`.
+The schema still lists them. The Daemon ignores them. TP4 removes them.
+
+## Tool authorization
+
+The Worker asks the Daemon before it runs a tool. Two Daemon and Worker
+messages carry this exchange.
+
+- `authorize_tool` goes from Worker to Daemon. It carries `request_id`,
+  `message_id`, `call_id`, `chat_id`, `tool_name`, and `arguments`. All fields
+  are required. `arguments` is a string that holds JSON text. The message allows
+  no other fields.
+- `authorization_result` goes from Daemon to Worker. It carries `request_id`,
+  `call_id`, and `decision`. `decision` is `allow` or `deny`. The optional
+  `reason` is a short fixed string. The message allows no other fields.
+
+The Worker steps:
+
+1. The Worker validates the tool arguments.
+2. The Worker sends `authorize_tool`.
+3. The Worker waits for `authorization_result` with the same `request_id` and
+   `call_id`. It ignores any other result.
+4. The Worker runs the tool executor only if `decision` is `allow`.
+5. The Worker does not run the executor if `decision` is `deny`.
+
+The Daemon steps:
+
+1. The Daemon denies the call if `chat_id` is not the chat of the running
+   request.
+2. The Daemon builds one normalized request from the tool name and arguments.
+   It denies the call if the tool is unknown or the arguments are invalid.
+3. The Daemon asks Cedar. If Cedar allows the call, the Daemon sends `allow`.
+   This covers tools in the `allow` tier and calls that match a scoped grant.
+4. The Daemon sends `deny` if the tool is in the `deny` tier.
+5. Otherwise the Daemon sends `approval_requested` to the Panel. The actions
+   come from `policy/tools.yaml`.
+6. The Panel sends `approval_decision`. The Daemon rejects an action that it did
+   not offer.
+7. The Daemon records a scoped grant for the chosen action and asks Cedar again.
+   It sends `allow` only if Cedar allows the call.
+
+A `once` grant works for one call only. Cancel sends `deny` with the reason
+`Cancelled` for each call that still waits.
+
+The Daemon owns host normalization and argument-digest normalization. The digest
+is the SHA-256 hex of the canonical JSON of the arguments. Canonical JSON uses
+sorted keys and no whitespace. The Worker never sends a digest.
+
+The `reason` is one of a small set of fixed strings, such as `Invalid
+arguments`, `Unknown tool`, `Denied by the user`, `Authorization failed`, and
+`Cancelled`. It never contains error detail. The Daemon writes the detail to its
+log.
+
+## Verification
+
+Run the contract test suite after changing a schema or an example:
+
+```sh
+rtk uv run --with pytest --with jsonschema pytest tests/contracts panel/e2e/test_fake_worker.py
+```
+
+The second file checks that the deterministic fake Worker only sends messages
+that the Daemon and Worker schema allows.

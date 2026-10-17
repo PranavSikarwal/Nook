@@ -24,14 +24,20 @@ use windows_sys::Win32::Security::{
 #[cfg(windows)]
 use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 
+use crate::authorization::AuthorizationRequest;
 use crate::config::Config;
 use crate::db;
 use crate::keychain;
+use crate::policy_assets::PolicyAssets;
 use crate::protocol::{
     Attachment, ClientMessage, DaemonMessage, DaemonWorkerEvent, DaemonWorkerRequest, ErrorCode,
     ErrorInfo, FinishStatus, MessageStatus,
 };
 use crate::supervisor::WorkerSupervisor;
+use crate::tool_approval::{
+    deny_pending_for_request, handle_approval_decision, handle_authorize_tool, AuthorizeContext,
+    AuthorizeToolCall,
+};
 
 #[derive(Debug, Clone)]
 pub struct PendingApprovalEntry {
@@ -39,13 +45,16 @@ pub struct PendingApprovalEntry {
     pub client_request_id: Uuid,
     pub worker_request_id: Uuid,
     pub decision_in_flight: bool,
+    pub request: AuthorizationRequest,
+    pub offered_actions: Vec<String>,
 }
 
 pub fn claim_pending_approval(
     approvals: &mut HashMap<String, PendingApprovalEntry>,
     call_id: &str,
     chat_id: Uuid,
-) -> Result<Uuid, &'static str> {
+    action: &str,
+) -> Result<PendingApprovalEntry, &'static str> {
     match approvals.get_mut(call_id) {
         Some(entry) if entry.chat_id != chat_id => {
             Err("Approval call ID does not belong to the specified chat")
@@ -53,9 +62,17 @@ pub fn claim_pending_approval(
         Some(entry) if entry.decision_in_flight => {
             Err("Approval decision is already being forwarded")
         }
+        Some(entry)
+            if !entry
+                .offered_actions
+                .iter()
+                .any(|offered| offered == action) =>
+        {
+            Err("Approval action was not offered for this call")
+        }
         Some(entry) => {
             entry.decision_in_flight = true;
-            Ok(entry.worker_request_id)
+            Ok(entry.clone())
         }
         None => Err("Unknown or invalid approval call id"),
     }
@@ -70,6 +87,7 @@ pub struct AppState {
     pub open_requests: Mutex<HashMap<Uuid, Uuid>>, // maps client id -> worker request_id
     pub pending_approvals: Mutex<HashMap<String, PendingApprovalEntry>>, // maps call_id -> entry
     pub cancelled_requests: Mutex<HashSet<Uuid>>,
+    pub policy: Arc<PolicyAssets>,
 }
 
 pub struct Server {
@@ -514,6 +532,14 @@ async fn process_client_message(
         }
 
         ClientMessage::DeleteChat { id, chat_id } => {
+            state
+                .policy
+                .authorizer
+                .grant_store()
+                .lock()
+                .await
+                .remove_chat(chat_id);
+
             // 1. Tell worker to delete thread memory
             let sup_opt = { state.supervisor.lock().await.clone() };
             if let Some(sup) = sup_opt {
@@ -551,10 +577,7 @@ async fn process_client_message(
                 let mut cancelled = state.cancelled_requests.lock().await;
                 cancelled.insert(target_id);
             }
-            {
-                let mut approvals = state.pending_approvals.lock().await;
-                approvals.retain(|_, v| v.client_request_id != target_id);
-            }
+            deny_pending_for_request(&state, target_id, "Cancelled").await;
 
             let worker_req_id = {
                 let open_reqs = state.open_requests.lock().await;
@@ -590,65 +613,7 @@ async fn process_client_message(
             call_id,
             action,
         } => {
-            let decision_target = {
-                let mut approvals = state.pending_approvals.lock().await;
-                claim_pending_approval(&mut approvals, &call_id, chat_id)
-            };
-
-            match decision_target {
-                Ok(worker_req_id) => {
-                    let supervisor = state.supervisor.lock().await.clone();
-                    let decision_result = match supervisor {
-                        Some(supervisor) => supervisor
-                            .send_request(DaemonWorkerRequest::ApprovalDecision {
-                                request_id: worker_req_id,
-                                call_id: call_id.clone(),
-                                action,
-                            })
-                            .await
-                            .map(|_| ())
-                            .map_err(|error| {
-                                format!("Failed to forward approval decision: {error}")
-                            }),
-                        None => Err("Worker supervisor is not available".to_string()),
-                    };
-
-                    match decision_result {
-                        Ok(()) => {
-                            state.pending_approvals.lock().await.remove(&call_id);
-                        }
-                        Err(message) => {
-                            if let Some(entry) =
-                                state.pending_approvals.lock().await.get_mut(&call_id)
-                            {
-                                entry.decision_in_flight = false;
-                            }
-                            let _ = tx_out
-                                .send(DaemonMessage::Error {
-                                    id,
-                                    error: ErrorInfo {
-                                        code: ErrorCode::InvalidRequest,
-                                        message,
-                                        retryable: true,
-                                    },
-                                })
-                                .await;
-                        }
-                    }
-                }
-                Err(message) => {
-                    let _ = tx_out
-                        .send(DaemonMessage::Error {
-                            id,
-                            error: ErrorInfo {
-                                code: ErrorCode::InvalidRequest,
-                                message: message.to_string(),
-                                retryable: false,
-                            },
-                        })
-                        .await;
-                }
-            }
+            handle_approval_decision(&state, id, chat_id, call_id, action, &tx_out).await;
         }
     }
 }
@@ -910,40 +875,31 @@ async fn handle_send_message(
                     .await;
             }
 
-            DaemonWorkerEvent::ApprovalRequested {
+            DaemonWorkerEvent::AuthorizeTool {
+                message_id,
                 call_id,
+                chat_id: event_chat_id,
                 tool_name,
                 arguments,
-                explanation,
-                resource_summary,
-                actions,
                 ..
             } => {
-                {
-                    let mut approvals = state.pending_approvals.lock().await;
-                    approvals.insert(
-                        call_id.clone(),
-                        PendingApprovalEntry {
-                            chat_id,
-                            client_request_id: id,
-                            worker_request_id: worker_req_id,
-                            decision_in_flight: false,
-                        },
-                    );
-                }
-                let _ = tx_out
-                    .send(DaemonMessage::ApprovalRequested {
-                        id,
+                handle_authorize_tool(
+                    &state,
+                    &AuthorizeContext {
+                        client_request_id: id,
+                        worker_request_id: worker_req_id,
                         chat_id,
-                        message_id: asst_message_id,
+                    },
+                    AuthorizeToolCall {
+                        message_id,
                         call_id,
+                        chat_id: event_chat_id,
                         tool_name,
                         arguments,
-                        explanation,
-                        resource_summary,
-                        actions,
-                    })
-                    .await;
+                    },
+                    &tx_out,
+                )
+                .await;
             }
 
             DaemonWorkerEvent::MessageFinished { status, .. } => {
@@ -1028,6 +984,8 @@ async fn handle_send_message(
         open_reqs.remove(&id);
         let mut cancelled = state.cancelled_requests.lock().await;
         cancelled.remove(&id);
+        let mut approvals = state.pending_approvals.lock().await;
+        approvals.retain(|_, v| v.client_request_id != id);
     }
 }
 

@@ -1,7 +1,6 @@
 import json
 from collections.abc import AsyncIterator
 from typing import Any, Protocol
-from urllib.parse import urlparse
 from uuid import UUID, uuid4
 
 import httpx
@@ -19,9 +18,13 @@ from langchain_core.messages import AIMessageChunk, HumanMessage
 from langchain_core.tools import StructuredTool
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.base import BaseCheckpointSaver
+from pydantic import ValidationError
 
-from nook_worker.approval import default_approval_manager
 from nook_worker.attachments import AttachmentError, process_attachments_and_text
+from nook_worker.authorization import (
+    AuthorizationDecision,
+    default_authorization_manager,
+)
 from nook_worker.config import WorkerConfig
 from nook_worker.protocol import (
     ErrorInfo,
@@ -31,9 +34,17 @@ from nook_worker.protocol import (
     RunRequest,
     TextDeltaEvent,
 )
-from nook_worker.registry import ToolDefinition, default_registry
-from nook_worker.tools.fetch import WebFetchInput, execute_web_fetch
-from nook_worker.tools.search import WebSearchInput, execute_web_search
+from nook_worker.registry import ToolArgumentError, ToolDefinition, default_registry
+from nook_worker.tools.fetch import (
+    StrictWebFetchInput,
+    WebFetchInput,
+    execute_web_fetch,
+)
+from nook_worker.tools.search import (
+    StrictWebSearchInput,
+    WebSearchInput,
+    execute_web_search,
+)
 
 SYSTEM_PROMPT = (
     "You are Nook, a concise desktop assistant. "
@@ -116,31 +127,18 @@ def register_agent_profile(model_name: str) -> None:
     register_harness_profile(f"openai:{model_name}", profile)
 
 
-async def _check_tool_approval(
-    registered_name: str, kwargs: dict[str, Any]
-) -> str | None:
-    """Return error message if access is denied, or None if approved."""
-    target_url = str(kwargs.get("url", ""))
-    parsed_host = urlparse(target_url).hostname or target_url
-    chat_id_str = str(default_approval_manager.current_chat_id or "")
-
-    if default_approval_manager.is_host_approved(chat_id_str, parsed_host):
-        return None
-
-    call_id = f"call_{uuid4().hex}"
-    action = await default_approval_manager.request_approval(
-        call_id=call_id,
-        tool_name=registered_name,
-        arguments=json.dumps(kwargs),
-        explanation=f"Web fetch requires approval to access {parsed_host}",
-        resource_summary=target_url,
-        actions=["allow_once", "allow_for_chat_host", "deny"],
+def _format_validation_error(error: ValidationError) -> str:
+    details = "; ".join(
+        f"{'.'.join(str(part) for part in item['loc'])}: {item['msg']}"
+        for item in error.errors()
     )
-    if action == "deny":
-        return f"Error: User denied permission to access {parsed_host}."
-    if action in ("allow_for_chat_host", "allow_for_chat", "always_allow"):
-        default_approval_manager.approve_host(chat_id_str, parsed_host)
-    return None
+    return f"Error: invalid arguments. {details}"
+
+
+def _format_denial(decision: AuthorizationDecision) -> str:
+    if decision.reason:
+        return f"Error: request denied: {decision.reason}"
+    return "Error: request denied"
 
 
 def _create_registry_runner(registered_name: str) -> Any:
@@ -148,15 +146,19 @@ def _create_registry_runner(registered_name: str) -> Any:
         defn = default_registry.get(registered_name)
         if not defn:
             return f"Error: Tool '{registered_name}' is not registered."
-        if defn.approval_tier == "deny":
-            return f"Error: Tool '{registered_name}' is denied by policy."
 
-        if defn.approval_tier == "ask_once_per_host":
-            deny_error = await _check_tool_approval(registered_name, kwargs)
-            if deny_error:
-                return deny_error
+        try:
+            arguments = default_registry.validate_arguments(registered_name, kwargs)
+        except ToolArgumentError as err:
+            return f"Error: {err}"
 
-        return await defn.executor(**kwargs)
+        decision = await default_authorization_manager.authorize(
+            registered_name, json.dumps(arguments)
+        )
+        if not decision.allowed:
+            return _format_denial(decision)
+
+        return await defn.executor(**arguments)
 
     return registry_runner
 
@@ -180,8 +182,8 @@ def build_deep_agent(
             "web_search",
             "Search the web using DuckDuckGo. Returns titles, links, and snippets.",
             WebSearchInput,
+            StrictWebSearchInput,
             {"network": True, "read_only": True},
-            "allow",
             execute_web_search,
         ),
         (
@@ -189,21 +191,20 @@ def build_deep_agent(
             "web_fetch",
             "Fetch a public web page over HTTP or HTTPS and extract readable text.",
             WebFetchInput,
+            StrictWebFetchInput,
             {"network": True, "read_only": True},
-            "ask_once_per_host",
             execute_web_fetch,
         ),
     ]
 
     tools = []
-    for reg_name, tool_name, desc, schema, caps, tier, fn in tool_specs:
+    for reg_name, tool_name, desc, schema, strict_schema, caps, fn in tool_specs:
         default_registry.register(
             ToolDefinition(
                 name=reg_name,
                 description=desc,
-                argument_schema=schema,
+                argument_schema=strict_schema,
                 capabilities=caps,
-                approval_tier=tier,
                 executor=fn,
             )
         )
@@ -213,6 +214,7 @@ def build_deep_agent(
                 name=tool_name,
                 description=desc,
                 args_schema=schema,
+                handle_validation_error=_format_validation_error,
             )
         )
 

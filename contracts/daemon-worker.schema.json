@@ -10,12 +10,14 @@
     { "$ref": "#/definitions/CancelRequest" },
     { "$ref": "#/definitions/DeleteChatRequest" },
     { "$ref": "#/definitions/ShutdownRequest" },
+    { "$ref": "#/definitions/AuthorizationResult" },
     { "$ref": "#/definitions/ReadyEvent" },
     { "$ref": "#/definitions/MessageStartedEvent" },
     { "$ref": "#/definitions/TextDeltaEvent" },
     { "$ref": "#/definitions/ToolCallStartedEvent" },
     { "$ref": "#/definitions/ToolCallFinishedEvent" },
     { "$ref": "#/definitions/ApprovalRequestedEvent" },
+    { "$ref": "#/definitions/AuthorizeToolEvent" },
     { "$ref": "#/definitions/MessageFinishedEvent" },
     { "$ref": "#/definitions/TitleReadyEvent" },
     { "$ref": "#/definitions/DeletedEvent" },
@@ -26,10 +28,7 @@
       "type": "string",
       "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
     },
-    "AttachmentKind": {
-      "type": "string",
-      "enum": ["image", "text", "pdf"]
-    },
+    "AttachmentKind": { "type": "string", "enum": ["image", "text", "pdf"] },
     "Attachment": {
       "type": "object",
       "properties": {
@@ -126,10 +125,20 @@
     },
     "ShutdownRequest": {
       "type": "object",
-      "properties": {
-        "type": { "type": "string", "const": "shutdown" }
-      },
+      "properties": { "type": { "type": "string", "const": "shutdown" } },
       "required": ["type"]
+    },
+    "AuthorizationResult": {
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "const": "authorization_result" },
+        "request_id": { "$ref": "#/definitions/UUID" },
+        "call_id": { "type": "string" },
+        "decision": { "type": "string", "enum": ["allow", "deny"] },
+        "reason": { "type": "string" }
+      },
+      "required": ["type", "request_id", "call_id", "decision"],
+      "additionalProperties": false
     },
     "ReadyEvent": {
       "type": "object",
@@ -192,10 +201,7 @@
         "arguments": { "type": "string" },
         "explanation": { "type": "string" },
         "resource_summary": { "type": "string" },
-        "actions": {
-          "type": "array",
-          "items": { "type": "string" }
-        }
+        "actions": { "type": "array", "items": { "type": "string" } }
       },
       "required": [
         "type",
@@ -209,16 +215,35 @@
         "actions"
       ]
     },
+    "AuthorizeToolEvent": {
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "const": "authorize_tool" },
+        "request_id": { "$ref": "#/definitions/UUID" },
+        "message_id": { "$ref": "#/definitions/UUID" },
+        "call_id": { "type": "string" },
+        "chat_id": { "$ref": "#/definitions/UUID" },
+        "tool_name": { "type": "string" },
+        "arguments": { "type": "string" }
+      },
+      "required": [
+        "type",
+        "request_id",
+        "message_id",
+        "call_id",
+        "chat_id",
+        "tool_name",
+        "arguments"
+      ],
+      "additionalProperties": false
+    },
     "MessageFinishedEvent": {
       "type": "object",
       "properties": {
         "type": { "type": "string", "const": "message_finished" },
         "request_id": { "$ref": "#/definitions/UUID" },
         "message_id": { "$ref": "#/definitions/UUID" },
-        "status": {
-          "type": "string",
-          "enum": ["complete", "cancelled"]
-        }
+        "status": { "type": "string", "enum": ["complete", "cancelled"] }
       },
       "required": ["type", "request_id", "message_id", "status"]
     },

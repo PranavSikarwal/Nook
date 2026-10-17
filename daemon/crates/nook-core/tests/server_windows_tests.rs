@@ -1,15 +1,22 @@
 #![cfg(windows)]
 
 use nook_core::config::Config;
+use nook_core::policy_assets::PolicyAssets;
 use nook_core::protocol::{ClientMessage, DaemonMessage};
 use nook_core::server::{windows_pipe_name, AppState, Server};
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::windows::named_pipe::ClientOptions;
 use tokio::sync::{broadcast, Mutex, RwLock};
 use uuid::Uuid;
+
+fn test_policy() -> Arc<PolicyAssets> {
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../policy");
+    Arc::new(PolicyAssets::load(&dir).unwrap())
+}
 
 #[tokio::test]
 async fn windows_named_pipe_round_trips_json_ping() {
@@ -23,6 +30,7 @@ async fn windows_named_pipe_round_trips_json_ping() {
         open_requests: Mutex::new(HashMap::new()),
         pending_approvals: Mutex::new(HashMap::new()),
         cancelled_requests: Mutex::new(std::collections::HashSet::new()),
+        policy: test_policy(),
     });
     let (shutdown_tx, shutdown_rx) = broadcast::channel(1);
     let server = Server::bind(&Config::default_socket_path(), shutdown_rx, state)

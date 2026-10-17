@@ -7,7 +7,7 @@ from urllib.parse import urljoin, urlparse
 import httpcore
 import httpx
 from bs4 import BeautifulSoup
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from nook_worker.tools.common import tool_error, tool_result
 
@@ -165,6 +165,15 @@ def _parse_and_check_url(url: str) -> tuple[str, str, int]:
 
     port = parsed.port or (443 if parsed.scheme == "https" else 80)
     return parsed.scheme, hostname, port
+
+
+class StrictWebFetchInput(WebFetchInput):
+    @field_validator("url")
+    @classmethod
+    def _url_is_http_with_host(cls, value: str) -> str:
+        cleaned = value.strip()
+        _parse_and_check_url(cleaned)
+        return cleaned
 
 
 async def _fetch_single_url(

@@ -97,7 +97,7 @@ def test_daemon_worker_examples_valid() -> None:
     examples = load_ndjson(EXAMPLES_DIR / "daemon-worker.ndjson")
     validator = Draft7Validator(schema, format_checker=format_checker)
 
-    assert len(examples) == 16, f"Expected 16 example lines, found {len(examples)}"
+    assert len(examples) == 19, f"Expected 19 example lines, found {len(examples)}"
 
     for idx, obj in enumerate(examples, 1):
         errors = list(validator.iter_errors(obj))
@@ -206,6 +206,53 @@ def test_panel_daemon_invalid_payloads_rejected(
                     "path": "/path/to/large.png",
                 }
             ],
+        },
+        {
+            "type": "authorization_result",
+            "request_id": "11111111-1111-1111-1111-111111111111",
+            "call_id": "call_fetch_1",
+            "decision": "maybe",  # invalid decision
+        },
+        {
+            "type": "authorization_result",
+            "request_id": "11111111-1111-1111-1111-111111111111",
+            "call_id": "call_fetch_1",
+            "decision": "allow",
+            "extra": "not allowed",
+        },
+        {
+            "type": "authorization_result",
+            "request_id": "11111111-1111-1111-1111-111111111111",
+            # missing "call_id"
+            "decision": "allow",
+        },
+        {
+            "type": "authorize_tool",
+            "request_id": "11111111-1111-1111-1111-111111111111",
+            "message_id": "22222222-2222-2222-2222-222222222222",
+            # missing "call_id"
+            "chat_id": "33333333-3333-3333-3333-333333333333",
+            "tool_name": "web_fetch",
+            "arguments": '{"url":"https://docs.example.com"}',
+        },
+        {
+            "type": "authorize_tool",
+            "request_id": "not-a-uuid",
+            "message_id": "22222222-2222-2222-2222-222222222222",
+            "call_id": "call_fetch_1",
+            "chat_id": "33333333-3333-3333-3333-333333333333",
+            "tool_name": "web_fetch",
+            "arguments": '{"url":"https://docs.example.com"}',
+        },
+        {
+            "type": "authorize_tool",
+            "request_id": "11111111-1111-1111-1111-111111111111",
+            "message_id": "22222222-2222-2222-2222-222222222222",
+            "call_id": "call_fetch_1",
+            "chat_id": "33333333-3333-3333-3333-333333333333",
+            "tool_name": "web_fetch",
+            "arguments": '{"url":"https://docs.example.com"}',
+            "arguments_digest": "abc123",  # Worker must never send a digest
         },
     ],
 )

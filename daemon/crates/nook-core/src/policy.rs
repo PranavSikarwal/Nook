@@ -1,3 +1,5 @@
+use crate::authorization::AuthorizationRequest;
+use crate::policy_assets::TOOL_NAMESPACE;
 use cedar_policy::{
     Authorizer, Context, Decision, Entities, Entity, EntityUid, PolicySet, Request, Schema,
     ValidationMode, Validator,
@@ -35,7 +37,27 @@ pub struct ScopedGrant {
     pub argument_digest: Option<String>,
 }
 
+pub fn cedar_action_name(tool_name: &str) -> &str {
+    tool_name.strip_prefix(TOOL_NAMESPACE).unwrap_or(tool_name)
+}
+
 impl ScopedGrant {
+    pub fn for_request(request: &AuthorizationRequest, scope: &str) -> Option<Self> {
+        let (host, argument_digest) = match scope {
+            "chat" | "persistent" => (None, None),
+            "chat_host" => (Some(request.target_host.clone()?), None),
+            "once" => (None, Some(request.argument_digest.clone())),
+            _ => return None,
+        };
+        Some(Self {
+            chat_id: request.chat_id,
+            tool_name: cedar_action_name(&request.tool_name).to_string(),
+            scope: scope.to_string(),
+            host,
+            argument_digest,
+        })
+    }
+
     pub fn matches(
         &self,
         chat_id: Uuid,
@@ -78,17 +100,36 @@ impl GrantStore {
         self.grants.insert(grant);
     }
 
-    pub fn find_scope(
+    pub fn remove(&mut self, grant: &ScopedGrant) -> bool {
+        self.grants.remove(grant)
+    }
+
+    pub fn remove_chat(&mut self, chat_id: Uuid) {
+        self.grants
+            .retain(|g| g.chat_id != chat_id || g.scope == "persistent");
+    }
+
+    pub fn matching_scopes(
         &self,
         chat_id: Uuid,
         tool_name: &str,
         host: Option<&str>,
         argument_digest: Option<&str>,
-    ) -> Option<String> {
-        self.grants
+    ) -> Vec<String> {
+        let mut scopes: Vec<String> = self
+            .grants
             .iter()
-            .find(|g| g.matches(chat_id, tool_name, host, argument_digest))
+            .filter(|g| g.matches(chat_id, tool_name, host, argument_digest))
             .map(|g| g.scope.clone())
+            .collect();
+        scopes.sort_by_key(|scope| match scope.as_str() {
+            "chat_host" => 0,
+            "chat" => 1,
+            "persistent" => 2,
+            _ => 3,
+        });
+        scopes.dedup();
+        scopes
     }
 }
 
@@ -101,6 +142,7 @@ fn make_str_expr(val: &str) -> Result<cedar_policy::RestrictedExpression, Policy
 pub struct CedarAuthorizer {
     authorizer: Authorizer,
     policies: PolicySet,
+    schema: Schema,
     entities: Entities,
     grant_store: Arc<Mutex<GrantStore>>,
 }
@@ -124,7 +166,7 @@ impl CedarAuthorizer {
             PolicySet::from_str(policy_src).map_err(|e| PolicyError::PolicyParse(e.to_string()))?;
 
         // Validate policies against schema
-        let validator = Validator::new(schema);
+        let validator = Validator::new(schema.clone());
         let val_res = validator.validate(&policies, ValidationMode::Strict);
         if !val_res.validation_passed() {
             let errs: Vec<String> = val_res.validation_errors().map(|e| e.to_string()).collect();
@@ -153,9 +195,16 @@ impl CedarAuthorizer {
         Ok(Self {
             authorizer,
             policies,
+            schema,
             entities,
             grant_store: Arc::new(Mutex::new(GrantStore::new())),
         })
+    }
+
+    pub fn has_action(&self, action_name: &str) -> bool {
+        self.schema
+            .actions()
+            .any(|uid| uid.id().unescaped() == action_name)
     }
 
     pub fn grant_store(&self) -> Arc<Mutex<GrantStore>> {
@@ -164,19 +213,39 @@ impl CedarAuthorizer {
 
     pub async fn authorize_tool(
         &self,
-        chat_id: Uuid,
-        action_name: &str, // "web_search" or "web_fetch"
-        approval_tier: &str,
-        host: Option<&str>,
-        url: Option<&str>,
-        argument_digest: Option<&str>,
+        request: &AuthorizationRequest,
     ) -> Result<bool, PolicyError> {
-        let grant_scope = {
-            let store = self.grant_store.lock().await;
-            store
-                .find_scope(chat_id, action_name, host, argument_digest)
-                .unwrap_or_else(|| "none".to_string())
-        };
+        if request.approval_tier == "deny" {
+            return Ok(false);
+        }
+        let action_name = cedar_action_name(&request.tool_name);
+        let host = request.target_host.as_deref();
+        let argument_digest = request.argument_digest.as_str();
+        let mut store = self.grant_store.lock().await;
+        let mut scopes =
+            store.matching_scopes(request.chat_id, action_name, host, Some(argument_digest));
+        scopes.push("none".to_string());
+        for scope in scopes {
+            if self.evaluate(request, &scope)? {
+                if scope == "once" {
+                    if let Some(grant) = ScopedGrant::for_request(request, "once") {
+                        store.remove(&grant);
+                    }
+                }
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    fn evaluate(
+        &self,
+        request: &AuthorizationRequest,
+        grant_scope: &str,
+    ) -> Result<bool, PolicyError> {
+        let action_name = cedar_action_name(&request.tool_name);
+        let host = request.target_host.as_deref();
+        let argument_digest = request.argument_digest.as_str();
 
         let principal = EntityUid::from_str("Nook::User::\"local_user\"")
             .map_err(|e| PolicyError::Evaluation(e.to_string()))?;
@@ -187,16 +256,25 @@ impl CedarAuthorizer {
             .map_err(|e| PolicyError::Evaluation(e.to_string()))?;
 
         let mut context_map = HashMap::new();
-        context_map.insert("chat_id".to_string(), make_str_expr(&chat_id.to_string())?);
-        context_map.insert("approval_tier".to_string(), make_str_expr(approval_tier)?);
-        context_map.insert("grant_scope".to_string(), make_str_expr(&grant_scope)?);
+        context_map.insert(
+            "chat_id".to_string(),
+            make_str_expr(&request.chat_id.to_string())?,
+        );
+        context_map.insert(
+            "approval_tier".to_string(),
+            make_str_expr(&request.approval_tier)?,
+        );
+        context_map.insert("grant_scope".to_string(), make_str_expr(grant_scope)?);
 
         if action_name == "web_fetch" {
             context_map.insert("host".to_string(), make_str_expr(host.unwrap_or(""))?);
-            context_map.insert("url".to_string(), make_str_expr(url.unwrap_or(""))?);
+            context_map.insert(
+                "url".to_string(),
+                make_str_expr(request.url().unwrap_or(""))?,
+            );
             context_map.insert(
                 "argument_digest".to_string(),
-                make_str_expr(argument_digest.unwrap_or(""))?,
+                make_str_expr(argument_digest)?,
             );
         }
 
@@ -217,6 +295,7 @@ impl CedarAuthorizer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::policy_assets::ToolCatalog;
 
     const SCHEMA_SRC: &str = include_str!("../../../../policy/cedar/schema.cedarschema");
     const POLICIES_SRC: &str = include_str!("../../../../policy/cedar/policies.cedar");
@@ -225,16 +304,18 @@ mod tests {
         CedarAuthorizer::from_str(SCHEMA_SRC, POLICIES_SRC).expect("valid test policy files")
     }
 
+    const TOOLS_SRC: &str = include_str!("../../../../policy/tools.yaml");
+
+    fn request(chat_id: Uuid, tool: &str, arguments: &str) -> AuthorizationRequest {
+        let catalog = ToolCatalog::parse(TOOLS_SRC).expect("valid tool catalog");
+        AuthorizationRequest::normalize(&catalog, chat_id, "call-1", tool, arguments)
+            .expect("valid request")
+    }
+
     async fn check_fetch(authorizer: &CedarAuthorizer, chat_id: Uuid, host: &str) -> bool {
+        let args = serde_json::json!({ "url": format!("https://{host}") }).to_string();
         authorizer
-            .authorize_tool(
-                chat_id,
-                "web_fetch",
-                "ask_once_per_host",
-                Some(host),
-                Some(&format!("https://{host}")),
-                Some("digest_xyz"),
-            )
+            .authorize_tool(&request(chat_id, "nook:web_fetch", &args))
             .await
             .expect("evaluation succeeds")
     }
@@ -242,10 +323,34 @@ mod tests {
     #[tokio::test]
     async fn test_web_search_allowed_by_default() {
         let auth = create_test_authorizer();
-        assert!(auth
-            .authorize_tool(Uuid::new_v4(), "web_search", "allow", None, None, None)
-            .await
-            .unwrap());
+        let req = request(Uuid::new_v4(), "nook:web_search", r#"{"query":"rust"}"#);
+        assert!(auth.authorize_tool(&req).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn once_grant_matches_argument_digest() {
+        let auth = create_test_authorizer();
+        let chat_id = Uuid::new_v4();
+        let req = request(
+            chat_id,
+            "nook:web_fetch",
+            r#"{"url":"https://a.example/x"}"#,
+        );
+        assert!(!auth.authorize_tool(&req).await.unwrap());
+        auth.grant_store().lock().await.add_grant(ScopedGrant {
+            chat_id,
+            tool_name: "web_fetch".to_string(),
+            scope: "once".to_string(),
+            host: None,
+            argument_digest: Some(req.argument_digest.clone()),
+        });
+        assert!(auth.authorize_tool(&req).await.unwrap());
+        let other = request(
+            chat_id,
+            "nook:web_fetch",
+            r#"{"url":"https://a.example/y"}"#,
+        );
+        assert!(!auth.authorize_tool(&other).await.unwrap());
     }
 
     #[tokio::test]
@@ -270,5 +375,148 @@ mod tests {
 
         // 4. Unapproved host: still denied
         assert!(!check_fetch(&auth, chat_id, "unapproved.example.com").await);
+    }
+
+    fn grant(chat_id: Uuid, tool: &str, scope: &str) -> ScopedGrant {
+        ScopedGrant {
+            chat_id,
+            tool_name: tool.to_string(),
+            scope: scope.to_string(),
+            host: None,
+            argument_digest: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn once_grant_is_consumed_by_the_call_it_authorizes() {
+        let auth = create_test_authorizer();
+        let chat_id = Uuid::new_v4();
+        let req = request(
+            chat_id,
+            "nook:web_fetch",
+            r#"{"url":"https://a.example/x"}"#,
+        );
+        auth.grant_store()
+            .lock()
+            .await
+            .add_grant(ScopedGrant::for_request(&req, "once").unwrap());
+        assert!(auth.authorize_tool(&req).await.unwrap());
+        assert!(!auth.authorize_tool(&req).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn once_grant_is_kept_when_cedar_denies() {
+        let auth = create_test_authorizer();
+        let chat_id = Uuid::new_v4();
+        let req = request(
+            chat_id,
+            "nook:web_fetch",
+            r#"{"url":"https://a.example/x"}"#,
+        );
+        let store = auth.grant_store();
+        let other = request(chat_id, "nook:web_fetch", r#"{"url":"https://b.example/"}"#);
+        store
+            .lock()
+            .await
+            .add_grant(ScopedGrant::for_request(&other, "once").unwrap());
+        assert!(!auth.authorize_tool(&req).await.unwrap());
+        assert!(auth.authorize_tool(&other).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn deny_tier_is_denied_even_with_a_matching_grant() {
+        let auth = create_test_authorizer();
+        let chat_id = Uuid::new_v4();
+        let mut req = request(chat_id, "nook:web_search", r#"{"query":"rust"}"#);
+        req.approval_tier = "deny".to_string();
+        auth.grant_store()
+            .lock()
+            .await
+            .add_grant(grant(chat_id, "web_search", "persistent"));
+        assert!(!auth.authorize_tool(&req).await.unwrap());
+    }
+
+    #[test]
+    fn remove_deletes_only_the_given_grant() {
+        let chat_id = Uuid::new_v4();
+        let mut store = GrantStore::new();
+        let chat = grant(chat_id, "web_search", "chat");
+        let persistent = grant(chat_id, "web_search", "persistent");
+        store.add_grant(chat.clone());
+        store.add_grant(persistent.clone());
+        assert!(store.remove(&chat));
+        assert!(!store.remove(&chat));
+        assert_eq!(
+            store.matching_scopes(chat_id, "web_search", None, None),
+            vec!["persistent".to_string()]
+        );
+    }
+
+    #[test]
+    fn remove_chat_drops_that_chats_grants_and_keeps_persistent_and_other_chats() {
+        let chat_id = Uuid::new_v4();
+        let other_chat = Uuid::new_v4();
+        let mut store = GrantStore::new();
+        store.add_grant(grant(chat_id, "web_search", "chat"));
+        store.add_grant(ScopedGrant {
+            host: Some("a.example".to_string()),
+            ..grant(chat_id, "web_fetch", "chat_host")
+        });
+        store.add_grant(ScopedGrant {
+            argument_digest: Some("d".to_string()),
+            ..grant(chat_id, "web_fetch", "once")
+        });
+        store.add_grant(grant(chat_id, "web_search", "persistent"));
+        store.add_grant(grant(other_chat, "web_search", "chat"));
+        store.remove_chat(chat_id);
+        assert_eq!(
+            store.matching_scopes(chat_id, "web_search", None, None),
+            vec!["persistent".to_string()]
+        );
+        assert!(store
+            .matching_scopes(chat_id, "web_fetch", Some("a.example"), Some("d"))
+            .is_empty());
+        assert_eq!(
+            store.matching_scopes(other_chat, "web_search", None, None),
+            vec!["chat".to_string(), "persistent".to_string()]
+        );
+    }
+
+    #[test]
+    fn matching_scopes_put_once_last() {
+        let chat_id = Uuid::new_v4();
+        let mut store = GrantStore::new();
+        store.add_grant(ScopedGrant {
+            argument_digest: Some("d".to_string()),
+            ..grant(chat_id, "web_search", "once")
+        });
+        store.add_grant(grant(chat_id, "web_search", "chat"));
+        assert_eq!(
+            store.matching_scopes(chat_id, "web_search", None, Some("d")),
+            vec!["chat".to_string(), "once".to_string()]
+        );
+    }
+
+    #[test]
+    fn grant_for_request_carries_the_scope_fields() {
+        let chat_id = Uuid::new_v4();
+        let req = request(
+            chat_id,
+            "nook:web_fetch",
+            r#"{"url":"https://A.example/x"}"#,
+        );
+        let once = ScopedGrant::for_request(&req, "once").unwrap();
+        assert_eq!(once.tool_name, "web_fetch");
+        assert_eq!(once.chat_id, chat_id);
+        assert_eq!(
+            once.argument_digest.as_deref(),
+            Some(req.argument_digest.as_str())
+        );
+        let host = ScopedGrant::for_request(&req, "chat_host").unwrap();
+        assert_eq!(host.host.as_deref(), Some("a.example"));
+        assert_eq!(host.argument_digest, None);
+        assert!(ScopedGrant::for_request(&req, "bogus").is_none());
+        let search = request(chat_id, "nook:web_search", r#"{"query":"q"}"#);
+        assert!(ScopedGrant::for_request(&search, "chat_host").is_none());
     }
 }

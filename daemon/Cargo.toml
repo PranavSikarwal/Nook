@@ -28,3 +28,6 @@ tempfile = "3.17"
 libc = "0.2"
 cedar-policy = "4"
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls", "postgres", "uuid", "chrono", "migrate", "macros"] }
+url = "2.5"
+idna = "1.0"
+sha2 = "0.10"

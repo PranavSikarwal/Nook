@@ -12,7 +12,7 @@ const specsByMode = {
     'e2e/specs/approval-grants.spec.mjs',
     'e2e/specs/history-settings.spec.mjs',
   ],
-  live: ['e2e/specs/live-news.spec.mjs'],
+  live: ['e2e/specs/live-news.spec.mjs', 'e2e/specs/live-fetch.spec.mjs'],
 }
 const specs = specsByMode[process.env.NOOK_E2E_MODE]
 const appArgs = [
