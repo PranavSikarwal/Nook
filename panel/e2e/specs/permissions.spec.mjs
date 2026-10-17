@@ -63,9 +63,11 @@ describe('native permissions: permanent grants and tool preferences', () => {
     }
 
     await openPermissions()
-    const rows = await grantRows()
-    if (rows.length !== 1) throw new Error(`Expected one permanent grant, found ${rows.length}.`)
-    const text = await rows[0].getText()
+    await browser.waitUntil(async () => (await grantRows()).length === 1, {
+      timeout: 10_000,
+      timeoutMsg: 'The permanent grant never appeared in the list.',
+    })
+    const text = await (await grantRows())[0].getText()
     if (!text.includes('Web fetch') || !text.includes('perm.example.test')) {
       throw new Error(`The grant row did not name the tool and host: ${text}`)
     }

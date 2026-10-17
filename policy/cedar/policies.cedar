@@ -1,7 +1,13 @@
-// Web search is permitted under allow tier or when granted for chat, persistent, or once
+// Search tools are permitted under allow tier or when granted for chat, persistent, or once
 permit (
   principal,
-  action == Nook::Action::"web_search",
+  action in [
+    Nook::Action::"web_search",
+    Nook::Action::"news_search",
+    Nook::Action::"image_search",
+    Nook::Action::"video_search",
+    Nook::Action::"book_search"
+  ],
   resource
 ) when {
   context.approval_tier == "allow" ||

@@ -20,9 +20,9 @@ The active task definitions and acceptance conditions are in `docs/plan.md` and
 - [x] TP8. Add explicit MCP server registration.
 - [x] TP9. Add sandboxed filesystem tools.
 - [x] TP10. Add sandboxed terminal tools.
-- [ ] TP11. Add browser and native-system capability designs.
+- [ ] TP11. Add browser and native-system capability designs. The designs are written in `docs/design/`. Approval is open.
 - [x] TP12. Add editable policy and persistent grants.
-- [ ] TP13. Add additional search providers.
+- [x] TP13. Add additional search providers.
 
 ## Completed work
 

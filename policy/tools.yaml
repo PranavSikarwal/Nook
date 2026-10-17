@@ -160,3 +160,95 @@ tools:
         - id: deny
           label: "Deny"
           description: "Reject this call. The tool does not run."
+
+  nook:news_search:
+    display_name: "News search"
+    description: "Search recent news articles with DuckDuckGo. Returns titles, sources, dates, links, and snippets."
+    capabilities:
+      network: true
+      read_only: true
+      requires_approval: false
+    approval:
+      tier: allow
+      actions:
+        - id: allow_once
+          label: "Allow once"
+          description: "Allow this exact search one time."
+        - id: allow_for_chat
+          label: "Allow for this chat"
+          description: "Allow this tool for the rest of this chat."
+        - id: always_allow
+          label: "Always allow"
+          description: "Allow this tool in every chat until you revoke it in Settings."
+        - id: deny
+          label: "Deny"
+          description: "Reject this request. The tool does not run."
+
+  nook:image_search:
+    display_name: "Image search"
+    description: "Search images with DuckDuckGo. Returns links to images and their pages, not image data."
+    capabilities:
+      network: true
+      read_only: true
+      requires_approval: false
+    approval:
+      tier: allow
+      actions:
+        - id: allow_once
+          label: "Allow once"
+          description: "Allow this exact search one time."
+        - id: allow_for_chat
+          label: "Allow for this chat"
+          description: "Allow this tool for the rest of this chat."
+        - id: always_allow
+          label: "Always allow"
+          description: "Allow this tool in every chat until you revoke it in Settings."
+        - id: deny
+          label: "Deny"
+          description: "Reject this request. The tool does not run."
+
+  nook:video_search:
+    display_name: "Video search"
+    description: "Search videos with DuckDuckGo. Returns titles, links, descriptions, and publishers."
+    capabilities:
+      network: true
+      read_only: true
+      requires_approval: false
+    approval:
+      tier: allow
+      actions:
+        - id: allow_once
+          label: "Allow once"
+          description: "Allow this exact search one time."
+        - id: allow_for_chat
+          label: "Allow for this chat"
+          description: "Allow this tool for the rest of this chat."
+        - id: always_allow
+          label: "Always allow"
+          description: "Allow this tool in every chat until you revoke it in Settings."
+        - id: deny
+          label: "Deny"
+          description: "Reject this request. The tool does not run."
+
+  nook:book_search:
+    display_name: "Book search"
+    description: "Search books in the Open Library catalog. Returns titles, authors, years, and catalog links."
+    capabilities:
+      network: true
+      read_only: true
+      requires_approval: false
+    approval:
+      tier: allow
+      actions:
+        - id: allow_once
+          label: "Allow once"
+          description: "Allow this exact search one time."
+        - id: allow_for_chat
+          label: "Allow for this chat"
+          description: "Allow this tool for the rest of this chat."
+        - id: always_allow
+          label: "Always allow"
+          description: "Allow this tool in every chat until you revoke it in Settings."
+        - id: deny
+          label: "Deny"
+          description: "Reject this request. The tool does not run."

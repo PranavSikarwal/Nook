@@ -6,7 +6,7 @@ namespace Nook {
     read_only: Bool,
   };
 
-  action "web_search" appliesTo {
+  action "web_search", "news_search", "image_search", "video_search", "book_search" appliesTo {
     principal: [User],
     resource: [Tool],
     context: {

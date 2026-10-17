@@ -45,7 +45,14 @@ pub struct AuthorizationRequest {
 const WEB_FETCH_TOOL: &str = "nook:web_fetch";
 
 /// Tools the Worker runs itself. Every other tool needs a Daemon provider.
-pub const WORKER_TOOLS: &[&str] = &["nook:web_search", "nook:web_fetch"];
+pub const WORKER_TOOLS: &[&str] = &[
+    "nook:web_search",
+    "nook:web_fetch",
+    "nook:news_search",
+    "nook:image_search",
+    "nook:video_search",
+    "nook:book_search",
+];
 
 impl AuthorizationRequest {
     pub fn normalize(

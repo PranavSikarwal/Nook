@@ -8,6 +8,25 @@ arguments. The Daemon is the final authorization owner.
 `nook:web_search` searches DuckDuckGo. It has an automatic approval tier in
 `policy/tools.yaml`.
 
+Four more search tools run in the Worker and have the `allow` tier:
+
+| Tool | Provider | Result fields |
+| --- | --- | --- |
+| `nook:news_search` | DuckDuckGo news | `title`, `url`, `source`, `date`, `snippet` |
+| `nook:image_search` | DuckDuckGo images | `title`, `image_url`, `thumbnail_url`, `page_url`, `source`, `width`, `height` |
+| `nook:video_search` | DuckDuckGo videos | `title`, `url`, `description`, `duration`, `publisher`, `uploader`, `published` |
+| `nook:book_search` | Open Library catalog | `title`, `authors`, `first_published`, `editions`, `isbn`, `subjects`, `url` |
+
+Each takes `query` and `max_results` (1 to 10, default 5). Each result is a fixed
+record. Text is one line with a length cap, and an entry without an `http` or
+`https` link is dropped, so a result cannot carry a script link or a file link.
+Image search returns links, not image data. Book search asks only
+`openlibrary.org`, refuses redirects, and reads at most 1 MiB. The model sees a
+warning in each description and in the system prompt that results are untrusted
+text. A user can still set any of these tools to Ask every time or Never allow
+in Settings. A provider error returns `Search provider error: request failed`
+with no detail.
+
 `nook:web_fetch` retrieves public HTTP and HTTPS pages. It has a host-scoped
 approval tier in `policy/tools.yaml`. The fetcher checks URL schemes, addresses,
 response types, timeouts, and response size. It follows a redirect only when the
