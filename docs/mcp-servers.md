@@ -176,9 +176,15 @@ stays stopped for that time.
 
 ## Check that it works
 
-The Daemon writes its log to standard error. Quit Nook, then start `nookd` in a
-terminal to read it, because two Daemons cannot share one socket. These lines
-matter:
+When Nook starts the Daemon, the Panel keeps its log in `daemon.log` in the Nook
+application folder. The file is private to your user (mode `0600` on macOS and
+Linux). When it reaches 1 MiB, it becomes `daemon.log.1`, and Nook keeps no older
+file. Nook removes these values from every line before it writes it: the
+database password, the API key in the environment, and the `env` values of your
+MCP servers. If you start `nookd` yourself, the log goes to the terminal, and
+you must quit Nook first because two Daemons cannot share one socket.
+
+These lines matter:
 
 | Log line | Meaning |
 | --- | --- |

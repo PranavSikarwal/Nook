@@ -256,6 +256,12 @@ impl Config {
         }
     }
 
+    /// Reads the file and nothing else: no `.env`, no environment overrides, no
+    /// file creation. Returns `None` when the file is missing or not valid.
+    pub fn read_only(path: &Path) -> Option<Self> {
+        toml::from_str(&std::fs::read_to_string(path).ok()?).ok()
+    }
+
     pub fn from_file(path: &Path) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         Self::load_env_file();
 

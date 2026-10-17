@@ -1,6 +1,7 @@
 pub mod authorization;
 pub mod client;
 pub mod config;
+pub mod daemon_log;
 pub mod db;
 pub mod keychain;
 pub mod message_stream;

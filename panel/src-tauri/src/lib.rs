@@ -54,6 +54,23 @@ async fn capture_daemon_stderr(
     }
 }
 
+/// Keeps the Daemon's log in the application folder, with secrets removed, so a
+/// user can see why an MCP server or the database did not start.
+async fn capture_daemon_log(stderr: tokio::process::ChildStderr) {
+    use nook_core::daemon_log::{capture, secrets_to_redact, RotatingLog, MAX_LOG_BYTES};
+    let config = Config::read_only(&Config::default_config_path()).unwrap_or_default();
+    let secrets = secrets_to_redact(&config, std::env::var("NOOK_API_KEY").ok().as_deref());
+    let path = Config::app_dir().join("daemon.log");
+    match RotatingLog::open(path, MAX_LOG_BYTES).await {
+        Ok(log) => capture(stderr, log, secrets).await,
+        Err(error) => {
+            eprintln!("Could not open the Daemon log: {error}");
+            let mut stderr = stderr;
+            let _ = tokio::io::copy(&mut stderr, &mut tokio::io::stderr()).await;
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatTranscript {
     pub chat_id: Uuid,
@@ -292,22 +309,24 @@ pub async fn ensure_daemon_started(state: &DaemonState) {
                 }
             }
 
-            let daemon_log_path = std::env::var_os("NOOK_E2E_RUN_DIR")
+            let e2e_log_path = std::env::var_os("NOOK_E2E_RUN_DIR")
                 .map(|dir| PathBuf::from(dir).join("daemon-stderr.log"));
-            if daemon_log_path.is_some() {
-                cmd.stderr(Stdio::piped());
-            }
+            cmd.stderr(Stdio::piped());
 
             match cmd.spawn() {
                 Ok(mut child) => {
-                    if let (Some(stderr), Some(path)) = (child.stderr.take(), daemon_log_path) {
-                        let redactions = ["NOOK_BASE_URL", "NOOK_MODEL", "NOOK_API_KEY"]
-                            .into_iter()
-                            .filter_map(|name| std::env::var(name).ok())
-                            .collect();
-                        tauri::async_runtime::spawn(capture_daemon_stderr(
-                            stderr, path, redactions,
-                        ));
+                    if let Some(stderr) = child.stderr.take() {
+                        if let Some(path) = e2e_log_path {
+                            let redactions = ["NOOK_BASE_URL", "NOOK_MODEL", "NOOK_API_KEY"]
+                                .into_iter()
+                                .filter_map(|name| std::env::var(name).ok())
+                                .collect();
+                            tauri::async_runtime::spawn(capture_daemon_stderr(
+                                stderr, path, redactions,
+                            ));
+                        } else {
+                            tauri::async_runtime::spawn(capture_daemon_log(stderr));
+                        }
                     }
                     {
                         let mut proc_guard = state.spawned_process.lock().await;
@@ -1130,5 +1149,33 @@ mod link_tests {
         }
         let long = format!("https://example.com/{}", "a".repeat(2100));
         assert!(!is_web_link(&long));
+    }
+}
+
+#[cfg(all(test, unix))]
+mod daemon_log_tests {
+    #[tokio::test]
+    async fn the_daemon_output_lands_in_the_app_folder_without_secrets() {
+        let dir = tempfile::tempdir().unwrap();
+        std::env::set_var("NOOK_APP_DIR", dir.path());
+        std::fs::write(
+            dir.path().join("config.toml"),
+            "base_url = \"u\"\nmodel = \"m\"\ndatabase_url = \"postgres://nook:hunter22@localhost/nook\"\n",
+        )
+        .unwrap();
+        let mut child = tokio::process::Command::new("/bin/sh")
+            .args([
+                "-c",
+                "echo 'connect nook:hunter22@localhost failed' >&2; echo second >&2",
+            ])
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+
+        super::capture_daemon_log(child.stderr.take().unwrap()).await;
+        child.wait().await.unwrap();
+
+        let log = std::fs::read_to_string(dir.path().join("daemon.log")).unwrap();
+        assert_eq!(log, "connect ***@localhost failed\nsecond\n");
     }
 }
