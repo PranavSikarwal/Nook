@@ -119,14 +119,17 @@ plays the Panel and a fake model endpoint. The fake model asks for `web_fetch`
 in each chat. The script allows the first call and denies the second. It checks
 that the allowed reply resumes with the model's answer, that the model received
 the tool result, and that the denied call never starts and never reaches the
-model. It creates and drops one PostgreSQL database. The package workflow runs
+model. It needs an empty PostgreSQL database that the caller creates and drops.
+The package workflow runs
 it on macOS and Ubuntu. It does not run on Windows, because it uses a Unix
 socket. Run it by hand from a staged layout:
 
 ```sh
+createdb nook_pkg_check
 python3 scripts/package-approval-check.py \
   --resources panel/src-tauri/resources \
-  --database-url postgresql://USER@localhost:5432/postgres
+  --database-url postgresql://USER@localhost:5432/nook_pkg_check
+dropdb nook_pkg_check
 ```
 
 The package workflow runs `nookd --check-policy` on the staged Daemon. It runs

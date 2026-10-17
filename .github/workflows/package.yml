@@ -165,18 +165,19 @@ jobs:
             brew services start postgresql@16
             echo "$PG_BIN" >> "$GITHUB_PATH"
             export PATH="$PG_BIN:$PATH"
-            echo "NOOK_PKG_DATABASE_URL=postgresql://$USER@localhost:5432/postgres" >> "$GITHUB_ENV"
+            echo "NOOK_PKG_DATABASE_URL=postgresql://$USER@localhost:5432/nook_pkg_check" >> "$GITHUB_ENV"
           else
             sudo apt-get install -y postgresql postgresql-client
             sudo systemctl start postgresql
             sudo -u postgres createuser --superuser "$USER"
-            echo "NOOK_PKG_DATABASE_URL=postgresql:///postgres?host=/var/run/postgresql" >> "$GITHUB_ENV"
+            echo "NOOK_PKG_DATABASE_URL=postgresql:///nook_pkg_check?host=/var/run/postgresql" >> "$GITHUB_ENV"
           fi
           for _ in $(seq 1 30); do
             pg_isready -q && break
             sleep 1
           done
           pg_isready
+          createdb nook_pkg_check
 
       - name: Run an approval through the staged Daemon and Worker
         if: runner.os != 'Windows'
@@ -185,6 +186,11 @@ jobs:
           python3 scripts/package-approval-check.py \
             --resources panel/src-tauri/resources \
             --database-url "$NOOK_PKG_DATABASE_URL"
+
+      - name: Drop the approval check database
+        if: always() && runner.os != 'Windows'
+        shell: bash
+        run: dropdb --if-exists nook_pkg_check || true
 
       - name: Build and package Tauri app
         id: package

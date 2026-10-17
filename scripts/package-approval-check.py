@@ -10,9 +10,10 @@ second denies it.
 Usage:
     package-approval-check.py --resources DIR --database-url URL
 
-DIR holds `daemon/nookd`, `worker/release_entry`, and `policy/`. URL names a
-PostgreSQL server where the role can create a database. The script creates
-one database for the run and drops it at the end. Unix systems only.
+DIR holds `daemon/nookd`, `worker/release_entry`, and `policy/`. URL names an
+empty PostgreSQL database that the caller created for the run. The Daemon
+creates its tables there. The caller drops the database afterwards. Unix
+systems only.
 """
 
 import argparse
@@ -28,7 +29,6 @@ import time
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlsplit, urlunsplit
 
 FETCH_URL = "https://package-check.invalid/page"
 FINAL_TEXT = "PACKAGE-CHECK-DONE"
@@ -56,7 +56,8 @@ class FakeModelHandler(BaseHTTPRequestHandler):
     server: FakeModel
 
     def log_message(self, *_args) -> None:
-        pass
+        # The default handler prints one line per request to standard error.
+        return None
 
     def do_POST(self) -> None:
         length = int(self.headers.get("content-length", "0"))
@@ -213,14 +214,6 @@ def wait_for_socket(path: Path, daemon: subprocess.Popen) -> None:
     raise RuntimeError("The Daemon did not open its socket in 60 seconds")
 
 
-def psql(admin_url: str, sql: str) -> None:
-    subprocess.run(
-        ["psql", admin_url, "-v", "ON_ERROR_STOP=1", "-c", sql],
-        check=True,
-        capture_output=True,
-    )
-
-
 def check(condition: bool, message: str) -> None:
     if not condition:
         raise AssertionError(message)
@@ -242,12 +235,6 @@ def main() -> int:
             print(f"Missing {path}", file=sys.stderr)
             return 2
 
-    database = f"nook_pkg_{uuid.uuid4().hex[:12]}"
-    admin_url = args.database_url
-    parts = urlsplit(admin_url)
-    database_url = urlunsplit(parts._replace(path=f"/{database}"))
-    psql(admin_url, f"CREATE DATABASE {database}")
-
     model = FakeModel()
     threading.Thread(target=model.serve_forever, daemon=True).start()
     work = Path(tempfile.mkdtemp(prefix="nook-pkg-"))
@@ -256,7 +243,7 @@ def main() -> int:
     (app_dir / "config.toml").write_text(
         f'base_url = "http://127.0.0.1:{model.server_address[1]}/v1"\n'
         'model = "package-check"\n'
-        f'database_url = "{database_url}"\n'
+        f'database_url = "{args.database_url}"\n'
     )
     env = {
         **os.environ,
@@ -313,10 +300,6 @@ def main() -> int:
             daemon.kill()
         model.shutdown()
         log.close()
-        try:
-            psql(admin_url, f"DROP DATABASE IF EXISTS {database} WITH (FORCE)")
-        except subprocess.CalledProcessError:
-            print(f"Could not drop {database}", file=sys.stderr)
         shutil.rmtree(work, ignore_errors=True)
     return 1 if failed else 0
 
