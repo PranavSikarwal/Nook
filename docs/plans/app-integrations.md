@@ -1,6 +1,8 @@
 # App integrations: Notes and Google Docs
 
-Status: proposed. Waiting for a decision on the Notes route.
+Status: proposed. The owner asked me to follow the recommendation (option 2) on
+October 17, 2026. `docs/design/desktop-app-tools.md` holds the design and waits
+for approval.
 
 ## Why
 
@@ -38,7 +40,7 @@ create.
    Apple events when the user grants Automation permission to Nook. The Daemon
    authorizes the call as for any tool, and the Panel runs a fixed script with
    the text passed as data and not as script code. This is the executor design
-   in `docs/design/native-system-tools.md`, with a Notes tool instead of the
+   in `docs/design/desktop-app-tools.md`, with a Notes tool instead of the
    clipboard tools.
 3. **Do not support Notes.** Files and Google Docs stay.
 
@@ -56,7 +58,8 @@ server cannot run in CI. It needs no code change in Nook.
 
 Computer use (screen capture, mouse, keyboard). It needs its own design.
 
-## Decisions needed
+## Decisions
 
-1. Which Notes option?
-2. Should the plan write the Google Docs sample and test now?
+1. Notes route: option 2, a Panel-run Notes tool. The design is written.
+2. Google Docs: needs no Nook code. `mcp-servers.md` explains how to attach a
+   server. The owner creates the OAuth client.

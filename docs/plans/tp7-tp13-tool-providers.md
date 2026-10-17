@@ -131,7 +131,7 @@ denial and for untrusted content.
 
 ## TP11. Browser and native-system designs
 
-Two documents in `docs/design/` (`browser-automation.md` and `native-system-tools.md`) define browser automation and native-system
+Two documents in `docs/design/` (`browser-automation.md` and `desktop-app-tools.md`) define browser automation and a Panel-run Notes tool, the first desktop-app
 tools. Each names the platforms, the credential and cookie rules, the download
 rules, the approval content, the isolation, and the tests. They add no code.
 

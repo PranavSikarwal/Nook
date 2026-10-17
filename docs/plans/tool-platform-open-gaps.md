@@ -8,10 +8,11 @@ Recorded on October 17, 2026.
 ## Needs a decision from the owner
 
 1. **TP11 designs.** `docs/design/browser-automation.md` and
-   `docs/design/native-system-tools.md` wait for approval. Each ends with open
-   questions. The owner removed clipboard read from the native-system design on
-   October 17, 2026, because the user can paste text into the chat. Risk: no browser
-   or native-system tool can start until the designs are approved or changed.
+   `docs/design/desktop-app-tools.md` wait for approval. Each ends with open
+   questions. The owner removed the clipboard, notification, and open-link tools on
+   October 17, 2026, because the user can do each without the assistant. The
+   desktop design is now one Panel-run Notes tool. Risk: no browser
+   or desktop-app tool can start until the designs are approved or changed.
 2. **Image search.** The owner chose to leave it out on October 17, 2026. It
    was removed because the DuckDuckGo image backend answers with a bot challenge
    (HTTP 202) and `ddgs` 9.16.0 cannot pass it. The `auto`, `bing`, `brave`,
