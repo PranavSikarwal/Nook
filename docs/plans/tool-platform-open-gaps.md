@@ -31,8 +31,10 @@ Recorded on October 17, 2026.
    approval, and wdio cannot drive a release build. Risk: a packaging fault in
    the approval path would show only in a manual check. The checklist item stays
    open until a test or a manual run closes it.
-6. **Live checks.** The installed `v0.1.4` app and the Stage 2 tools were not run
-   against the live model. Risk: a fault that only the live model shows stays
+6. **Live checks.** The live native test passed on October 17, 2026 for the
+   news query and the web fetch flow, on the development build at `43d2cdb`. The
+   installed `v0.1.4` app and the Stage 2 tools (file, terminal, MCP, news,
+   video, book) were not run against the live model. Risk: a fault that only the live model shows stays
    hidden. The Hugging Face hang is undiagnosed. The 30 second fetch deadline is
    the likely fix.
 7. **News, video and book search.** They were checked with mocks, and news and
