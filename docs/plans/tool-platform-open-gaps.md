@@ -31,6 +31,10 @@ Recorded on October 17, 2026.
 
 ## Work not done
 
+0. **Notes and Google Docs.** `docs/plans/app-integrations.md` holds the trial
+   result: a Notes MCP server cannot run in the macOS sandbox, because macOS
+   refuses Apple events from sandboxed processes. The owner must pick a route.
+
 5. **TP6 packaged-app test.** No test drives the packaged release app through an
    approval, and wdio cannot drive a release build. Risk: a packaging fault in
    the approval path would show only in a manual check. The checklist item stays
