@@ -1,6 +1,7 @@
 import {
   Eye,
   EyeOff,
+  FolderOpen,
   Keyboard,
   type LucideIcon,
   RotateCcw,
@@ -21,7 +22,8 @@ import {
   type ShortcutAction,
   type ShortcutMap,
 } from '../lib/shortcuts'
-import type { SettingsInfo, SettingsPayload } from '../lib/types'
+import type { SettingsInfo, SettingsPayload, SettingsTab } from '../lib/types'
+import { FoldersTab } from './FoldersTab'
 import { PermissionsTab } from './PermissionsTab'
 import { ToolsTab } from './ToolsTab'
 
@@ -30,6 +32,7 @@ interface SettingsModalProps {
   readonly onSave: (payload: SettingsPayload) => Promise<void>
   readonly onClose: () => void
   readonly onShortcutsChanged?: (shortcuts: ShortcutMap) => void
+  readonly requestedTab?: { readonly tab: SettingsTab; readonly nonce: number }
 }
 
 interface ModelSettingsTabProps {
@@ -282,13 +285,14 @@ function ShortcutsTab({ onShortcutsChanged }: ShortcutsTabProps) {
   )
 }
 
-type TabId = 'model' | 'shortcuts' | 'permissions' | 'tools'
+type TabId = SettingsTab
 
 const TAB_BUTTONS: { id: TabId; label: string; Icon: LucideIcon }[] = [
   { id: 'model', label: 'Model Settings', Icon: SettingsIcon },
   { id: 'shortcuts', label: 'Shortcuts', Icon: Keyboard },
   { id: 'permissions', label: 'Permissions', Icon: ShieldCheck },
   { id: 'tools', label: 'Tools', Icon: Wrench },
+  { id: 'folders', label: 'Folders', Icon: FolderOpen },
 ]
 
 export function SettingsModal({
@@ -296,13 +300,20 @@ export function SettingsModal({
   onSave,
   onClose,
   onShortcutsChanged,
+  requestedTab,
 }: SettingsModalProps) {
-  const [activeTab, setActiveTab] = useState<TabId>('model')
+  const [activeTab, setActiveTab] = useState<TabId>(requestedTab?.tab ?? 'model')
+  const [appliedRequest, setAppliedRequest] = useState(requestedTab)
+  if (requestedTab !== appliedRequest) {
+    setAppliedRequest(requestedTab)
+    if (requestedTab) setActiveTab(requestedTab.tab)
+  }
   const tabs: Record<TabId, ReactNode> = {
     model: <ModelSettingsTab currentSettings={currentSettings} onSave={onSave} onClose={onClose} />,
     shortcuts: <ShortcutsTab onShortcutsChanged={onShortcutsChanged} />,
     permissions: <PermissionsTab />,
     tools: <ToolsTab />,
+    folders: <FoldersTab />,
   }
 
   return (

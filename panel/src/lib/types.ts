@@ -118,6 +118,17 @@ export interface ToolSource {
   reason?: string
 }
 
+export type RootAccess = 'read' | 'read_write'
+
+export interface RootInfo {
+  path: string
+  access: RootAccess
+  usable: boolean
+  reason?: string
+}
+
+export type SettingsTab = 'model' | 'shortcuts' | 'permissions' | 'tools' | 'folders'
+
 export interface Permissions {
   grants: GrantInfo[]
   tools: ToolPolicyInfo[]

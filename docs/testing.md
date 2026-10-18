@@ -95,6 +95,17 @@ list. The shared `before` hook in `panel/e2e/wdio.conf.mjs` waits until the Pane
 enables its input, because the Panel keeps its input disabled until its own
 Daemon check passes.
 
+`folders_tests.rs` runs the Settings, Folders requests against the real tools. It
+checks that an added folder works at once and reaches `config.toml`, that the
+tool descriptions and the Worker catalog follow a change (also an empty one), that
+a read-only change and a removal refuse new calls, and that a waiting approval in
+a removed folder is denied while one in another folder stays. `folders.rs` holds
+unit tests for the path checks. `panel/e2e/specs/folders.spec.mjs` opens the tab
+through the `open_settings` event that the macOS menu sends, adds a folder (the
+test build reads it from `NOOK_E2E_PICK_FOLDER`), and writes there through the
+approval flow. WebDriver cannot click the macOS menu or the system folder picker.
+Check the menu by hand.
+
 `panel/e2e/specs/links.spec.mjs` clicks a link in a reply. It checks that the Panel
 window stays put, that the link reaches the `open_external_link` command, and that
 a `javascript:` or `file:` address is not a link. The test build never starts a

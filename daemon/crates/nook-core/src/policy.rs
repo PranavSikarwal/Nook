@@ -166,6 +166,16 @@ impl GrantStore {
         grants
     }
 
+    /// Drops the grants that name a path inside `directory`, for every chat.
+    pub fn remove_paths_inside(&mut self, directory: &Path) {
+        self.grants.retain(|grant| {
+            !grant
+                .path
+                .as_deref()
+                .is_some_and(|path| Path::new(path).starts_with(directory))
+        });
+    }
+
     pub fn remove_chat(&mut self, chat_id: Uuid) {
         self.grants
             .retain(|g| g.chat_id != chat_id || is_persistent_scope(&g.scope));

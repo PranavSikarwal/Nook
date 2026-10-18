@@ -1,7 +1,7 @@
-use nook_core::config::Config;
+use nook_core::config::{Config, RootAccess};
 use nook_core::protocol::{
     Attachment, AttachmentKind, ChatMessage, ChatSummary, ClientMessage, DaemonMessage, GrantInfo,
-    ToolPolicyInfo, ToolSourceInfo,
+    RootInfo, ToolPolicyInfo, ToolSourceInfo,
 };
 #[cfg(windows)]
 use nook_core::windows_pipe_name;
@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
-use tauri::{AppHandle, Manager, Runtime};
+use tauri::{AppHandle, Emitter, Manager, Runtime};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 #[cfg(windows)]
@@ -869,6 +869,87 @@ async fn get_tool_sources<R: Runtime>(app: AppHandle<R>) -> Result<Vec<ToolSourc
     }
 }
 
+async fn ask_for_roots<R: Runtime>(
+    app: &AppHandle<R>,
+    msg: ClientMessage,
+) -> Result<Vec<RootInfo>, String> {
+    match ask_daemon(app, msg).await? {
+        DaemonMessage::Roots { roots, .. } => Ok(roots),
+        _ => Err("Unexpected response from daemon".to_string()),
+    }
+}
+
+#[tauri::command]
+async fn get_roots<R: Runtime>(app: AppHandle<R>) -> Result<Vec<RootInfo>, String> {
+    ask_for_roots(&app, ClientMessage::ListRoots { id: Uuid::new_v4() }).await
+}
+
+#[tauri::command]
+async fn add_root<R: Runtime>(
+    app: AppHandle<R>,
+    path: String,
+    access: RootAccess,
+) -> Result<Vec<RootInfo>, String> {
+    ask_for_roots(
+        &app,
+        ClientMessage::AddRoot {
+            id: Uuid::new_v4(),
+            path,
+            access,
+        },
+    )
+    .await
+}
+
+#[tauri::command]
+async fn set_root_access<R: Runtime>(
+    app: AppHandle<R>,
+    path: String,
+    access: RootAccess,
+) -> Result<Vec<RootInfo>, String> {
+    ask_for_roots(
+        &app,
+        ClientMessage::SetRootAccess {
+            id: Uuid::new_v4(),
+            path,
+            access,
+        },
+    )
+    .await
+}
+
+#[tauri::command]
+async fn remove_root<R: Runtime>(app: AppHandle<R>, path: String) -> Result<Vec<RootInfo>, String> {
+    ask_for_roots(
+        &app,
+        ClientMessage::RemoveRoot {
+            id: Uuid::new_v4(),
+            path,
+        },
+    )
+    .await
+}
+
+/// Opens the system folder picker. Returns `None` when the user cancels.
+#[cfg(not(feature = "e2e"))]
+#[tauri::command]
+async fn pick_folder<R: Runtime>(app: AppHandle<R>) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    let picked = app.dialog().file().blocking_pick_folder();
+    picked
+        .map(|folder| folder.into_path().map_err(|error| error.to_string()))
+        .transpose()
+        .map(|path| path.map(|path| path.display().to_string()))
+}
+
+/// Test builds cannot drive the system picker. They read the folder from the
+/// environment instead.
+#[cfg(feature = "e2e")]
+#[tauri::command]
+async fn pick_folder<R: Runtime>(_app: AppHandle<R>) -> Result<Option<String>, String> {
+    Ok(std::env::var("NOOK_E2E_PICK_FOLDER").ok())
+}
+
 #[tauri::command]
 async fn get_permissions<R: Runtime>(app: AppHandle<R>) -> Result<PermissionsPayload, String> {
     ask_for_permissions(&app, ClientMessage::ListPermissions { id: Uuid::new_v4() }).await
@@ -995,6 +1076,7 @@ pub fn run() {
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(move |app, s, event| {
@@ -1012,10 +1094,18 @@ pub fn run() {
 
     builder
         .manage(DaemonState::default())
+        .on_menu_event(|app, event| {
+            if let Some(tab) = settings_tab_for_menu(event.id().as_ref()) {
+                open_settings_tab(app, tab);
+            }
+        })
         .setup(move |app| {
             #[cfg(target_os = "macos")]
             {
                 app.set_activation_policy(tauri::ActivationPolicy::Regular);
+                if let Err(error) = install_menu(app.handle()) {
+                    eprintln!("Failed to install the application menu: {error}");
+                }
             }
 
             let state = app.state::<DaemonState>();
@@ -1050,6 +1140,11 @@ pub fn run() {
             set_settings,
             get_permissions,
             get_tool_sources,
+            get_roots,
+            add_root,
+            set_root_access,
+            remove_root,
+            pick_folder,
             revoke_grant,
             set_tool_preference,
             open_external_link,
@@ -1073,6 +1168,46 @@ pub fn run() {
             }
             let _ = (app, event);
         });
+}
+
+const MENU_SETTINGS: &str = "open-settings";
+const MENU_FOLDERS: &str = "open-folders";
+
+/// The Settings tab that a menu item opens.
+fn settings_tab_for_menu(id: &str) -> Option<&'static str> {
+    match id {
+        MENU_SETTINGS => Some("model"),
+        MENU_FOLDERS => Some("folders"),
+        _ => None,
+    }
+}
+
+fn open_settings_tab<R: Runtime>(app: &AppHandle<R>, tab: &'static str) {
+    let handle = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        if let Some(window) = handle.get_webview_window("main") {
+            let _ = window.show();
+            let _ = window.set_focus();
+        }
+        let _ = handle.emit("open_settings", tab);
+    });
+}
+
+/// Adds "Settings" and "Allowed Folders" to the app menu and keeps the standard
+/// menus, which hold copy and paste for the input.
+#[cfg(target_os = "macos")]
+fn install_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
+    use tauri::menu::{Menu, MenuItem, MenuItemKind, PredefinedMenuItem};
+    let menu = Menu::default(app)?;
+    if let Some(MenuItemKind::Submenu(app_menu)) = menu.items()?.into_iter().next() {
+        let settings =
+            MenuItem::with_id(app, MENU_SETTINGS, "Settings…", true, Some("CmdOrCtrl+,"))?;
+        let folders = MenuItem::with_id(app, MENU_FOLDERS, "Allowed Folders…", true, None::<&str>)?;
+        let separator = PredefinedMenuItem::separator(app)?;
+        app_menu.insert_items(&[&settings, &folders, &separator], 2)?;
+    }
+    app.set_menu(menu)?;
+    Ok(())
 }
 
 fn toggle_window_internal<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
@@ -1134,6 +1269,18 @@ mod tests {
         }
         let proc = state.spawned_process.lock().await;
         assert!(proc.is_none() || proc.is_some());
+    }
+}
+
+#[cfg(test)]
+mod menu_tests {
+    use super::settings_tab_for_menu;
+
+    #[test]
+    fn each_menu_item_opens_its_settings_tab() {
+        assert_eq!(settings_tab_for_menu("open-settings"), Some("model"));
+        assert_eq!(settings_tab_for_menu("open-folders"), Some("folders"));
+        assert_eq!(settings_tab_for_menu("quit"), None);
     }
 }
 

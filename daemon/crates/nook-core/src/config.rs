@@ -314,6 +314,44 @@ impl Config {
         document["model"] = toml_edit::value(model);
         write_private(path, &document.to_string())
     }
+
+    /// Replaces `tools.filesystem.roots` and leaves every other line, comment, and
+    /// table as it is. Creates the file when it is missing.
+    pub fn update_filesystem_roots(
+        path: &Path,
+        roots: &[RootConfig],
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let text = match std::fs::read_to_string(path) {
+            Ok(text) => text,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+            Err(error) => return Err(error.into()),
+        };
+        let mut document = text.parse::<toml_edit::DocumentMut>()?;
+        let mut array = toml_edit::Array::new();
+        for root in roots {
+            let mut entry = toml_edit::InlineTable::new();
+            entry.insert("path", root.path.as_str().into());
+            entry.insert("access", root.access.as_str().into());
+            let mut value = toml_edit::Value::from(entry);
+            value.decor_mut().set_prefix("\n  ");
+            array.push_formatted(value);
+        }
+        array.set_trailing("\n");
+        array.set_trailing_comma(!roots.is_empty());
+        let tools = document
+            .entry("tools")
+            .or_insert_with(|| toml_edit::Item::Table(toml_edit::Table::new()))
+            .as_table_mut()
+            .ok_or("`tools` in config.toml is not a table")?;
+        tools.set_implicit(true);
+        let filesystem = tools
+            .entry("filesystem")
+            .or_insert_with(|| toml_edit::Item::Table(toml_edit::Table::new()))
+            .as_table_mut()
+            .ok_or("`tools.filesystem` in config.toml is not a table")?;
+        filesystem.insert("roots", toml_edit::value(array));
+        write_private(path, &document.to_string())
+    }
 }
 
 /// Writes the file so that only the user can read it. The file can hold secrets
@@ -449,6 +487,88 @@ env = { TOKEN = "secret-value" }
             std::fs::read_to_string(&path).unwrap(),
             "base_url = [unclosed"
         );
+    }
+
+    fn root(path: &str, access: RootAccess) -> RootConfig {
+        RootConfig {
+            path: path.to_string(),
+            access,
+        }
+    }
+
+    #[test]
+    fn updating_the_roots_keeps_comments_and_other_blocks() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(&path, HAND_EDITED).unwrap();
+
+        Config::update_filesystem_roots(
+            &path,
+            &[
+                root("/tmp/docs", RootAccess::Read),
+                root("/tmp/work", RootAccess::ReadWrite),
+            ],
+        )
+        .unwrap();
+
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("# My Nook settings"));
+        assert!(text.contains("# Files the assistant may read"));
+        assert!(text.contains("env = { TOKEN = \"secret-value\" }"));
+        assert!(text.contains("model = \"old-model\""));
+        let loaded: Config = toml::from_str(&text).unwrap();
+        assert_eq!(
+            loaded.tools.filesystem.roots,
+            vec![
+                root("/tmp/docs", RootAccess::Read),
+                root("/tmp/work", RootAccess::ReadWrite)
+            ]
+        );
+        assert_eq!(loaded.tools.mcp_servers[0].name, "notes");
+    }
+
+    #[test]
+    fn updating_the_roots_of_a_file_without_tools_adds_them() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(&path, "base_url = \"u\"\nmodel = \"m\"\n").unwrap();
+
+        Config::update_filesystem_roots(&path, &[root("/tmp/work", RootAccess::ReadWrite)])
+            .unwrap();
+
+        let loaded: Config = toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(loaded.model, "m");
+        assert_eq!(
+            loaded.tools.filesystem.roots,
+            vec![root("/tmp/work", RootAccess::ReadWrite)]
+        );
+    }
+
+    #[test]
+    fn removing_every_root_leaves_an_empty_list() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(&path, HAND_EDITED).unwrap();
+
+        Config::update_filesystem_roots(&path, &[]).unwrap();
+
+        let loaded: Config = toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert!(loaded.tools.filesystem.roots.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn updating_the_roots_keeps_the_file_private() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(&path, HAND_EDITED).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+        Config::update_filesystem_roots(&path, &[]).unwrap();
+
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
     }
 
     #[cfg(unix)]

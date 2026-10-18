@@ -169,6 +169,7 @@ pub struct ProviderRegistry {
     index: BTreeMap<String, usize>,
     descriptors: Vec<ToolDescriptor>,
     report: Vec<ToolSourceInfo>,
+    carry: Carry,
 }
 
 impl ProviderRegistry {
@@ -198,6 +199,17 @@ impl ProviderRegistry {
 
     pub fn is_empty(&self) -> bool {
         self.descriptors.is_empty()
+    }
+
+    fn with_carry(mut self, carry: Carry) -> Self {
+        self.carry = carry;
+        self
+    }
+
+    /// Builds the file tool and the command tool again from `tools`. The sandbox
+    /// and the MCP servers that run now stay as they are.
+    pub fn rebuilt(&self, tools: &crate::config::ToolsConfig) -> Self {
+        assemble(tools, self.carry.clone())
     }
 
     /// Adds the sources that did not start, so the Tools tab can say why.
@@ -258,6 +270,63 @@ impl ProviderRegistry {
     }
 }
 
+/// The registry the Daemon uses now. A folder change swaps it. A call that
+/// already started keeps the registry it took.
+pub struct ProviderHandle {
+    current: std::sync::RwLock<Arc<ProviderRegistry>>,
+}
+
+impl ProviderHandle {
+    pub fn new(registry: ProviderRegistry) -> Self {
+        Self {
+            current: std::sync::RwLock::new(Arc::new(registry)),
+        }
+    }
+
+    pub fn current(&self) -> Arc<ProviderRegistry> {
+        self.current
+            .read()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone()
+    }
+
+    pub fn replace(&self, registry: ProviderRegistry) {
+        *self
+            .current
+            .write()
+            .unwrap_or_else(|error| error.into_inner()) = Arc::new(registry);
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.current().is_empty()
+    }
+
+    pub fn descriptors(&self) -> Vec<ToolDescriptor> {
+        self.current().descriptors().to_vec()
+    }
+
+    pub fn descriptor(&self, tool_id: &str) -> Option<ToolDescriptor> {
+        self.current().descriptor(tool_id).cloned()
+    }
+
+    pub fn contains(&self, tool_id: &str) -> bool {
+        self.current().contains(tool_id)
+    }
+
+    pub fn sources(&self) -> Vec<ToolSourceInfo> {
+        self.current().sources()
+    }
+
+    pub fn facts(&self, tool_id: &str, arguments: &Value) -> Result<ToolFacts, ProviderError> {
+        self.current().facts(tool_id, arguments)
+    }
+
+    pub async fn call(&self, tool_id: &str, arguments: Value, context: CallContext) -> ToolOutput {
+        let registry = self.current();
+        registry.call(tool_id, arguments, context).await
+    }
+}
+
 pub fn truncate_output(text: String, max_bytes: usize) -> String {
     if text.len() <= max_bytes {
         return text;
@@ -294,7 +363,60 @@ fn ready(source_id: &str, display_name: &str, tools: usize) -> ToolSourceInfo {
     }
 }
 
+/// What a folder change keeps: the sandbox and the MCP servers that already run.
+#[derive(Clone, Default)]
+struct Carry {
+    sandbox: Option<crate::sandbox::Sandbox>,
+    sandbox_error: Option<String>,
+    mcp: Vec<Arc<dyn Provider>>,
+    mcp_report: Vec<ToolSourceInfo>,
+}
+
 pub async fn build_registry(tools: &crate::config::ToolsConfig) -> ProviderRegistry {
+    let mut carry = Carry::default();
+    let needs_sandbox = tools.terminal.enabled || !tools.mcp_servers.is_empty();
+    if needs_sandbox {
+        match crate::sandbox::Sandbox::detect().await {
+            Ok(sandbox) => {
+                tracing::info!(sandbox = sandbox.name(), "The command sandbox works");
+                #[cfg(unix)]
+                if !tools.mcp_servers.is_empty() {
+                    let (mcp, failed) = mcp::McpProvider::start_reporting(
+                        &tools.mcp_servers,
+                        &sandbox,
+                        mcp::StartupLimits::default(),
+                    )
+                    .await;
+                    carry.mcp_report.extend(failed);
+                    if let Some(mcp) = mcp {
+                        carry.mcp.push(Arc::new(mcp));
+                    }
+                }
+                #[cfg(not(unix))]
+                for server in &tools.mcp_servers {
+                    carry
+                        .mcp_report
+                        .push(mcp_off(&server.name, "This platform has no sandbox"));
+                }
+                carry.sandbox = Some(sandbox);
+            }
+            Err(error) => {
+                tracing::warn!("Terminal and MCP tools are off: {error}");
+                let reason = format!("The command sandbox is not available: {error}");
+                for server in &tools.mcp_servers {
+                    carry.mcp_report.push(mcp_off(&server.name, &reason));
+                }
+                carry.sandbox_error = Some(reason);
+            }
+        }
+    }
+    assemble(tools, carry)
+}
+
+/// Builds the file tool and the command tool from the config and adds what the
+/// carry holds. A provider that cannot start is left out and the reason is
+/// logged.
+fn assemble(tools: &crate::config::ToolsConfig, carry: Carry) -> ProviderRegistry {
     let mut providers: Vec<Arc<dyn Provider>> = Vec::new();
     let mut report: Vec<ToolSourceInfo> = Vec::new();
     let has_roots = !tools.filesystem.roots.is_empty();
@@ -323,60 +445,31 @@ pub async fn build_registry(tools: &crate::config::ToolsConfig) -> ProviderRegis
             "This platform has no sandbox",
         ));
     }
-    let needs_sandbox = tools.terminal.enabled || !tools.mcp_servers.is_empty();
-    if needs_sandbox {
-        match crate::sandbox::Sandbox::detect().await {
-            Ok(sandbox) => {
-                tracing::info!(sandbox = sandbox.name(), "The command sandbox works");
-                if tools.terminal.enabled {
-                    match terminal::TerminalProvider::new(tools, sandbox.clone()) {
-                        Some(terminal) => {
-                            report.push(ready("terminal", "Command tool", 1));
-                            providers.push(Arc::new(terminal));
-                        }
-                        None => report.push(off(
-                            "terminal",
-                            "Command tool",
-                            "No folder in roots could be used as a working folder",
-                        )),
-                    }
+    if tools.terminal.enabled {
+        match (&carry.sandbox, &carry.sandbox_error) {
+            (Some(sandbox), _) => match terminal::TerminalProvider::new(tools, sandbox.clone()) {
+                Some(terminal) => {
+                    report.push(ready("terminal", "Command tool", 1));
+                    providers.push(Arc::new(terminal));
                 }
-                #[cfg(unix)]
-                if !tools.mcp_servers.is_empty() {
-                    let (mcp, failed) = mcp::McpProvider::start_reporting(
-                        &tools.mcp_servers,
-                        &sandbox,
-                        mcp::StartupLimits::default(),
-                    )
-                    .await;
-                    report.extend(failed);
-                    if let Some(mcp) = mcp {
-                        providers.push(Arc::new(mcp));
-                    }
-                }
-                #[cfg(not(unix))]
-                for server in &tools.mcp_servers {
-                    report.push(mcp_off(&server.name, "This platform has no sandbox"));
-                }
-            }
-            Err(error) => {
-                tracing::warn!("Terminal and MCP tools are off: {error}");
-                let reason = format!("The command sandbox is not available: {error}");
-                if tools.terminal.enabled {
-                    report.push(off("terminal", "Command tool", reason.clone()));
-                }
-                for server in &tools.mcp_servers {
-                    report.push(mcp_off(&server.name, &reason));
-                }
-            }
+                None => report.push(off(
+                    "terminal",
+                    "Command tool",
+                    "No folder in roots could be used as a working folder",
+                )),
+            },
+            (None, Some(reason)) => report.push(off("terminal", "Command tool", reason.clone())),
+            (None, None) => {}
         }
     }
+    providers.extend(carry.mcp.iter().cloned());
+    report.extend(carry.mcp_report.iter().cloned());
     match ProviderRegistry::new(providers) {
         Ok(registry) => {
             for descriptor in registry.descriptors() {
                 tracing::info!(tool = %descriptor.id, "Registered tool");
             }
-            registry.with_report(report)
+            registry.with_report(report).with_carry(carry)
         }
         Err(error) => {
             tracing::error!("Tool providers are off: {error}");
@@ -391,7 +484,9 @@ pub async fn build_registry(tools: &crate::config::ToolsConfig) -> ProviderRegis
                     }
                 })
                 .collect();
-            ProviderRegistry::empty().with_report(report)
+            ProviderRegistry::empty()
+                .with_report(report)
+                .with_carry(carry)
         }
     }
 }
