@@ -179,7 +179,7 @@ impl Harness {
             pending_approvals: Mutex::new(HashMap::new()),
             cancelled_requests: Mutex::new(HashSet::new()),
             approval_timeout,
-            providers: Arc::new(registry),
+            providers: nook_core::providers::ProviderHandle::new(registry),
             running_tools: Mutex::new(HashMap::new()),
             policy: policy_with_echo(),
         });

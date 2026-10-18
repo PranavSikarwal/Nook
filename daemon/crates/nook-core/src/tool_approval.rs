@@ -287,6 +287,38 @@ pub async fn expire_pending_approval(
     }
 }
 
+/// Denies each waiting approval whose call the current tools no longer accept,
+/// for example a write in a folder that the user just removed.
+pub async fn deny_stale_approvals(state: &Arc<AppState>) {
+    let registry = state.providers.current();
+    let stale: Vec<(String, PendingApprovalEntry)> = {
+        let mut approvals = state.pending_approvals.lock().await;
+        let ids: Vec<String> = approvals
+            .iter()
+            .filter(|(_, entry)| {
+                entry.execution.is_some()
+                    && !entry.decision_in_flight
+                    && registry
+                        .facts(&entry.request.tool_name, &entry.request.arguments)
+                        .is_err()
+            })
+            .map(|(call_id, _)| call_id.clone())
+            .collect();
+        ids.into_iter()
+            .filter_map(|call_id| approvals.remove(&call_id).map(|entry| (call_id, entry)))
+            .collect()
+    };
+    for (call_id, entry) in stale {
+        let delivery = delivery_for(&call_id, &entry);
+        deliver_logged(
+            state,
+            &delivery,
+            deny(crate::providers::roots::OUTSIDE_ROOTS),
+        )
+        .await;
+    }
+}
+
 pub async fn handle_authorize_tool(
     state: &Arc<AppState>,
     ctx: &AuthorizeContext,
@@ -322,7 +354,7 @@ pub async fn handle_authorize_tool(
     }
     let mut request = match AuthorizationRequest::normalize_with(
         &state.policy.catalog,
-        Some(&state.providers),
+        Some(&state.providers.current()),
         ctx.chat_id,
         &call.call_id,
         &call.tool_name,

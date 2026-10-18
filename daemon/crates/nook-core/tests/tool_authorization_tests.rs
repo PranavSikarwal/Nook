@@ -92,7 +92,9 @@ impl Harness {
             pending_approvals: Mutex::new(HashMap::new()),
             cancelled_requests: Mutex::new(HashSet::new()),
             approval_timeout,
-            providers: std::sync::Arc::new(nook_core::providers::ProviderRegistry::empty()),
+            providers: nook_core::providers::ProviderHandle::new(
+                nook_core::providers::ProviderRegistry::empty(),
+            ),
             running_tools: tokio::sync::Mutex::new(std::collections::HashMap::new()),
             policy,
         });

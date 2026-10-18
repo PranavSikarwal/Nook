@@ -3,6 +3,7 @@ pub mod client;
 pub mod config;
 pub mod daemon_log;
 pub mod db;
+pub mod folders;
 pub mod keychain;
 pub mod message_stream;
 pub mod permissions;

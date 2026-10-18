@@ -1,3 +1,4 @@
+use crate::config::RootAccess;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -163,6 +164,23 @@ pub enum ClientMessage {
     ListToolSources {
         id: Uuid,
     },
+    ListRoots {
+        id: Uuid,
+    },
+    AddRoot {
+        id: Uuid,
+        path: String,
+        access: RootAccess,
+    },
+    SetRootAccess {
+        id: Uuid,
+        path: String,
+        access: RootAccess,
+    },
+    RemoveRoot {
+        id: Uuid,
+        path: String,
+    },
     RevokeGrant {
         id: Uuid,
         grant_id: String,
@@ -258,6 +276,10 @@ pub enum DaemonMessage {
         id: Uuid,
         sources: Vec<ToolSourceInfo>,
     },
+    Roots {
+        id: Uuid,
+        roots: Vec<RootInfo>,
+    },
     Pong {
         id: Uuid,
     },
@@ -285,6 +307,17 @@ pub struct ToolSourceInfo {
     pub display_name: String,
     pub state: ToolSourceState,
     pub tools: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+/// One folder in `tools.filesystem.roots`. A folder that cannot be used (it was
+/// deleted or moved) stays in the list with a `reason`, so the user can remove it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RootInfo {
+    pub path: String,
+    pub access: RootAccess,
+    pub usable: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
 }

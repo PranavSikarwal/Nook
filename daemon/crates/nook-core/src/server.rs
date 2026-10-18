@@ -37,7 +37,7 @@ use crate::policy_assets::PolicyAssets;
 use crate::protocol::{
     Attachment, ClientMessage, DaemonMessage, DaemonWorkerRequest, ErrorCode, ErrorInfo,
 };
-use crate::providers::ProviderRegistry;
+use crate::providers::ProviderHandle;
 use crate::supervisor::WorkerSupervisor;
 use crate::tool_approval::{
     abort_running_tools, deny_pending_for_request, handle_approval_decision,
@@ -112,7 +112,7 @@ pub struct AppState {
     pub pending_approvals: Mutex<HashMap<String, PendingApprovalEntry>>, // maps call_id -> entry
     pub cancelled_requests: Mutex<HashSet<Uuid>>,
     pub approval_timeout: Duration,
-    pub providers: Arc<ProviderRegistry>,
+    pub providers: ProviderHandle,
     pub running_tools: Mutex<HashMap<Uuid, Vec<(String, tokio::task::AbortHandle)>>>,
     pub policy: Arc<PolicyAssets>,
 }
@@ -669,6 +669,26 @@ async fn process_client_message(
                 .await;
         }
 
+        ClientMessage::ListRoots { id } => {
+            let roots = crate::folders::list(&state).await;
+            let _ = tx_out.send(DaemonMessage::Roots { id, roots }).await;
+        }
+
+        ClientMessage::AddRoot { id, path, access } => {
+            let result = crate::folders::add(&state, &path, access).await;
+            send_roots(id, result, &tx_out).await;
+        }
+
+        ClientMessage::SetRootAccess { id, path, access } => {
+            let result = crate::folders::set_access(&state, &path, access).await;
+            send_roots(id, result, &tx_out).await;
+        }
+
+        ClientMessage::RemoveRoot { id, path } => {
+            let result = crate::folders::remove(&state, &path).await;
+            send_roots(id, result, &tx_out).await;
+        }
+
         ClientMessage::RevokeGrant { id, grant_id } => {
             match crate::permissions::revoke_grant(&state, &grant_id).await {
                 Ok(()) => send_permissions(&state, id, &tx_out).await,
@@ -699,6 +719,19 @@ async fn send_permissions(state: &AppState, id: Uuid, tx_out: &mpsc::Sender<Daem
     let _ = tx_out
         .send(DaemonMessage::Permissions { id, grants, tools })
         .await;
+}
+
+async fn send_roots(
+    id: Uuid,
+    result: Result<Vec<crate::protocol::RootInfo>, String>,
+    tx_out: &mpsc::Sender<DaemonMessage>,
+) {
+    match result {
+        Ok(roots) => {
+            let _ = tx_out.send(DaemonMessage::Roots { id, roots }).await;
+        }
+        Err(message) => send_invalid_request(id, &message, tx_out).await,
+    }
 }
 
 async fn send_invalid_request(id: Uuid, message: &str, tx_out: &mpsc::Sender<DaemonMessage>) {

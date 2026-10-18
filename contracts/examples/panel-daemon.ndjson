@@ -11,6 +11,10 @@
 {"type":"revoke_grant","id":"11111111-1111-1111-1111-111111111120","grant_id":"0a1b2c3d4e5f60718293a4b5c6d7e8f9"}
 {"type":"set_tool_preference","id":"11111111-1111-1111-1111-111111111121","tool_id":"nook:web_search","tier":"deny"}
 {"type":"list_tool_sources","id":"11111111-1111-1111-1111-111111111120"}
+{"type":"list_roots","id":"11111111-1111-1111-1111-111111111121"}
+{"type":"add_root","id":"11111111-1111-1111-1111-111111111122","path":"/Users/me/Desktop","access":"read_write"}
+{"type":"set_root_access","id":"11111111-1111-1111-1111-111111111123","path":"/Users/me/Desktop","access":"read"}
+{"type":"remove_root","id":"11111111-1111-1111-1111-111111111124","path":"/Users/me/Desktop"}
 {"type":"message_started","id":"11111111-1111-1111-1111-111111111111","chat_id":"22222222-2222-2222-2222-222222222222","message_id":"44444444-4444-4444-4444-444444444444"}
 {"type":"text_delta","id":"11111111-1111-1111-1111-111111111111","chat_id":"22222222-2222-2222-2222-222222222222","message_id":"44444444-4444-4444-4444-444444444444","text":"The capital is Paris."}
 {"type":"tool_call_started","id":"11111111-1111-1111-1111-111111111111","chat_id":"22222222-2222-2222-2222-222222222222","message_id":"44444444-4444-4444-4444-444444444444","call_id":"call_123","name":"get_weather","arguments":"{\"city\":\"Paris\"}"}
@@ -27,3 +31,4 @@
 {"type":"pong","id":"11111111-1111-1111-1111-111111111118"}
 {"type":"error","id":"11111111-1111-1111-1111-111111111111","error":{"code":"endpoint_unreachable","message":"Model endpoint could not be reached","retryable":true}}
 {"type":"tool_sources","id":"11111111-1111-1111-1111-111111111120","sources":[{"source_id":"filesystem","display_name":"File tools","state":"ready","tools":3},{"source_id":"mcp:notes","display_name":"MCP server notes","state":"off","tools":0,"reason":"The server did not answer initialize in 10 seconds"},{"source_id":"mcp:sync","display_name":"MCP server sync","state":"stopped","tools":4,"reason":"The server stopped. The next call starts it again."}]}
+{"type":"roots","id":"11111111-1111-1111-1111-111111111121","roots":[{"path":"/Users/me/Desktop","access":"read_write","usable":true},{"path":"/Users/me/Gone","access":"read","usable":false,"reason":"The folder does not exist"}]}

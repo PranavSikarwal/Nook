@@ -34,7 +34,7 @@ struct Inner {
 #[derive(Clone)]
 pub struct WorkerSupervisor {
     inner: Arc<Mutex<Inner>>,
-    tools: Arc<Vec<ToolDescriptor>>,
+    tools: Arc<std::sync::Mutex<Arc<Vec<ToolDescriptor>>>>,
 }
 
 fn find_worker_directory() -> Option<PathBuf> {
@@ -210,6 +210,30 @@ fn resolve_worker_command(config: &Config, custom_command: Option<Vec<String>>) 
 }
 
 impl WorkerSupervisor {
+    fn current_tools(&self) -> Arc<Vec<ToolDescriptor>> {
+        self.tools
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone()
+    }
+
+    /// Gives the running Worker a new tool list and keeps it for a Worker that
+    /// starts later. Sends the list also when it is empty, so the Worker drops
+    /// tools that are gone.
+    pub async fn update_tools(&self, tools: Vec<ToolDescriptor>) {
+        let tools = Arc::new(tools);
+        *self.tools.lock().unwrap_or_else(|error| error.into_inner()) = tools.clone();
+        let sender = self.inner.lock().await.stdin_tx.clone();
+        let Some(sender) = sender else { return };
+        let catalog = DaemonWorkerRequest::ToolCatalog {
+            tools: tools.as_ref().clone(),
+        };
+        if let Ok(mut payload) = serde_json::to_string(&catalog) {
+            payload.push('\n');
+            let _ = sender.send(payload).await;
+        }
+    }
+
     pub async fn new(
         config: &Config,
         api_key: Option<String>,
@@ -252,7 +276,7 @@ impl WorkerSupervisor {
 
         let supervisor = Self {
             inner,
-            tools: Arc::new(tools),
+            tools: Arc::new(std::sync::Mutex::new(Arc::new(tools))),
         };
 
         // Start initial process and wait for ready
@@ -441,9 +465,10 @@ impl WorkerSupervisor {
 
         // Stdin writing channel
         let (stdin_tx, mut stdin_rx) = mpsc::channel::<String>(100);
-        if !self.tools.is_empty() {
+        let tools = self.current_tools();
+        if !tools.is_empty() {
             let catalog = DaemonWorkerRequest::ToolCatalog {
-                tools: self.tools.as_ref().clone(),
+                tools: tools.as_ref().clone(),
             };
             if let Ok(mut payload) = serde_json::to_string(&catalog) {
                 payload.push('\n');

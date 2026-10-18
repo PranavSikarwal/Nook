@@ -209,6 +209,22 @@ def test_a_catalog_request_rebuilds_the_agent():
     assert built == [["read_local_file"]]
 
 
+def test_an_empty_catalog_removes_every_remote_tool():
+    built: list[list[str]] = []
+
+    def rebuild(tools: list[Any]) -> str:
+        built.append([tool.name for tool in tools])
+        return "rebuilt-agent"
+
+    runner = RealAgentRunner("first-agent", rebuild=rebuild)
+    request = parse_request(ToolCatalogRequest(tools=[]).model_dump_json())
+
+    assert isinstance(request, ToolCatalogRequest)
+    _dispatch_request(request, runner, _unused_writer, {}, None, None)
+
+    assert built == [[]]
+
+
 async def _unused_writer(line: str) -> None:
     raise AssertionError(f"Unexpected write: {line}")
 

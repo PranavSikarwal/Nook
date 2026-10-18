@@ -2,7 +2,7 @@ use nook_core::config::Config;
 use nook_core::db;
 use nook_core::keychain;
 use nook_core::policy_assets::{find_policy_directory, PolicyAssets};
-use nook_core::providers::build_registry;
+use nook_core::providers::{build_registry, ProviderHandle};
 use nook_core::server::{AppState, Server};
 use nook_core::supervisor::WorkerSupervisor;
 use std::collections::HashMap;
@@ -78,24 +78,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     }
 
     // 6. Start Worker supervisor
-    let providers = Arc::new(build_registry(&config.tools).await);
-    let supervisor = match WorkerSupervisor::with_tools(
-        &config,
-        api_key,
-        e2e_worker_command(),
-        providers.descriptors().to_vec(),
-    )
-    .await
-    {
-        Ok(sup) => {
-            info!("Worker supervisor initialized");
-            Some(sup)
-        }
-        Err(e) => {
-            error!("Worker supervisor initialization failed: {e}");
-            None
-        }
-    };
+    let registry = build_registry(&config.tools).await;
+    let descriptors = registry.descriptors().to_vec();
+    let providers = ProviderHandle::new(registry);
+    let supervisor =
+        match WorkerSupervisor::with_tools(&config, api_key, e2e_worker_command(), descriptors)
+            .await
+        {
+            Ok(sup) => {
+                info!("Worker supervisor initialized");
+                Some(sup)
+            }
+            Err(e) => {
+                error!("Worker supervisor initialization failed: {e}");
+                None
+            }
+        };
 
     let state = Arc::new(AppState {
         config: RwLock::new(config),
