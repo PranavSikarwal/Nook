@@ -63,13 +63,13 @@ async fn apply(
 
 A test that fails first is not possible here. The lost update needs two threads to interleave inside a window of a few instructions, and the fair `tokio::sync::RwLock` hides it on one thread. The ten tests in `folders_tests.rs` and the unit tests in `folders.rs` are the safety net for this refactor.
 
-- [ ] **Step 1: Record the green baseline.** Run from `daemon/`: `rtk cargo test -p nook-core --test folders_tests` and `rtk cargo test -p nook-core --lib folders`. Expected: all pass.
-- [ ] **Step 2: Change `apply` to the signature above.** Inside it, take `state.config.write().await` first. Clone `config.tools.filesystem.roots` into `next`. Call `edit(&mut next)` and return its error as a `String`. The rest of the body stays as it is now.
-- [ ] **Step 3: Rewrite `add`, `set_access`, and `remove` as calls to `apply`.** Each passes a closure that holds its current check and its current change of the list. `add` builds `Keepout::current()` before the call, and its closure calls `check_new_root`. `remove` returns `Some(directory)` from its closure. No function reads `state.config` outside `apply`, except `list`.
-- [ ] **Step 4: Move each `info!` line after the `apply` call, and emit it only when the result is `Ok`.** Keep the three messages and their fields. `add` logs the stored path, which the closure hands back through a local variable.
-- [ ] **Step 5: Run the tests of step 1 again.** Expected: all pass, the same count as in step 1.
-- [ ] **Step 6: Run `rtk cargo fmt --check` and `rtk cargo clippy --workspace --all-targets -- -D warnings` from `daemon/`.** Expected: no output from fmt, no warning from clippy.
-- [ ] **Step 7: Commit.** `git add daemon/crates/nook-core/src/folders.rs docs/plans/allowed-folders-hardening.md` and `git commit -m "fix(daemon): change the allowed folders under one lock and log after the save"`.
+- [x] **Step 1: Record the green baseline.** Run from `daemon/`: `rtk cargo test -p nook-core --test folders_tests` and `rtk cargo test -p nook-core --lib folders`. Expected: all pass.
+- [x] **Step 2: Change `apply` to the signature above.** Inside it, take `state.config.write().await` first. Clone `config.tools.filesystem.roots` into `next`. Call `edit(&mut next)` and return its error as a `String`. The rest of the body stays as it is now.
+- [x] **Step 3: Rewrite `add`, `set_access`, and `remove` as calls to `apply`.** Each passes a closure that holds its current check and its current change of the list. `add` builds `Keepout::current()` before the call, and its closure calls `check_new_root`. `remove` returns `Some(directory)` from its closure. No function reads `state.config` outside `apply`, except `list`.
+- [x] **Step 4: Move each `info!` line after the `apply` call, and emit it only when the result is `Ok`.** Keep the three messages and their fields. `add` logs the stored path, which the closure hands back through a local variable.
+- [x] **Step 5: Run the tests of step 1 again.** Expected: all pass, the same count as in step 1.
+- [x] **Step 6: Run `rtk cargo fmt --check` and `rtk cargo clippy --workspace --all-targets -- -D warnings` from `daemon/`.** Expected: no output from fmt, no warning from clippy.
+- [x] **Step 7: Commit.** `git add daemon/crates/nook-core/src/folders.rs docs/plans/allowed-folders-hardening.md` and `git commit -m "fix(daemon): change the allowed folders under one lock and log after the save"`.
 
 ### Task 2: Drop the grants of a folder that left the disk
 

@@ -120,14 +120,19 @@ pub async fn add(
     access: RootAccess,
 ) -> Result<Vec<RootInfo>, String> {
     let keepout = Keepout::current();
-    let mut next = state.config.read().await.tools.filesystem.roots.clone();
-    let stored = check_new_root(path, &next, &keepout).map_err(str::to_string)?;
+    let mut stored = String::new();
+    let roots = apply(state, |roots| {
+        let resolved = check_new_root(path, roots, &keepout)?;
+        stored = resolved.clone();
+        roots.push(RootConfig {
+            path: resolved,
+            access,
+        });
+        Ok(None)
+    })
+    .await?;
     info!(path = %stored, access = access.as_str(), "Added an allowed folder");
-    next.push(RootConfig {
-        path: stored,
-        access,
-    });
-    apply(state, next, None).await
+    Ok(roots)
 }
 
 pub async fn set_access(
@@ -135,40 +140,49 @@ pub async fn set_access(
     path: &str,
     access: RootAccess,
 ) -> Result<Vec<RootInfo>, String> {
-    let mut next = state.config.read().await.tools.filesystem.roots.clone();
-    let root = next
-        .iter_mut()
-        .find(|root| root.path == path)
-        .ok_or(UNKNOWN_FOLDER)?;
-    root.access = access;
+    let roots = apply(state, |roots| {
+        let root = roots
+            .iter_mut()
+            .find(|root| root.path == path)
+            .ok_or(UNKNOWN_FOLDER)?;
+        root.access = access;
+        Ok(None)
+    })
+    .await?;
     info!(
         path,
         access = access.as_str(),
         "Changed the access of an allowed folder"
     );
-    apply(state, next, None).await
+    Ok(roots)
 }
 
 pub async fn remove(state: &Arc<AppState>, path: &str) -> Result<Vec<RootInfo>, String> {
-    let mut next = state.config.read().await.tools.filesystem.roots.clone();
-    let position = next
-        .iter()
-        .position(|root| root.path == path)
-        .ok_or(UNKNOWN_FOLDER)?;
-    next.remove(position);
+    let roots = apply(state, |roots| {
+        let position = roots
+            .iter()
+            .position(|root| root.path == path)
+            .ok_or(UNKNOWN_FOLDER)?;
+        roots.remove(position);
+        let removed = Path::new(path).canonicalize().ok();
+        Ok(removed)
+    })
+    .await?;
     info!(path, "Removed an allowed folder");
-    let removed = Path::new(path).canonicalize().ok();
-    apply(state, next, removed).await
+    Ok(roots)
 }
 
-/// Saves the list, rebuilds the file and command tools, and tells the Worker.
+/// Runs `edit` on a copy of the list while the config write lock is held, then
+/// saves the copy, rebuilds the tools, and tells the Worker. `edit` returns the
+/// folder that it removed, if any.
 async fn apply(
     state: &Arc<AppState>,
-    next: Vec<RootConfig>,
-    removed: Option<PathBuf>,
+    edit: impl FnOnce(&mut Vec<RootConfig>) -> Result<Option<PathBuf>, &'static str>,
 ) -> Result<Vec<RootInfo>, String> {
-    let (roots, descriptors) = {
+    let (roots, descriptors, removed) = {
         let mut config = state.config.write().await;
+        let mut next = config.tools.filesystem.roots.clone();
+        let removed = edit(&mut next).map_err(str::to_string)?;
         Config::update_filesystem_roots(&state.config_path, &next).map_err(|error| {
             warn!("Could not save the allowed folders: {error}");
             NOT_SAVED.to_string()
@@ -181,7 +195,11 @@ async fn apply(
         if let Some(supervisor) = supervisor {
             supervisor.update_tools(descriptors.clone()).await;
         }
-        (describe(&config.tools.filesystem.roots), descriptors)
+        (
+            describe(&config.tools.filesystem.roots),
+            descriptors,
+            removed,
+        )
     };
     info!(
         tools = descriptors.len(),
