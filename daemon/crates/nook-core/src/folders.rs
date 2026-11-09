@@ -164,8 +164,11 @@ pub async fn remove(state: &Arc<AppState>, path: &str) -> Result<Vec<RootInfo>, 
             .position(|root| root.path == path)
             .ok_or(UNKNOWN_FOLDER)?;
         roots.remove(position);
-        let removed = Path::new(path).canonicalize().ok();
-        Ok(removed)
+        // The stored path is already resolved, because check_new_root resolved it at the time of the add.
+        let removed = Path::new(path)
+            .canonicalize()
+            .unwrap_or_else(|_| PathBuf::from(path));
+        Ok(Some(removed))
     })
     .await?;
     info!(path, "Removed an allowed folder");

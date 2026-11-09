@@ -260,6 +260,34 @@ async fn chat_grants_inside_a_removed_folder_are_dropped() {
 }
 
 #[tokio::test]
+async fn chat_grants_inside_a_folder_deleted_from_disk_are_dropped() {
+    let area = Area::new();
+    let mut h = area.harness(&["one", "two"]).await;
+    let chat = Uuid::new_v4();
+    let inside = area.base.join("one/file.txt");
+    let result = h
+        .approve_and_run(
+            chat,
+            "g1",
+            WRITE,
+            &write_args(&inside, "x"),
+            "allow_for_chat_path",
+        )
+        .await;
+    assert_eq!(result["status"], "ok", "{result}");
+    std::fs::remove_dir_all(area.base.join("one")).unwrap();
+
+    folders::remove(&h.state, &area.path("one")).await.unwrap();
+
+    let store = h.state.policy.authorizer.grant_store();
+    assert!(store
+        .lock()
+        .await
+        .matching_scopes(chat, "write_local_file", None, inside.to_str(), None)
+        .is_empty());
+}
+
+#[tokio::test]
 async fn a_failed_save_changes_nothing() {
     let area = Area::new();
     let h = area.harness(&["one"]).await;

@@ -77,7 +77,7 @@ A test that fails first is not possible here. The lost update needs two threads 
 - Modify: `daemon/crates/nook-core/src/folders.rs` (the closure in `remove`)
 - Test: `daemon/crates/nook-core/tests/folders_tests.rs`
 
-- [ ] **Step 1: Write the failing test.** Add it after `chat_grants_inside_a_removed_folder_are_dropped`.
+- [x] **Step 1: Write the failing test.** Add it after `chat_grants_inside_a_removed_folder_are_dropped`.
 
 ```rust
 #[tokio::test]
@@ -103,11 +103,11 @@ async fn chat_grants_inside_a_folder_deleted_from_disk_are_dropped() {
 }
 ```
 
-- [ ] **Step 2: Run it.** From `daemon/`: `rtk cargo test -p nook-core --test folders_tests chat_grants_inside_a_folder_deleted`. Expected: FAIL on the last assertion.
-- [ ] **Step 3: Fix `remove`.** When `canonicalize` fails, use the stored path as it is: `Path::new(path).canonicalize().unwrap_or_else(|_| PathBuf::from(path))`. The stored path is already resolved, because `check_new_root` resolved it at the time of the add. Say that in a one-line comment.
-- [ ] **Step 4: Run the whole file.** `rtk cargo test -p nook-core --test folders_tests`. Expected: 11 pass.
-- [ ] **Step 5: Run fmt and clippy as in Task 1 step 6.**
-- [ ] **Step 6: Commit.** `git commit -m "fix(daemon): drop chat grants of a removed folder that no longer exists on disk"` with the two files and this plan.
+- [x] **Step 2: Run it.** From `daemon/`: `rtk cargo test -p nook-core --test folders_tests chat_grants_inside_a_folder_deleted`. Expected: FAIL on the last assertion.
+- [x] **Step 3: Fix `remove`.** When `canonicalize` fails, use the stored path as it is: `Path::new(path).canonicalize().unwrap_or_else(|_| PathBuf::from(path))`. The stored path is already resolved, because `check_new_root` resolved it at the time of the add. Say that in a one-line comment.
+- [x] **Step 4: Run the whole file.** `rtk cargo test -p nook-core --test folders_tests`. Expected: 11 pass.
+- [x] **Step 5: Run fmt and clippy as in Task 1 step 6.**
+- [x] **Step 6: Commit.** `git commit -m "fix(daemon): drop chat grants of a removed folder that no longer exists on disk"` with the two files and this plan.
 
 ### Task 3: Deny a stale approval with its real reason
 
