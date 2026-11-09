@@ -29,6 +29,7 @@
 | 5 | `handleAdd` repeats the busy and error handling of `change`. | `FoldersTab.tsx` | 4 |
 | 6 | No test shows the error banner or the note for a folder that left the disk. | `folders.spec.mjs` | 4 |
 | 7 | The acceptance boxes in the spec are not ticked, and the changelog has no entry. | documents | 5 |
+| 8 | `socket_ownership_tests` fail on Linux at random: `Server::bind` sets the process-wide umask to `0o177` for a moment, and a parallel test that creates its folder then gets a folder with mode `0600` and no search bit. Found by the baseline run. | `socket_ownership_tests.rs` | 6 |
 
 ## Review focus
 
@@ -224,6 +225,21 @@ async fn removing_the_last_folder_denies_a_waiting_write_as_outside() {
 - [ ] **Step 3: List `allowed-folders-view.md` and this file under "Active plans" in `docs/plans/README.md`.**
 - [ ] **Step 4: Add under `## Unreleased` in `CHANGELOG.md`:** a `### Added` heading with the line "Manage the folders that the file and command tools can use in Settings, Folders. A change applies at once."
 - [ ] **Step 5: Commit.** `git commit -m "docs: record the allowed folders checks and the changelog entry"`.
+
+### Task 6: Make the socket tests independent of the umask
+
+Do this task after Task 3 and before Task 4.
+
+**Files:**
+- Modify: `daemon/crates/nook-core/tests/socket_ownership_tests.rs` (the helper `socket_in` only)
+
+Cause: `Server::bind` in `server.rs` calls `libc::umask(0o177)` around `UnixListener::bind`. A umask is shared by every thread, so a test that runs `create_dir_all` in that moment makes a folder with mode `0600`. Do not change `server.rs`. Say this in a one-line `Warning:` comment in the helper.
+
+- [ ] **Step 1: Reproduce.** From `daemon/`, run `for i in 1 2 3 4 5 6; do rtk cargo test -p nook-core --test socket_ownership_tests; done`. Expected: at least one run FAILS with `PermissionDenied`. If all six pass, run it twelve times. If it still never fails, stop and report.
+- [ ] **Step 2: Fix `socket_in`.** After `create_dir_all`, set the folder mode to `0o700` with `std::fs::set_permissions`. Keep the signature.
+- [ ] **Step 3: Run the loop of step 1 again with twelve runs.** Expected: all twelve pass.
+- [ ] **Step 4: Run fmt and clippy as in Task 1 step 6.**
+- [ ] **Step 5: Commit.** `git commit -m "test(daemon): set the folder mode in the socket tests so a parallel umask cannot break them"`.
 
 ## Final report
 
