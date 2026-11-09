@@ -235,11 +235,11 @@ Do this task after Task 3 and before Task 4.
 
 Cause: `Server::bind` in `server.rs` calls `libc::umask(0o177)` around `UnixListener::bind`. A umask is shared by every thread, so a test that runs `create_dir_all` in that moment makes a folder with mode `0600`. Do not change `server.rs`. Say this in a one-line `Warning:` comment in the helper.
 
-- [ ] **Step 1: Reproduce.** From `daemon/`, run `for i in 1 2 3 4 5 6; do rtk cargo test -p nook-core --test socket_ownership_tests; done`. Expected: at least one run FAILS with `PermissionDenied`. If all six pass, run it twelve times. If it still never fails, stop and report.
-- [ ] **Step 2: Fix `socket_in`.** After `create_dir_all`, set the folder mode to `0o700` with `std::fs::set_permissions`. Keep the signature.
-- [ ] **Step 3: Run the loop of step 1 again with twelve runs.** Expected: all twelve pass.
-- [ ] **Step 4: Run fmt and clippy as in Task 1 step 6.**
-- [ ] **Step 5: Commit.** `git commit -m "test(daemon): set the folder mode in the socket tests so a parallel umask cannot break them"`.
+- [x] **Step 1: Reproduce.** From `daemon/`, run `for i in 1 2 3 4 5 6; do rtk cargo test -p nook-core --test socket_ownership_tests; done`. Expected: at least one run FAILS with `PermissionDenied`. If all six pass, run it twelve times. If it still never fails, stop and report.
+- [x] **Step 2: Fix `socket_in`.** After `create_dir_all`, set the folder mode to `0o700` with `std::fs::set_permissions`. Keep the signature.
+- [x] **Step 3: Run the loop of step 1 again with twelve runs.** Expected: all twelve pass.
+- [x] **Step 4: Run fmt and clippy as in Task 1 step 6.**
+- [x] **Step 5: Commit.** `git commit -m "test(daemon): set the folder mode in the socket tests so a parallel umask cannot break them"`.
 
 ## Final report
 

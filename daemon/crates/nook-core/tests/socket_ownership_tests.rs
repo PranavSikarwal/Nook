@@ -5,6 +5,7 @@ use nook_core::policy_assets::PolicyAssets;
 use nook_core::server::{AppState, Server};
 use nook_core::tool_approval::APPROVAL_TIMEOUT;
 use std::collections::{HashMap, HashSet};
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -34,6 +35,8 @@ fn state() -> Arc<AppState> {
 fn socket_in(label: &str) -> (PathBuf, PathBuf) {
     let dir = std::env::temp_dir().join(format!("nook-sock-{label}-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
+    // Warning: Server::bind sets the process-wide umask to 0o177, which can leave a parallel create_dir_all with mode 0600.
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
     (dir.join("daemon.sock"), dir)
 }
 
