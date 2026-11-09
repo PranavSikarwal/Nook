@@ -210,6 +210,51 @@ async fn a_waiting_approval_in_another_folder_stays() {
 }
 
 #[tokio::test]
+async fn a_read_only_change_denies_a_waiting_write_with_its_reason() {
+    let area = Area::new();
+    let mut h = area.harness(&["one", "two"]).await;
+    let target = area.base.join("two/waiting.txt");
+    let mut call = h
+        .execute(Uuid::new_v4(), "w1", WRITE, &write_args(&target, "x"))
+        .await;
+    assert!(matches!(
+        h.panel().await,
+        DaemonMessage::ApprovalRequested { .. }
+    ));
+
+    folders::set_access(&h.state, &area.path("two"), RootAccess::Read)
+        .await
+        .unwrap();
+
+    let result = tool_result(&mut call).await;
+    assert_eq!(result["status"], "denied", "{result}");
+    assert_eq!(result["output"], "The folder is read-only");
+    assert!(!target.exists());
+    assert!(h.state.pending_approvals.lock().await.is_empty());
+}
+
+#[tokio::test]
+async fn removing_the_last_folder_denies_a_waiting_write_as_outside() {
+    let area = Area::new();
+    let mut h = area.harness(&["one"]).await;
+    let target = area.base.join("one/waiting.txt");
+    let mut call = h
+        .execute(Uuid::new_v4(), "w1", WRITE, &write_args(&target, "x"))
+        .await;
+    assert!(matches!(
+        h.panel().await,
+        DaemonMessage::ApprovalRequested { .. }
+    ));
+
+    folders::remove(&h.state, &area.path("one")).await.unwrap();
+
+    let result = tool_result(&mut call).await;
+    assert_eq!(result["status"], "denied", "{result}");
+    assert_eq!(result["output"], "Path is outside the allowed folders");
+    assert!(h.state.pending_approvals.lock().await.is_empty());
+}
+
+#[tokio::test]
 async fn removing_every_folder_sends_the_worker_an_empty_catalog() {
     let area = Area::new();
     let h = area.harness(&["one"]).await;

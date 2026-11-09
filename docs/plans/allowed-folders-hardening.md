@@ -118,7 +118,7 @@ async fn chat_grants_inside_a_folder_deleted_from_disk_are_dropped() {
 **Interfaces:**
 - Consumes: `ProviderError::Rejected(&'static str)` from `providers/mod.rs`, and `providers::roots::OUTSIDE_ROOTS`.
 
-- [ ] **Step 1: Write two tests.** Add them after `a_waiting_approval_in_another_folder_stays`.
+- [x] **Step 1: Write two tests.** Add them after `a_waiting_approval_in_another_folder_stays`.
 
 ```rust
 #[tokio::test]
@@ -161,12 +161,12 @@ async fn removing_the_last_folder_denies_a_waiting_write_as_outside() {
 }
 ```
 
-- [ ] **Step 2: Run them.** `rtk cargo test -p nook-core --test folders_tests waiting_write`. Expected: the first FAILS with left `"Path is outside the allowed folders"`. The second passes. It pins the behavior that step 3 must keep.
-- [ ] **Step 3: Carry the reason in `deny_stale_approvals`.** Replace the `filter` with a `filter_map` that keeps the call id and a `&'static str` reason. The reason is the text inside `ProviderError::Rejected`, and `OUTSIDE_ROOTS` for every other error. Deny each stale approval with its own reason. Put the mapping in one small private function, `stale_reason(error: &ProviderError) -> &'static str`.
-- [ ] **Step 4: Run the whole file.** Expected: 13 pass.
-- [ ] **Step 5: Run the other suites that use approvals.** `rtk cargo test -p nook-core --test filesystem_tool_tests --test provider_execution_tests --test tool_authorization_tests`. Expected: all pass.
-- [ ] **Step 6: Run fmt and clippy as in Task 1 step 6.**
-- [ ] **Step 7: Commit.** `git commit -m "fix(daemon): deny a stale approval with the reason the tool gives"`.
+- [x] **Step 2: Run them.** `rtk cargo test -p nook-core --test folders_tests waiting_write`. Expected: the first FAILS with left `"Path is outside the allowed folders"`. The second passes. It pins the behavior that step 3 must keep.
+- [x] **Step 3: Carry the reason in `deny_stale_approvals`.** Replace the `filter` with a `filter_map` that keeps the call id and a `&'static str` reason. The reason is the text inside `ProviderError::Rejected`, and `OUTSIDE_ROOTS` for every other error. Deny each stale approval with its own reason. Put the mapping in one small private function, `stale_reason(error: &ProviderError) -> &'static str`.
+- [x] **Step 4: Run the whole file.** Expected: 13 pass.
+- [x] **Step 5: Run the other suites that use approvals.** `rtk cargo test -p nook-core --test filesystem_tool_tests --test provider_execution_tests --test tool_authorization_tests`. Expected: all pass.
+- [x] **Step 6: Run fmt and clippy as in Task 1 step 6.**
+- [x] **Step 7: Commit.** `git commit -m "fix(daemon): deny a stale approval with the reason the tool gives"`.
 
 ### Task 4: One busy path in the Folders tab, and two more native tests
 
