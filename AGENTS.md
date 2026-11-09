@@ -29,6 +29,56 @@ Single-context. See `docs/agents/domain.md`.
 
 Always write plans inside the `docs/plans/` directory for all work. Every new phase, feature, or refactoring task must have a plan file recorded there before execution starts.
 
+## Engineering rules
+
+These rules apply to every code change, by a person or by any agent.
+
+### Design
+
+1. Give each module and each function one responsibility. Split a function when its name needs "and".
+2. Keep modules deep: a small public interface that hides the detail. Call another module only through that interface.
+3. Keep the dependency direction: Panel calls Daemon, Daemon calls Worker. The three processes share only the messages in `contracts/`. Change the schema, its example in `contracts/examples/`, and the contract test in the same commit as the code on both sides.
+4. Keep one source of truth for each rule, constant, and user-visible message. Search for an existing helper first, and reuse it.
+5. Fail closed. An authorization, path, or sandbox check that cannot decide answers "deny". Write durable state (a file, the database) first, and change memory only after the write works.
+6. Read shared state and write it back under one lock, so two requests cannot lose an update.
+7. Return errors to the caller. Rust code outside tests returns `Result` and uses a fixed message for the user. The Panel shows the error or logs it.
+8. Build only what the current plan step needs.
+
+### Patterns in this code
+
+Extend the pattern that already owns the job. Add a new pattern only when two real cases need it.
+
+| Job | Pattern | Where |
+| --- | --- | --- |
+| Add or change a tool | `Provider` trait behind `ProviderRegistry` (strategy and registry) | `daemon/crates/nook-core/src/providers/` |
+| Swap tools while calls run | `ProviderHandle` holds an immutable snapshot and replaces it whole | `providers/mod.rs` |
+| Talk to the Worker | `WorkerSupervisor` owns the process and its channels | `supervisor.rs` |
+| Panel to Daemon request | One variant of `ClientMessage`, one answer variant of `DaemonMessage` (command messages) | `protocol.rs` |
+| Webview to Rust | One Tauri command that calls `ask_daemon` and returns a typed value | `panel/src-tauri/src/lib.rs` |
+| React to Tauri | `panel/src/lib/daemon.ts` is the only file that calls `invoke` or `listen` (facade). It also holds the browser mock | `panel/src/lib/daemon.ts` |
+| Authorize a tool call | Cedar decides, the Daemon stores grants and approvals | `policy.rs`, `tool_approval.rs` |
+
+### Comments
+
+Write the minimum. Prefer a clear name, a type, or a smaller function.
+
+1. Write a comment for the why: a hidden reason, an invariant, or a trap. Start a trap with `Warning:`.
+2. Write a comment for the what only when the name and the types cannot say it.
+3. Give each public Rust item and each exported TypeScript function a doc comment of one or two lines when its name does not state the full contract.
+4. Keep each comment to one or two lines, and keep it true when the code changes.
+
+### Tests
+
+1. Write the failing test first. Run it and see it fail for the expected reason. Then write the code.
+2. Test through the public interface with the real collaborators that the suite already uses: the real policy files, the real socket, and the fake Worker.
+3. Test one behavior in each test. Name the test as a sentence, such as `a_removed_folder_is_refused_for_new_calls`.
+
+### Done
+
+1. Every command in `docs/testing.md` for each changed component passes with zero warnings.
+2. Each plan step is one commit, with its checklist box ticked in the same commit.
+3. A change stays inside the plan. If the plan is wrong or a change outside it is needed, stop and report.
+
 ## GitHub CLI and commit rules
 
 This repository uses the personal GitHub profile `PranavSikarwal`.
