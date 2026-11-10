@@ -88,3 +88,44 @@ Review: https://github.com/PranavSikarwal/Nook/pull/32#pullrequestreview-5842455
 Checks run by the reviewer of this plan: `cargo fmt --check` and `cargo clippy -D warnings` in `daemon/` and `panel/src-tauri/` pass; `NOOK_REQUIRE_SANDBOX=1 cargo test` in `daemon/` passes (364 tests); `cargo test` in `panel/src-tauri/` passes (10 tests).
 
 One test, `check_send_request_empty_check_wins_over_count_check`, repeats the first test, because the empty check and the count check cannot both be true. It stays.
+
+## Round 2: follow-up review
+
+Review: https://github.com/PranavSikarwal/Nook/pull/32#pullrequestreview-5843854912
+
+Verdict COMMENT with no P0, P1 or P2 open. Three P3 items remain.
+
+| # | Finding | Decision |
+| --- | --- | --- |
+| 2 (open part) | No tests for the folder search order | Later cycle. The stages must take their root as a parameter first (`worker_dir_in_home(home: &Path)` and similar), then a temp dir tests the accept rules. This is a separate change and not part of this PR. |
+| 8 | `check_send_request_empty_check_wins_over_count_check` duplicates the first test | Task 6. |
+| 9 | Two `return true;` for the same state in `child_is_running` | Task 7. |
+
+### Task 6: `message_stream.rs` (finding 8)
+
+**Files:** `daemon/crates/nook-core/src/message_stream.rs` (test module only).
+
+- [ ] Replace `check_send_request_empty_check_wins_over_count_check` with this test, which checks an order that can happen (the count check runs before the per-attachment check):
+
+```rust
+#[test]
+fn check_send_request_counts_attachments_before_validating_them() {
+    let atts: Vec<_> = (0..6)
+        .map(|i| make_attachment(&format!("f{i}.exe"), "application/x-msdownload", AttachmentKind::Image))
+        .collect();
+    let err = check_send_request("hello", &atts).unwrap_err();
+    assert_eq!(err.message, "Attachments count exceeds maximum limit of 5");
+}
+```
+
+- [ ] Split `check_send_request_rejects_empty_text_and_no_attachments` into two tests, one for `""` and one for whitespace only (one behavior per test, `AGENTS.md` Tests 3).
+- [ ] Run `timeout 280 rtk cargo test -p nook-core message_stream` in `daemon/` and `timeout 280 rtk cargo fmt --check`. All pass.
+- [ ] Commit: `test(daemon): replace a duplicate send-request test with a real ordering test`
+
+### Task 7: `child_is_running` (finding 9)
+
+**Files:** `panel/src-tauri/src/lib.rs`.
+
+- [ ] In the `Ok(None)` arm of `child_is_running`, keep one `return true;`: log the "running but not responding" line only when `wait_for_daemon_ready(..., 1500 ms)` returns false, then return `true`. Keep the text of the log line and the wait time.
+- [ ] Run `timeout 280 rtk cargo fmt --check`, `timeout 280 rtk cargo clippy -- -D warnings` and `timeout 280 rtk cargo test` in `panel/src-tauri/` (re-run after a timeout). All pass.
+- [ ] Commit: `refactor(panel): return once from the running-child branch`
