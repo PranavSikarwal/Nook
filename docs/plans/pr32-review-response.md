@@ -39,14 +39,14 @@
 - [x] Add the test `parse_env_line_keeps_a_lone_quote` to the existing tests: `assert_eq!(parse_env_line("KEY=\""), Some(("KEY", "\"")));`. Run it. It passes, because the code already has the guard. This is a test that pins existing behavior.
 - [x] Move `read_only` into the first `impl Config` block (right after `load_env_file`). Remove the second `impl Config {` line and its closing brace if they become empty. Place `first_env_file` and `parse_env_line` after the impl.
 - [x] Run `timeout 280 rtk cargo test -p nook-core config` in `daemon/`. All pass.
-- [ ] Commit: `refactor(daemon): keep Config in one impl block and pin the lone quote case`
+- [x] Commit: `refactor(daemon): keep Config in one impl block and pin the lone quote case`
 
 ### Task 2: `server.rs` (findings 5 and 6)
 
 - [x] Add `pub(crate) fn database_unavailable() -> ErrorInfo` in `server.rs` with code `DatabaseUnavailable`, message `Database connection not available`, `retryable: true`. Use it in `handle_list_chats` and `handle_get_chat`.
 - [x] Replace `socket_path.exists()` in `Server::bind` and `att_dir.exists()` in `handle_delete_chat` with `tokio::fs::try_exists(..).await.unwrap_or(false)`. Keep the `#[cfg(unix)]` gate.
 - [x] Run `timeout 280 rtk cargo clippy --all-targets -- -D warnings` and `timeout 280 rtk cargo test -p nook-core --test socket_ownership_tests --test folders_tests` in `daemon/`. All pass.
-- [ ] Commit: `refactor(daemon): one database-unavailable error and async existence checks`
+- [x] Commit: `refactor(daemon): one database-unavailable error and async existence checks`
 
 ### Task 3: `message_stream.rs` (findings 1, 2, 6)
 
@@ -55,7 +55,7 @@
 - [x] Add `async fn fail_request(state: &AppState, id: Uuid, error: ErrorInfo, tx_out: &mpsc::Sender<DaemonMessage>)` that calls `cleanup_request` and then sends `DaemonMessage::Error { id, error }`. Use it in every early exit of `handle_send_message` that does "clean up, then send an error": the `check_send_request` failure, the pool, `ensure_chat`, `save_user_message`, supervisor, and `send_request` branches. Use `database_unavailable()` from `server.rs` for the pool branch.
 - [x] Keep the order of the cleanup and the send. Keep every message text.
 - [x] Run `timeout 280 rtk cargo clippy --all-targets -- -D warnings` and `timeout 280 rtk cargo test -p nook-core` in `daemon/`. All pass. Run `timeout 280 rtk cargo clippy -- -W clippy::cognitive_complexity` and report the number for `handle_send_message` (it was 48).
-- [ ] Commit: `refactor(daemon): fail a send request in one function and test its checks`
+- [x] Commit: `refactor(daemon): fail a send request in one function and test its checks`
 
 ### Task 4: `panel/src-tauri/src/lib.rs` (findings 2, 4, 5)
 
@@ -63,10 +63,28 @@
 - [x] Change `running_child_is_ready` to `child_is_running(state, socket_path) -> bool`: `true` when a spawned child is still running (the caller returns), `false` otherwise. The caller becomes `if child_is_running(state, &socket_path).await { return; }`. Keep every `eprintln!` and the `wait_for_daemon_ready` call.
 - [x] Replace `src.exists()` in `store_attachment` and `socket_path.exists()` in `ensure_daemon_started` (inside the `#[cfg(unix)]` line) with `tokio::fs::try_exists(..).await.unwrap_or(false)`. Leave `exists()` in non-async functions.
 - [x] Run, in `panel/src-tauri/`: `timeout 280 rtk cargo clippy -- -D warnings` and `timeout 280 rtk cargo test` (re-run after a timeout). All pass.
-- [ ] Commit: `refactor(panel): test the attachment rules and name the child check for what it does`
+- [x] Commit: `refactor(panel): test the attachment rules and name the child check for what it does`
 
 ### Task 5: Verify and record
 
-- [ ] Run each of these in the foreground with `timeout 290`, and re-run after a timeout until it finishes: in `daemon/`: `rtk cargo fmt --check`, `rtk cargo clippy --all-targets -- -D warnings`, `NOOK_REQUIRE_SANDBOX=1 rtk cargo test`; in `panel/src-tauri/`: `rtk cargo fmt --check`, `rtk cargo clippy -- -D warnings`, `rtk cargo test`. All pass with zero warnings.
-- [ ] Add a section "Review response" at the end of this file: one line per finding with the commit hash that fixes it, and the clippy number for `handle_send_message`.
-- [ ] Tick every box above. Commit: `docs: record the PR 32 review response`
+- [x] Run each of these in the foreground with `timeout 290`, and re-run after a timeout until it finishes: in `daemon/`: `rtk cargo fmt --check`, `rtk cargo clippy --all-targets -- -D warnings`, `NOOK_REQUIRE_SANDBOX=1 rtk cargo test`; in `panel/src-tauri/`: `rtk cargo fmt --check`, `rtk cargo clippy -- -D warnings`, `rtk cargo test`. All pass with zero warnings.
+- [x] Add a section "Review response" at the end of this file: one line per finding with the commit hash that fixes it, and the clippy number for `handle_send_message`.
+- [x] Tick every box above. Commit: `docs: record the PR 32 review response`
+
+## Review response
+
+Review: https://github.com/PranavSikarwal/Nook/pull/32#pullrequestreview-5842455039
+
+| # | Finding | Result | Commit |
+| --- | --- | --- | --- |
+| 1 | `handle_send_message` still complex | The five repeated early exits use `fail_request`, and `cleanup` is `cleanup_request`. Clippy's number fell from 48 to 39. It is still above clippy's 25 and below the SonarCloud limit of 30. I did not move the `MessageFinished` arm or the title dispatch (see Decisions). | `7657d68` |
+| 2 | No tests for the moved logic | Tests for `check_send_request`, `attachment_kind` and `store_attachment`. No test for the folder search order (see Decisions). | `7657d68`, `c3b713c` |
+| 3 | `parse_env_line` lone quote | Kept, and pinned by `parse_env_line_keeps_a_lone_quote`. | `b4e5518` |
+| 4 | `Option<bool>` that nobody reads | `child_is_running` returns `bool`. | `c3b713c` |
+| 5 | Blocking `exists()` in async functions | `tokio::fs::try_exists` in `Server::bind`, `handle_delete_chat`, `store_attachment` and `ensure_daemon_started`. | `527eef6`, `c3b713c` |
+| 6 | Database error in three places | One `database_unavailable()` in `server.rs`. | `527eef6`, `7657d68` |
+| 7 | Helpers split `impl Config` | One `impl Config` block, free functions after it. | `b4e5518` |
+
+Checks run by the reviewer of this plan: `cargo fmt --check` and `cargo clippy -D warnings` in `daemon/` and `panel/src-tauri/` pass; `NOOK_REQUIRE_SANDBOX=1 cargo test` in `daemon/` passes (364 tests); `cargo test` in `panel/src-tauri/` passes (10 tests).
+
+One test, `check_send_request_empty_check_wins_over_count_check`, repeats the first test, because the empty check and the count check cannot both be true. It stays.

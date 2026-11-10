@@ -515,15 +515,16 @@ mod tests {
             .collect();
         let err = check_send_request("hello", &atts).unwrap_err();
         assert_eq!(err.code, ErrorCode::AttachmentInvalid);
-        assert_eq!(
-            err.message,
-            "Attachments count exceeds maximum limit of 5"
-        );
+        assert_eq!(err.message, "Attachments count exceeds maximum limit of 5");
     }
 
     #[test]
     fn check_send_request_rejects_invalid_attachment() {
-        let invalid = make_attachment("test.exe", "application/x-msdownload", AttachmentKind::Image);
+        let invalid = make_attachment(
+            "test.exe",
+            "application/x-msdownload",
+            AttachmentKind::Image,
+        );
         let expected_msg = validate_attachment(&invalid).unwrap_err();
         let err = check_send_request("hello", &[invalid]).unwrap_err();
         assert_eq!(err.code, ErrorCode::AttachmentInvalid);
