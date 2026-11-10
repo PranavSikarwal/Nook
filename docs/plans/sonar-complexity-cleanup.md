@@ -57,11 +57,11 @@ Split the nested loops into three steps.
 
 Turn the four search stages into four functions, and chain them in the same order.
 
-- [ ] Add `worker_dir_from_env() -> Option<PathBuf>` (the `NOOK_WORKER_DIR` check), `worker_dir_near_working_directory() -> Option<PathBuf>` (the `worker`, `../worker`, `../../worker` check), `worker_dir_near_executable() -> Option<PathBuf>` (everything under `current_exe`), and `worker_dir_in_home() -> Option<PathBuf>`.
-- [ ] If a "directory with `pyproject.toml`" test appears twice, extract `fn is_worker_project(dir: &Path) -> bool`. Keep the exact conditions: the working-directory stage accepts `pyproject.toml` or `src/nook_worker`; the others accept `pyproject.toml` only.
-- [ ] `find_worker_directory` becomes one expression: `worker_dir_from_env().or_else(worker_dir_near_working_directory).or_else(worker_dir_near_executable).or_else(worker_dir_in_home)`.
-- [ ] Run `rtk cargo clippy --all-targets -- -D warnings` and `rtk cargo test -p nook-core supervisor` in `daemon/`. All pass.
-- [ ] Commit: `refactor(daemon): search for the worker folder one place at a time`
+- [x] Add `worker_dir_from_env() -> Option<PathBuf>` (the `NOOK_WORKER_DIR` check), `worker_dir_near_working_directory() -> Option<PathBuf>` (the `worker`, `../worker`, `../../worker` check), `worker_dir_near_executable() -> Option<PathBuf>` (everything under `current_exe`), and `worker_dir_in_home() -> Option<PathBuf>`.
+- [x] If a "directory with `pyproject.toml`" test appears twice, extract `fn is_worker_project(dir: &Path) -> bool`. Keep the exact conditions: the working-directory stage accepts `pyproject.toml` or `src/nook_worker`; the others accept `pyproject.toml` only.
+- [x] `find_worker_directory` becomes one expression: `worker_dir_from_env().or_else(worker_dir_near_working_directory).or_else(worker_dir_near_executable).or_else(worker_dir_in_home)`.
+- [x] Run `rtk cargo clippy --all-targets -- -D warnings` and `rtk cargo test -p nook-core supervisor` in `daemon/`. All pass.
+- [x] Commit: `refactor(daemon): search for the worker folder one place at a time`
 
 ### Task 3: `find_nookd_binary`
 

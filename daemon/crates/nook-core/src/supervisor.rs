@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::{Arc, PoisonError};
 use std::time::Duration;
@@ -37,14 +37,21 @@ pub struct WorkerSupervisor {
     tools: Arc<std::sync::Mutex<Arc<Vec<ToolDescriptor>>>>,
 }
 
-fn find_worker_directory() -> Option<PathBuf> {
+fn is_worker_project(dir: &Path) -> bool {
+    dir.is_dir() && dir.join("pyproject.toml").is_file()
+}
+
+fn worker_dir_from_env() -> Option<PathBuf> {
     if let Ok(dir_str) = std::env::var("NOOK_WORKER_DIR") {
         let p = PathBuf::from(dir_str);
         if p.is_dir() {
             return Some(p);
         }
     }
+    None
+}
 
+fn worker_dir_near_working_directory() -> Option<PathBuf> {
     for candidate in &["worker", "../worker", "../../worker"] {
         let p = PathBuf::from(candidate);
         if p.is_dir() && (p.join("pyproject.toml").is_file() || p.join("src/nook_worker").is_dir())
@@ -52,7 +59,10 @@ fn find_worker_directory() -> Option<PathBuf> {
             return Some(p);
         }
     }
+    None
+}
 
+fn worker_dir_near_executable() -> Option<PathBuf> {
     if let Ok(current_exe) = std::env::current_exe() {
         if let Some(exe_dir) = current_exe.parent() {
             let bundle_worker = exe_dir.join("resources/worker");
@@ -65,13 +75,16 @@ fn find_worker_directory() -> Option<PathBuf> {
             }
             for relative in &["../../worker", "../../../worker", "../worker"] {
                 let candidate = exe_dir.join(relative);
-                if candidate.is_dir() && candidate.join("pyproject.toml").is_file() {
+                if is_worker_project(&candidate) {
                     return Some(candidate);
                 }
             }
         }
     }
+    None
+}
 
+fn worker_dir_in_home() -> Option<PathBuf> {
     if let Ok(home) = std::env::var("HOME") {
         let home_path = PathBuf::from(&home);
         let candidates = [
@@ -79,13 +92,19 @@ fn find_worker_directory() -> Option<PathBuf> {
             home_path.join("personal/Nook/worker"),
         ];
         for candidate in &candidates {
-            if candidate.is_dir() && candidate.join("pyproject.toml").is_file() {
+            if is_worker_project(candidate) {
                 return Some(candidate.clone());
             }
         }
     }
-
     None
+}
+
+fn find_worker_directory() -> Option<PathBuf> {
+    worker_dir_from_env()
+        .or_else(worker_dir_near_working_directory)
+        .or_else(worker_dir_near_executable)
+        .or_else(worker_dir_in_home)
 }
 
 fn find_uv_binary() -> String {
