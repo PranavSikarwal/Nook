@@ -26,7 +26,7 @@
 
 ### Task 2: Tick the plan
 
-- [ ] Tick every box above. Commit: `docs: tick the Node.js 24 plan`
+- [x] Tick every box above. Commit: `docs: tick the Node.js 24 plan`
 
 ## Verification (done by the reviewer, not by the implementer)
 
