@@ -20,8 +20,8 @@
 
 **Files:** `.github/workflows/native-e2e-gate.yml`, `.github/workflows/package.yml`, this file.
 
-- [ ] In `native-e2e-gate.yml`, change both `runs-on: macos-14` to `runs-on: macos-15`.
-- [ ] In `package.yml`, change `os: macos-14` to `os: macos-15`.
-- [ ] Run `rtk grep -rn "macos-14" .github docs` and make sure that no hit remains.
-- [ ] Validate the YAML: `python3 -c "import yaml,sys; [yaml.safe_load(open(f)) for f in sys.argv[1:]]" .github/workflows/native-e2e-gate.yml .github/workflows/package.yml`.
-- [ ] Tick the boxes of this task. Commit all three files together: `ci: move the macOS jobs to macos-15`
+- [x] In `native-e2e-gate.yml`, change both `runs-on: macos-14` to `runs-on: macos-15`.
+- [x] In `package.yml`, change `os: macos-14` to `os: macos-15`.
+- [x] Run `rtk grep -rn "macos-14" .github docs` and make sure that no hit remains.
+- [x] Validate the YAML: `python3 -c "import yaml,sys; [yaml.safe_load(open(f)) for f in sys.argv[1:]]" .github/workflows/native-e2e-gate.yml .github/workflows/package.yml`.
+- [x] Tick the boxes of this task. Commit all three files together: `ci: move the macOS jobs to macos-15`

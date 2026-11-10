@@ -69,7 +69,7 @@ jobs:
   deterministic:
     name: Deterministic native tests
     needs: resolve-pr
-    runs-on: macos-14
+    runs-on: macos-15
     permissions:
       contents: read
     steps:
@@ -130,7 +130,7 @@ jobs:
   live:
     name: Live baseline check
     needs: resolve-pr
-    runs-on: macos-14
+    runs-on: macos-15
     environment: native-e2e-live
     permissions:
       contents: read
