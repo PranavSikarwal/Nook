@@ -31,6 +31,7 @@
 | 7 | The acceptance boxes in the spec are not ticked, and the changelog has no entry. | documents | 5 |
 | 9 | `terminal-tool.spec.mjs` fails on Linux with "A command wrote outside the allowed folder". The Linux sandbox mounts a private `tmpfs` on `/tmp` (`sandbox.rs`), so `touch /tmp/...` exits 0 inside the sandbox and leaves the host untouched. The host stays safe. The spec's exit-code check holds only on macOS, where Seatbelt denies the write. Found by the native run. | `terminal-tool.spec.mjs` | 7 |
 | 10 | SonarCloud lists 5 new issues on the PR (check-run annotations): four `Replace this closure with a reference to the into_inner method` (`providers/mod.rs:289`, `providers/mod.rs:297`, `supervisor.rs:216`, `supervisor.rs:225`) and one `Use <details>, <fieldset>, <optgroup>, or <address> instead of the "group" role` (`FoldersTab.tsx:99`). | four closures, one element | 8 |
+| 11 | GitHub review (`github-actions`, REQUEST_CHANGES, 6 findings). Checked against the code: finding 1 (`config.toml` truncated in place) is wrong, because `write_private` already writes `config.toml.tmp` with mode `0600`, syncs, and renames it. Finding 2 is half right: the plan allows folders outside home, so only the error text `HOME_OR_ABOVE` is wrong. Findings 3, 5, and 6 are right. Finding 4 is real but has no effect: `prepare` in `filesystem.rs` checks the path against the registry that the call took, and the file tools have no persistent grants, so the race can leave only a chat grant for a path outside every folder. No change for finding 4. | `folders.rs`, `policy.rs` callers, `config.rs` test | 9 to 12 |
 | 8 | `socket_ownership_tests` fail on Linux at random: `Server::bind` sets the process-wide umask to `0o177` for a moment, and a parallel test that creates its folder then gets a folder with mode `0600` and no search bit. Found by the baseline run. | `socket_ownership_tests.rs` | 6 |
 
 ## Review focus
@@ -271,6 +272,144 @@ No new test is possible for a lint rule. The existing tests are the safety net. 
 - [x] **Step 3: Run the Daemon checks from `daemon/`.** `rtk cargo fmt --check`, `rtk cargo clippy --workspace --all-targets -- -D warnings`, `rtk cargo test -p nook-core --test folders_tests --test supervisor_tests`. Expected: no output from fmt, no warning from clippy, all tests pass.
 - [x] **Step 4: Run the Panel checks from `panel/`.** `rtk npm run lint`, `rtk npm run test:unit`, `rtk npm run build`. Expected: all pass. Do NOT run the native suite. The orchestrator runs it.
 - [x] **Step 5: Commit.** `git add` the three files and this plan, then `git commit -m "fix: close the SonarCloud issues in the folders change"`.
+
+### Task 9: Resolve `HOME` without failing open, and make the home error text true
+
+**Files:**
+- Modify: `daemon/crates/nook-core/src/folders.rs` (the constant `HOME_OR_ABOVE`, `Keepout::current`, the test module)
+
+**Interfaces:**
+- Produces: `fn resolve_home(home: PathBuf) -> PathBuf` (private, in `folders.rs`). It returns the resolved path, or the path as it is when it cannot be resolved.
+
+- [ ] **Step 1: Write the failing tests** in the `tests` module of `folders.rs`.
+
+```rust
+#[test]
+fn a_home_folder_that_cannot_be_resolved_is_kept_as_it_is() {
+    let missing = PathBuf::from("/nowhere/home-that-does-not-exist");
+    assert_eq!(resolve_home(missing.clone()), missing);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_home_folder_behind_a_link_is_resolved() {
+    let l = layout();
+    let link = l.home.parent().unwrap().join("home-link");
+    std::os::unix::fs::symlink(&l.home, &link).unwrap();
+    assert_eq!(resolve_home(link), l.home);
+}
+```
+
+- [ ] **Step 2: Run them.** From `daemon/`: `rtk cargo test -p nook-core --lib folders::tests::a_home_folder`. Expected: FAIL to compile with "cannot find function `resolve_home`".
+- [ ] **Step 3: Add `resolve_home`** above `Keepout` and use it in `Keepout::current`: replace `.and_then(|home| home.canonicalize().ok())` with `.map(resolve_home)`.
+- [ ] **Step 4: Change the text of `HOME_OR_ABOVE`** to `"That is your home folder or a folder above it. Choose a smaller folder"`. The tests compare the constant, so no test text changes. Run `rtk rg "Choose a folder inside your home" /home/azureuser/nook --glob '!target' --glob '!node_modules'` and update any other place that holds the old text. Expected after the change: no match.
+- [ ] **Step 5: Run the folders tests.** `rtk cargo test -p nook-core --lib folders` and `rtk cargo test -p nook-core --test folders_tests`. Expected: all pass.
+- [ ] **Step 6: Run fmt and clippy as in Task 1 step 6.**
+- [ ] **Step 7: Commit.** `git commit -m "fix(daemon): keep an unresolved home folder in the keepout and fix the home error text"`.
+
+### Task 10: Drop the chat grants of a folder that goes from read and write to read only
+
+**Files:**
+- Modify: `daemon/crates/nook-core/src/folders.rs` (the closure in `set_access` only)
+- Test: `daemon/crates/nook-core/tests/folders_tests.rs`
+
+- [ ] **Step 1: Write the failing test** after `chat_grants_inside_a_folder_deleted_from_disk_are_dropped`. Copy the structure of `chat_grants_inside_a_removed_folder_are_dropped`.
+
+```rust
+#[tokio::test]
+async fn a_read_only_change_drops_the_chat_grants_inside_the_folder() {
+    let area = Area::new();
+    let mut h = area.harness(&["one", "two"]).await;
+    let chat = Uuid::new_v4();
+    let inside = area.base.join("two/file.txt");
+    let other = area.base.join("one/file.txt");
+    for (call, path) in [("g1", &inside), ("g2", &other)] {
+        let result = h
+            .approve_and_run(chat, call, WRITE, &write_args(path, "x"), "allow_for_chat_path")
+            .await;
+        assert_eq!(result["status"], "ok", "{result}");
+    }
+
+    folders::set_access(&h.state, &area.path("two"), RootAccess::Read)
+        .await
+        .unwrap();
+
+    let store = h.state.policy.authorizer.grant_store();
+    let guard = store.lock().await;
+    assert!(guard
+        .matching_scopes(chat, "write_local_file", None, inside.to_str(), None)
+        .is_empty());
+    assert!(!guard
+        .matching_scopes(chat, "write_local_file", None, other.to_str(), None)
+        .is_empty());
+}
+```
+
+- [ ] **Step 2: Run it.** `rtk cargo test -p nook-core --test folders_tests a_read_only_change_drops`. Expected: FAIL on the first `assert!` (the grant is still there).
+- [ ] **Step 3: Fix the closure in `set_access`.** Read the old access before the change. Return `Ok(Some(PathBuf::from(path)))` when the old access is `RootAccess::ReadWrite` and the new access is `RootAccess::Read`. Return `Ok(None)` in every other case. `apply` already drops the grants inside the returned folder. Add a one-line comment that gives the reason: an old write approval must not revive when the folder becomes writable again.
+- [ ] **Step 4: Run the whole file.** `rtk cargo test -p nook-core --test folders_tests`. Expected: 14 pass.
+- [ ] **Step 5: Run fmt and clippy as in Task 1 step 6.**
+- [ ] **Step 6: Commit.** `git commit -m "fix(daemon): drop chat grants inside a folder that becomes read only"`.
+
+### Task 11: Split the steps after the save out of `apply`
+
+**Files:**
+- Modify: `daemon/crates/nook-core/src/folders.rs` (`apply` only)
+
+No test changes. The 14 tests in `folders_tests.rs` and the unit tests in `folders.rs` are the safety net.
+
+**Interfaces:**
+- Produces: `async fn settle(state: &Arc<AppState>, removed: Option<PathBuf>)` (private). It holds what `apply` does after the lock block: drop the chat grants inside `removed`, then call `deny_stale_approvals`. The `info!` line about the rebuilt tools stays in `apply`.
+
+- [ ] **Step 1: Run the tests as a baseline.** `rtk cargo test -p nook-core --test folders_tests` and `rtk cargo test -p nook-core --lib folders`. Expected: all pass.
+- [ ] **Step 2: Extract `settle`** as described, and call it from `apply` as the last step. Keep the order: grants first, then stale approvals.
+- [ ] **Step 3: Run the tests of step 1 again, then fmt and clippy as in Task 1 step 6.** Expected: the same counts, no warning.
+- [ ] **Step 4: Commit.** `git commit -m "refactor(daemon): move the steps after a folder change into settle"`.
+
+### Task 12: Pin that `config.toml` is replaced through a rename
+
+**Files:**
+- Test: `daemon/crates/nook-core/src/config.rs` (the `tests` module)
+- Modify: `docs/plans/allowed-folders-hardening.md` (tick Tasks 9 to 12 and add the note under "Review response" below)
+
+The test pins existing behavior and passes at once. It answers review finding 1.
+
+- [ ] **Step 1: Add the test** after `updating_the_roots_keeps_the_file_private`.
+
+```rust
+#[cfg(unix)]
+#[test]
+fn updating_the_roots_replaces_the_file_and_leaves_no_temporary_file() {
+    use std::os::unix::fs::MetadataExt;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("config.toml");
+    std::fs::write(&path, HAND_EDITED).unwrap();
+    let before = std::fs::metadata(&path).unwrap().ino();
+
+    Config::update_filesystem_roots(&path, &[]).unwrap();
+
+    assert_ne!(std::fs::metadata(&path).unwrap().ino(), before);
+    assert!(!dir.path().join("config.toml.tmp").exists());
+}
+```
+
+- [ ] **Step 2: Run it.** `rtk cargo test -p nook-core --lib updating_the_roots_replaces`. Expected: PASS.
+- [ ] **Step 3: Run fmt and clippy as in Task 1 step 6.**
+- [ ] **Step 4: Add this section at the end of the plan file, before "Final report":**
+
+```
+## Review response (GitHub review on PR 34)
+
+- Finding 1, in-place write of `config.toml`: not a fault. `write_private` writes `config.toml.tmp` with mode `0600`, syncs it, and renames it over the file. A test pins this (Task 12).
+- Finding 2, folders outside home: the plan allows them. Only the error text was wrong (Task 9). Whether to limit folders to the home folder, or to block system folders such as `/etc`, is an open decision for the owner.
+- Finding 3, stale write grants after a downgrade: fixed (Task 10).
+- Finding 4, race between an approval and a removal: not changed. A call checks its path against the registry that it took, and the file tools have no persistent grants. The race can leave only a chat grant for a path that is outside every folder.
+- Finding 5, unresolved home folder: fixed (Task 9).
+- Finding 6, `apply` does too many jobs: fixed (Task 11).
+```
+
+- [ ] **Step 5: Add one sentence to the `folders_tests.rs` paragraph of `docs/testing.md`:** the file has 14 tests and one covers "chat grants inside a folder that becomes read only are dropped".
+- [ ] **Step 6: Commit.** `git add` the two files and `git commit -m "test(daemon): pin the atomic config write and record the review response"`.
 
 ## Final report
 
