@@ -499,11 +499,14 @@ mod tests {
             err.message,
             "Message text and attachments cannot both be empty"
         );
+    }
 
-        let err_spaces = check_send_request("   \t\n ", &[]).unwrap_err();
-        assert_eq!(err_spaces.code, ErrorCode::InvalidRequest);
+    #[test]
+    fn check_send_request_rejects_whitespace_only_text_and_no_attachments() {
+        let err = check_send_request("   \t\n ", &[]).unwrap_err();
+        assert_eq!(err.code, ErrorCode::InvalidRequest);
         assert_eq!(
-            err_spaces.message,
+            err.message,
             "Message text and attachments cannot both be empty"
         );
     }
@@ -532,12 +535,17 @@ mod tests {
     }
 
     #[test]
-    fn check_send_request_empty_check_wins_over_count_check() {
-        let err = check_send_request("", &[]).unwrap_err();
-        assert_eq!(err.code, ErrorCode::InvalidRequest);
-        assert_eq!(
-            err.message,
-            "Message text and attachments cannot both be empty"
-        );
+    fn check_send_request_counts_attachments_before_validating_them() {
+        let atts: Vec<_> = (0..6)
+            .map(|i| {
+                make_attachment(
+                    &format!("f{i}.exe"),
+                    "application/x-msdownload",
+                    AttachmentKind::Image,
+                )
+            })
+            .collect();
+        let err = check_send_request("hello", &atts).unwrap_err();
+        assert_eq!(err.message, "Attachments count exceeds maximum limit of 5");
     }
 }

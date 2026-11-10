@@ -105,7 +105,7 @@ Verdict COMMENT with no P0, P1 or P2 open. Three P3 items remain.
 
 **Files:** `daemon/crates/nook-core/src/message_stream.rs` (test module only).
 
-- [ ] Replace `check_send_request_empty_check_wins_over_count_check` with this test, which checks an order that can happen (the count check runs before the per-attachment check):
+- [x] Replace `check_send_request_empty_check_wins_over_count_check` with this test, which checks an order that can happen (the count check runs before the per-attachment check):
 
 ```rust
 #[test]
@@ -118,9 +118,9 @@ fn check_send_request_counts_attachments_before_validating_them() {
 }
 ```
 
-- [ ] Split `check_send_request_rejects_empty_text_and_no_attachments` into two tests, one for `""` and one for whitespace only (one behavior per test, `AGENTS.md` Tests 3).
-- [ ] Run `timeout 280 rtk cargo test -p nook-core message_stream` in `daemon/` and `timeout 280 rtk cargo fmt --check`. All pass.
-- [ ] Commit: `test(daemon): replace a duplicate send-request test with a real ordering test`
+- [x] Split `check_send_request_rejects_empty_text_and_no_attachments` into two tests, one for `""` and one for whitespace only (one behavior per test, `AGENTS.md` Tests 3).
+- [x] Run `timeout 280 rtk cargo test -p nook-core message_stream` in `daemon/` and `timeout 280 rtk cargo fmt --check`. All pass.
+- [x] Commit: `test(daemon): replace a duplicate send-request test with a real ordering test`
 
 ### Task 7: `child_is_running` (finding 9)
 
