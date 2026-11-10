@@ -199,7 +199,7 @@ impl Server {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         #[cfg(unix)]
         {
-            if socket_path.exists() {
+            if tokio::fs::try_exists(socket_path).await.unwrap_or(false) {
                 if std::os::unix::net::UnixStream::connect(socket_path).is_ok() {
                     return Err(format!(
                         "Another daemon is already listening on {}",
@@ -489,6 +489,14 @@ async fn handle_set_settings(
         .await;
 }
 
+pub(crate) fn database_unavailable() -> ErrorInfo {
+    ErrorInfo {
+        code: ErrorCode::DatabaseUnavailable,
+        message: "Database connection not available".to_string(),
+        retryable: true,
+    }
+}
+
 async fn handle_list_chats(state: &AppState, id: Uuid, tx_out: &mpsc::Sender<DaemonMessage>) {
     if let Some(pool) = state.pool.get() {
         match db::list_chats(&pool).await {
@@ -512,11 +520,7 @@ async fn handle_list_chats(state: &AppState, id: Uuid, tx_out: &mpsc::Sender<Dae
         let _ = tx_out
             .send(DaemonMessage::Error {
                 id,
-                error: ErrorInfo {
-                    code: ErrorCode::DatabaseUnavailable,
-                    message: "Database connection not available".to_string(),
-                    retryable: true,
-                },
+                error: database_unavailable(),
             })
             .await;
     }
@@ -569,11 +573,7 @@ async fn handle_get_chat(
         let _ = tx_out
             .send(DaemonMessage::Error {
                 id,
-                error: ErrorInfo {
-                    code: ErrorCode::DatabaseUnavailable,
-                    message: "Database connection not available".to_string(),
-                    retryable: true,
-                },
+                error: database_unavailable(),
             })
             .await;
     }
@@ -617,7 +617,7 @@ async fn handle_delete_chat(
 
     // 3. Remove attachments folder
     let att_dir = Config::default_attachments_dir().join(chat_id.to_string());
-    if att_dir.exists() {
+    if tokio::fs::try_exists(&att_dir).await.unwrap_or(false) {
         let _ = tokio::fs::remove_dir_all(att_dir).await;
     }
 

@@ -43,9 +43,9 @@
 
 ### Task 2: `server.rs` (findings 5 and 6)
 
-- [ ] Add `pub(crate) fn database_unavailable() -> ErrorInfo` in `server.rs` with code `DatabaseUnavailable`, message `Database connection not available`, `retryable: true`. Use it in `handle_list_chats` and `handle_get_chat`.
-- [ ] Replace `socket_path.exists()` in `Server::bind` and `att_dir.exists()` in `handle_delete_chat` with `tokio::fs::try_exists(..).await.unwrap_or(false)`. Keep the `#[cfg(unix)]` gate.
-- [ ] Run `timeout 280 rtk cargo clippy --all-targets -- -D warnings` and `timeout 280 rtk cargo test -p nook-core --test socket_ownership_tests --test folders_tests` in `daemon/`. All pass.
+- [x] Add `pub(crate) fn database_unavailable() -> ErrorInfo` in `server.rs` with code `DatabaseUnavailable`, message `Database connection not available`, `retryable: true`. Use it in `handle_list_chats` and `handle_get_chat`.
+- [x] Replace `socket_path.exists()` in `Server::bind` and `att_dir.exists()` in `handle_delete_chat` with `tokio::fs::try_exists(..).await.unwrap_or(false)`. Keep the `#[cfg(unix)]` gate.
+- [x] Run `timeout 280 rtk cargo clippy --all-targets -- -D warnings` and `timeout 280 rtk cargo test -p nook-core --test socket_ownership_tests --test folders_tests` in `daemon/`. All pass.
 - [ ] Commit: `refactor(daemon): one database-unavailable error and async existence checks`
 
 ### Task 3: `message_stream.rs` (findings 1, 2, 6)
