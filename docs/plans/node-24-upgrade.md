@@ -20,9 +20,9 @@
 
 **Files:** `.github/workflows/ci.yml` (2 places), `.github/workflows/native-e2e-gate.yml` (2 places), `.github/workflows/package.yml` (1 place).
 
-- [ ] Change `node-version: 22` to `node-version: 24` in all five places. Change nothing else in the workflow files.
-- [ ] Check: `grep -rn "node-version" .github` shows five lines, all with `24`. `python3 -c "import yaml,sys; [yaml.safe_load(open(f)) for f in sys.argv[1:]]" .github/workflows/ci.yml .github/workflows/native-e2e-gate.yml .github/workflows/package.yml` exits with code 0.
-- [ ] Commit: `ci: run the workflows on Node.js 24`
+- [x] Change `node-version: 22` to `node-version: 24` in all five places. Change nothing else in the workflow files.
+- [x] Check: `grep -rn "node-version" .github` shows five lines, all with `24`. `python3 -c "import yaml,sys; [yaml.safe_load(open(f)) for f in sys.argv[1:]]" .github/workflows/ci.yml .github/workflows/native-e2e-gate.yml .github/workflows/package.yml` exits with code 0.
+- [x] Commit: `ci: run the workflows on Node.js 24`
 
 ### Task 2: Tick the plan
 
