@@ -39,13 +39,13 @@ Eight functions report "Cognitive Complexity above 30" (`server.rs:415`, `lib.rs
 
 **Files:** `daemon/crates/nook-core/src/server.rs`, `panel/src-tauri/src/lib.rs`.
 
-- [ ] `server.rs`, `Server::bind` (lines near 208, 210, 224): replace `fs::remove_file`, `fs::create_dir_all` and `fs::metadata` with `tokio::fs::...(...).await`. Leave the `umask` block and the `UnixStream::connect` call as they are.
-- [ ] `server.rs`, `Server::run` (lines near 270, 273): replace `fs::metadata` and `fs::remove_file` with `tokio::fs` calls. Keep the `is_ok_and` logic: `tokio::fs::metadata(&path).await.is_ok_and(...)`.
-- [ ] `server.rs`, `process_client_message` (line near 619): replace `fs::remove_dir_all(att_dir)` with `tokio::fs::remove_dir_all(att_dir).await`.
-- [ ] `lib.rs`, `send_message` (lines near 571, 586, 591, 601): replace `std::fs::create_dir_all`, `std::fs::metadata`, `std::fs::copy`, `std::fs::write` with the `tokio::fs` equivalents plus `.await`. Keep every error message and the 10 MB checks.
-- [ ] If `use std::fs;` in `server.rs` becomes unused on one platform, remove the unused import only. Keep `cargo clippy` clean on Linux.
-- [ ] Run, from `daemon/`: `rtk cargo fmt --check`, `rtk cargo clippy --all-targets -- -D warnings`, `NOOK_REQUIRE_SANDBOX=1 rtk cargo test` (background, log to a file). Run, from `panel/src-tauri/`: `rtk cargo check` and `rtk cargo clippy -- -D warnings`. All pass.
-- [ ] Commit: `fix(daemon): use async file calls in async functions`
+- [x] `server.rs`, `Server::bind` (lines near 208, 210, 224): replace `fs::remove_file`, `fs::create_dir_all` and `fs::metadata` with `tokio::fs::...(...).await`. Leave the `umask` block and the `UnixStream::connect` call as they are.
+- [x] `server.rs`, `Server::run` (lines near 270, 273): replace `fs::metadata` and `fs::remove_file` with `tokio::fs` calls. Keep the `is_ok_and` logic: `tokio::fs::metadata(&path).await.is_ok_and(...)`.
+- [x] `server.rs`, `process_client_message` (line near 619): replace `fs::remove_dir_all(att_dir)` with `tokio::fs::remove_dir_all(att_dir).await`.
+- [x] `lib.rs`, `send_message` (lines near 571, 586, 591, 601): replace `std::fs::create_dir_all`, `std::fs::metadata`, `std::fs::copy`, `std::fs::write` with the `tokio::fs` equivalents plus `.await`. Keep every error message and the 10 MB checks.
+- [x] If `use std::fs;` in `server.rs` becomes unused on one platform, remove the unused import only. Keep `cargo clippy` clean on Linux.
+- [x] Run, from `daemon/`: `rtk cargo fmt --check`, `rtk cargo clippy --all-targets -- -D warnings`, `NOOK_REQUIRE_SANDBOX=1 rtk cargo test` (background, log to a file). Run, from `panel/src-tauri/`: `rtk cargo check` and `rtk cargo clippy -- -D warnings`. All pass.
+- [x] Commit: `fix(daemon): use async file calls in async functions`
 
 ### Task 3: Replace seven closures with method paths (clippy-style warnings)
 

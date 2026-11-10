@@ -568,7 +568,7 @@ async fn send_message<R: Runtime>(
 
     let att_dir = Config::default_attachments_dir().join(chat_id.to_string());
     if !attachments.is_empty() {
-        let _ = std::fs::create_dir_all(&att_dir);
+        let _ = tokio::fs::create_dir_all(&att_dir).await;
     }
 
     let mut processed_attachments = Vec::new();
@@ -583,12 +583,12 @@ async fn send_message<R: Runtime>(
             if !src.exists() {
                 return Err(format!("File does not exist: {path_str}"));
             }
-            let meta = std::fs::metadata(src).map_err(|e| e.to_string())?;
+            let meta = tokio::fs::metadata(src).await.map_err(|e| e.to_string())?;
             size_bytes = meta.len() as i64;
             if size_bytes > 10 * 1024 * 1024 {
                 return Err(format!("Attachment exceeds 10MB limit: {safe_name}"));
             }
-            std::fs::copy(src, &dest_path).map_err(|e| e.to_string())?;
+            tokio::fs::copy(src, &dest_path).await.map_err(|e| e.to_string())?;
         } else if let Some(ref b64) = att.data_base64 {
             use base64::Engine;
             let bytes = base64::engine::general_purpose::STANDARD
@@ -598,7 +598,7 @@ async fn send_message<R: Runtime>(
             if size_bytes > 10 * 1024 * 1024 {
                 return Err(format!("Attachment exceeds 10MB limit: {safe_name}"));
             }
-            std::fs::write(&dest_path, bytes).map_err(|e| e.to_string())?;
+            tokio::fs::write(&dest_path, bytes).await.map_err(|e| e.to_string())?;
         } else {
             return Err("Attachment must provide either file_path or data_base64".to_string());
         }

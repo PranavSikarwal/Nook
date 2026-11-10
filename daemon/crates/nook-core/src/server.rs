@@ -1,6 +1,5 @@
 use sqlx::PgPool;
 use std::collections::{HashMap, HashSet};
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -205,9 +204,9 @@ impl Server {
                     )
                     .into());
                 }
-                fs::remove_file(socket_path)?;
+                tokio::fs::remove_file(socket_path).await?;
             } else if let Some(parent) = socket_path.parent() {
-                fs::create_dir_all(parent)?;
+                tokio::fs::create_dir_all(parent).await?;
             }
 
             let listener = {
@@ -221,7 +220,9 @@ impl Server {
 
             Ok(Self {
                 socket_path: socket_path.to_path_buf(),
-                socket_inode: std::os::unix::fs::MetadataExt::ino(&fs::metadata(socket_path)?),
+                socket_inode: std::os::unix::fs::MetadataExt::ino(
+                    &tokio::fs::metadata(socket_path).await?,
+                ),
                 listener,
                 shutdown_rx,
                 state,
@@ -267,10 +268,11 @@ impl Server {
                 }
             }
 
-            let still_ours = fs::metadata(&self.socket_path)
+            let still_ours = tokio::fs::metadata(&self.socket_path)
+                .await
                 .is_ok_and(|meta| std::os::unix::fs::MetadataExt::ino(&meta) == self.socket_inode);
             if still_ours {
-                let _ = fs::remove_file(&self.socket_path);
+                let _ = tokio::fs::remove_file(&self.socket_path).await;
             }
 
             Ok(())
@@ -616,7 +618,7 @@ async fn process_client_message(
             // 3. Remove attachments folder
             let att_dir = Config::default_attachments_dir().join(chat_id.to_string());
             if att_dir.exists() {
-                let _ = fs::remove_dir_all(att_dir);
+                let _ = tokio::fs::remove_dir_all(att_dir).await;
             }
 
             let _ = tx_out.send(DaemonMessage::Deleted { id, chat_id }).await;
