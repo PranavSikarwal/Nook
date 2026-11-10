@@ -8,6 +8,7 @@ plan identifies its scope, dependencies, verification work, and open decisions.
 - [Allowed folders view](allowed-folders-view.md)
 - [Allowed folders hardening](allowed-folders-hardening.md)
 - [PR 32 SonarCloud gate fixes](pr32-sonar-gate-fixes.md)
+- [Cognitive Complexity cleanup](sonar-complexity-cleanup.md)
 - [Tool-platform closeout and next phase](tool-platform-closeout-and-next-phase.md)
 - [Tool platform open gaps](tool-platform-open-gaps.md)
 - [App integrations: Notes and Google Docs](app-integrations.md)
