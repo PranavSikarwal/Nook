@@ -29,6 +29,7 @@
 | 5 | `handleAdd` repeats the busy and error handling of `change`. | `FoldersTab.tsx` | 4 |
 | 6 | No test shows the error banner or the note for a folder that left the disk. | `folders.spec.mjs` | 4 |
 | 7 | The acceptance boxes in the spec are not ticked, and the changelog has no entry. | documents | 5 |
+| 9 | `terminal-tool.spec.mjs` fails on Linux with "A command wrote outside the allowed folder". The Linux sandbox mounts a private `tmpfs` on `/tmp` (`sandbox.rs`), so `touch /tmp/...` exits 0 inside the sandbox and leaves the host untouched. The host stays safe. The spec's exit-code check holds only on macOS, where Seatbelt denies the write. Found by the native run. | `terminal-tool.spec.mjs` | 7 |
 | 8 | `socket_ownership_tests` fail on Linux at random: `Server::bind` sets the process-wide umask to `0o177` for a moment, and a parallel test that creates its folder then gets a folder with mode `0600` and no search bit. Found by the baseline run. | `socket_ownership_tests.rs` | 6 |
 
 ## Review focus
@@ -240,6 +241,20 @@ Cause: `Server::bind` in `server.rs` calls `libc::umask(0o177)` around `UnixList
 - [x] **Step 3: Run the loop of step 1 again with twelve runs.** Expected: all twelve pass.
 - [x] **Step 4: Run fmt and clippy as in Task 1 step 6.**
 - [x] **Step 5: Commit.** `git commit -m "test(daemon): set the folder mode in the socket tests so a parallel umask cannot break them"`.
+
+### Task 7: Make the outside-write check of the terminal spec true on Linux
+
+Do this task before step 2 of Task 4. Task 4 step 2 needs the whole native suite to run.
+
+**Files:**
+- Modify: `panel/e2e/specs/terminal-tool.spec.mjs` (the test `runs an approved command inside the allowed folder only` only)
+
+The boundary is the host file, and the spec already checks it with `existsSync(outside)`. Keep that check on every platform. Run the exit-code check only on macOS: wrap it in `if (process.platform === 'darwin')` and put a one-line comment above it that gives the reason (Linux gives the command a private `/tmp`, so the command exits 0 and the host stays untouched).
+
+- [ ] **Step 1: Confirm the cause.** From `daemon/`, run `rtk cargo test -p nook-core --test sandbox_tests cannot_write_outside_the_roots`. Expected: PASS. This shows the sandbox boundary holds on Linux.
+- [ ] **Step 2: Edit the spec as described above.** Change nothing else in the file.
+- [ ] **Step 3: Run only this spec.** From `panel/`, with the environment loaded: `env -u NOOK_API_KEY xvfb-run -a rtk npm run test:e2e:deterministic -- --spec e2e/specs/terminal-tool.spec.mjs`. If the runner rejects `--spec`, run the whole suite instead. Expected: the four tests of the spec pass.
+- [ ] **Step 4: Commit.** `git add panel/e2e/specs/terminal-tool.spec.mjs docs/plans/allowed-folders-hardening.md` and `git commit -m "test(e2e): check the host file, not the exit code, for a write outside the folder on Linux"`. Do not add `folders.spec.mjs` to this commit.
 
 ## Final report
 
