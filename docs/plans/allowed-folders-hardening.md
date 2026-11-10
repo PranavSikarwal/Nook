@@ -251,10 +251,10 @@ Do this task before step 2 of Task 4. Task 4 step 2 needs the whole native suite
 
 The boundary is the host file, and the spec already checks it with `existsSync(outside)`. Keep that check on every platform. Run the exit-code check only on macOS: wrap it in `if (process.platform === 'darwin')` and put a one-line comment above it that gives the reason (Linux gives the command a private `/tmp`, so the command exits 0 and the host stays untouched).
 
-- [ ] **Step 1: Confirm the cause.** From `daemon/`, run `rtk cargo test -p nook-core --test sandbox_tests cannot_write_outside_the_roots`. Expected: PASS. This shows the sandbox boundary holds on Linux.
-- [ ] **Step 2: Edit the spec as described above.** Change nothing else in the file.
-- [ ] **Step 3: Run only this spec.** From `panel/`, with the environment loaded: `env -u NOOK_API_KEY xvfb-run -a rtk npm run test:e2e:deterministic -- --spec e2e/specs/terminal-tool.spec.mjs`. If the runner rejects `--spec`, run the whole suite instead. Expected: the four tests of the spec pass.
-- [ ] **Step 4: Commit.** `git add panel/e2e/specs/terminal-tool.spec.mjs docs/plans/allowed-folders-hardening.md` and `git commit -m "test(e2e): check the host file, not the exit code, for a write outside the folder on Linux"`. Do not add `folders.spec.mjs` to this commit.
+- [x] **Step 1: Confirm the cause.** From `daemon/`, run `rtk cargo test -p nook-core --test sandbox_tests cannot_write_outside_the_roots`. Expected: PASS. This shows the sandbox boundary holds on Linux.
+- [x] **Step 2: Edit the spec as described above.** Change nothing else in the file.
+- [x] **Step 3: Run only this spec.** From `panel/`, with the environment loaded: `env -u NOOK_API_KEY xvfb-run -a rtk npm run test:e2e:deterministic -- --spec e2e/specs/terminal-tool.spec.mjs`. If the runner rejects `--spec`, run the whole suite instead. Expected: the four tests of the spec pass.
+- [x] **Step 4: Commit.** `git add panel/e2e/specs/terminal-tool.spec.mjs docs/plans/allowed-folders-hardening.md` and `git commit -m "test(e2e): check the host file, not the exit code, for a write outside the folder on Linux"`. Do not add `folders.spec.mjs` to this commit.
 
 ## Final report
 
