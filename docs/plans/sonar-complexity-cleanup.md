@@ -77,7 +77,7 @@ Same method as Task 2. Keep the order: environment override, next to the executa
 
 - [ ] Add `fn check_send_request(text: &str, attachments: &[Attachment]) -> Result<(), ErrorInfo>`. It holds the three checks in the same order: empty request, more than 5 attachments, each `validate_attachment`. It returns the same `ErrorInfo` values as today.
 - [ ] In the handler, replace the three blocks with one `if let Err(error) = check_send_request(&text, &attachments) { cleanup(&state).await; let _ = tx_out.send(DaemonMessage::Error { id, error }).await; return; }`.
-- [ ] If the handler is still above 30 after this, extract the same pattern for the `state.pool.get()` failure: `async fn reject(state, id, tx_out, cleanup, error)` is not allowed because `cleanup` is a closure. Instead stop and report the number from the Sonar proxy.
+- [ ] If clippy still names the handler after this, stop and report. Do not extract the `state.pool.get()` failure branch without approval.
 - [ ] Run `rtk cargo test -p nook-core` in `daemon/` for the message and socket tests (`rtk cargo test -p nook-core message`). All pass.
 - [ ] Commit: `refactor(daemon): check a send request in one function`
 
