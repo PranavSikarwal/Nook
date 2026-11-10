@@ -4,9 +4,29 @@ This file records user-visible changes for each Nook release.
 
 ## Unreleased
 
+## v0.1.5 - 2026-11-10
+
 ### Added
 
-- Manage the folders that the file and command tools can use in Settings, Folders. A change applies at once.
+- Add file tools and a command tool that run in the Daemon inside a native OS sandbox (Seatbelt on macOS, bubblewrap on Linux). Windows has no sandbox, so Nook turns these tools off there.
+- Manage the folders that the file and command tools can use in Settings, Folders, and in the app menu. A change applies at once.
+- Register MCP servers in the configuration. Nook restarts a server that stopped.
+- Add news, video, and book search tools.
+- Add a Permissions tab with permanent grants and a preference for each tool.
+- Add a Tools tab that shows each tool source, its state, and why it is off.
+- Keep a private Daemon log in the application folder, with secrets removed.
+
+### Changed
+
+- Move every tool authorization decision into the Daemon. The Panel shows the approval actions that the Daemon loads from the policy.
+- End the reply when the user denies a tool request.
+
+### Fixed
+
+- Open links in replies in the system browser.
+- Keep comments and tool blocks in `config.toml` when Settings saves, and write the file as private.
+- Reconnect to the database later when it is down at start.
+- Flush the Daemon log after each line so the last line is not lost.
 
 ## v0.1.4 - 2026-10-11
 
