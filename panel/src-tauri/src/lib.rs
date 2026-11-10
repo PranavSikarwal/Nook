@@ -107,9 +107,15 @@ pub struct SettingsPayload {
     pub api_key: Option<String>,
 }
 
-/// Locate the nookd binary from environment, app bundle, or development paths
-pub fn find_nookd_binary() -> Option<PathBuf> {
-    // 1. Explicit environment override
+fn nookd_file_name() -> &'static str {
+    if cfg!(windows) {
+        "nookd.exe"
+    } else {
+        "nookd"
+    }
+}
+
+fn nookd_from_env() -> Option<PathBuf> {
     for env_key in &["NOOKD_PATH", "NOOKD_BIN", "NOOK_DAEMON_BIN"] {
         if let Ok(path_str) = std::env::var(env_key) {
             let p = PathBuf::from(path_str);
@@ -118,14 +124,13 @@ pub fn find_nookd_binary() -> Option<PathBuf> {
             }
         }
     }
+    None
+}
 
-    // 2. Next to current executable (in app bundle or install directory)
+fn nookd_near_executable() -> Option<PathBuf> {
     if let Ok(current_exe) = std::env::current_exe() {
         if let Some(exe_dir) = current_exe.parent() {
-            #[cfg(windows)]
-            let bin_name = "nookd.exe";
-            #[cfg(not(windows))]
-            let bin_name = "nookd";
+            let bin_name = nookd_file_name();
 
             let candidate = exe_dir.join(bin_name);
             if candidate.is_file() {
@@ -140,13 +145,11 @@ pub fn find_nookd_binary() -> Option<PathBuf> {
             }
         }
     }
+    None
+}
 
-    // 3. Development and workspace build paths
-    #[cfg(windows)]
-    let bin_name = "nookd.exe";
-    #[cfg(not(windows))]
-    let bin_name = "nookd";
-
+fn nookd_in_build_folders() -> Option<PathBuf> {
+    let bin_name = nookd_file_name();
     let dev_candidates = [
         PathBuf::from("daemon/target/release").join(bin_name),
         PathBuf::from("daemon/target/debug").join(bin_name),
@@ -160,8 +163,12 @@ pub fn find_nookd_binary() -> Option<PathBuf> {
             return Some(candidate.clone());
         }
     }
+    None
+}
 
-    // 4. Standard system install locations
+fn nookd_in_system_locations() -> Option<PathBuf> {
+    let bin_name = nookd_file_name();
+
     #[cfg(target_os = "macos")]
     {
         let system_app_bin = PathBuf::from("/Applications/Nook.app/Contents/MacOS").join(bin_name);
@@ -195,6 +202,14 @@ pub fn find_nookd_binary() -> Option<PathBuf> {
     }
 
     None
+}
+
+/// Locate the nookd binary from environment, app bundle, or development paths
+pub fn find_nookd_binary() -> Option<PathBuf> {
+    nookd_from_env()
+        .or_else(nookd_near_executable)
+        .or_else(nookd_in_build_folders)
+        .or_else(nookd_in_system_locations)
 }
 
 /// Poll Unix socket with a timeout until it accepts connections
@@ -588,7 +603,9 @@ async fn send_message<R: Runtime>(
             if size_bytes > 10 * 1024 * 1024 {
                 return Err(format!("Attachment exceeds 10MB limit: {safe_name}"));
             }
-            tokio::fs::copy(src, &dest_path).await.map_err(|e| e.to_string())?;
+            tokio::fs::copy(src, &dest_path)
+                .await
+                .map_err(|e| e.to_string())?;
         } else if let Some(ref b64) = att.data_base64 {
             use base64::Engine;
             let bytes = base64::engine::general_purpose::STANDARD
@@ -598,7 +615,9 @@ async fn send_message<R: Runtime>(
             if size_bytes > 10 * 1024 * 1024 {
                 return Err(format!("Attachment exceeds 10MB limit: {safe_name}"));
             }
-            tokio::fs::write(&dest_path, bytes).await.map_err(|e| e.to_string())?;
+            tokio::fs::write(&dest_path, bytes)
+                .await
+                .map_err(|e| e.to_string())?;
         } else {
             return Err("Attachment must provide either file_path or data_base64".to_string());
         }

@@ -67,11 +67,11 @@ Turn the four search stages into four functions, and chain them in the same orde
 
 Same method as Task 2. Keep the order: environment override, next to the executable, development paths, system locations.
 
-- [ ] Add `fn nookd_file_name() -> &'static str` that returns `"nookd.exe"` on Windows and `"nookd"` elsewhere. Use it instead of the two `#[cfg]` `let bin_name` blocks.
-- [ ] Add `nookd_from_env()`, `nookd_near_executable()`, `nookd_in_build_folders()`, and `nookd_in_system_locations()`, each returning `Option<PathBuf>`. Keep the macOS-only `/Applications` part behind `#[cfg(target_os = "macos")]` inside `nookd_in_system_locations`.
-- [ ] `find_nookd_binary` becomes one `or_else` chain.
-- [ ] Run `rtk cargo check` and `rtk cargo clippy -- -D warnings` in `panel/src-tauri/`. Both pass.
-- [ ] Commit: `refactor(panel): search for the daemon binary one place at a time`
+- [x] Add `fn nookd_file_name() -> &'static str` that returns `"nookd.exe"` on Windows and `"nookd"` elsewhere. Use it instead of the two `#[cfg]` `let bin_name` blocks.
+- [x] Add `nookd_from_env()`, `nookd_near_executable()`, `nookd_in_build_folders()`, and `nookd_in_system_locations()`, each returning `Option<PathBuf>`. Keep the macOS-only `/Applications` part behind `#[cfg(target_os = "macos")]` inside `nookd_in_system_locations`.
+- [x] `find_nookd_binary` becomes one `or_else` chain.
+- [x] Run `rtk cargo check` and `rtk cargo clippy -- -D warnings` in `panel/src-tauri/`. Both pass.
+- [x] Commit: `refactor(panel): search for the daemon binary one place at a time`
 
 ### Task 4: `handle_send_message`
 
