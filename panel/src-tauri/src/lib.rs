@@ -306,8 +306,8 @@ fn daemon_command(bin_path: PathBuf) -> tokio::process::Command {
 
 #[cfg(any(unix, windows))]
 fn start_stderr_capture(child: &mut tokio::process::Child) {
-    let e2e_log_path =
-        std::env::var_os("NOOK_E2E_RUN_DIR").map(|dir| PathBuf::from(dir).join("daemon-stderr.log"));
+    let e2e_log_path = std::env::var_os("NOOK_E2E_RUN_DIR")
+        .map(|dir| PathBuf::from(dir).join("daemon-stderr.log"));
     if let Some(stderr) = child.stderr.take() {
         if let Some(path) = e2e_log_path {
             let redactions = ["NOOK_BASE_URL", "NOOK_MODEL", "NOOK_API_KEY"]

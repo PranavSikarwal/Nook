@@ -110,9 +110,9 @@ The function is a `match` on `ClientMessage`. Move the long arms into functions 
 
 ### Task 8: Verify and tick
 
-- [ ] In `daemon/`, in the background with logs: `rtk cargo fmt --check`, `rtk cargo clippy --all-targets -- -D warnings`, `NOOK_REQUIRE_SANDBOX=1 rtk cargo test`. All pass with zero warnings.
-- [ ] In `panel/src-tauri/`, in the background with logs: `rtk cargo fmt --check`, `rtk cargo clippy -- -D warnings`, `rtk cargo test`. All pass with zero warnings.
-- [ ] Tick every box above. Commit: `docs: tick the complexity cleanup plan`
+- [x] In `daemon/`, in the background with logs: `rtk cargo fmt --check`, `rtk cargo clippy --all-targets -- -D warnings`, `NOOK_REQUIRE_SANDBOX=1 rtk cargo test`. All pass with zero warnings.
+- [x] In `panel/src-tauri/`, in the background with logs: `rtk cargo fmt --check`, `rtk cargo clippy -- -D warnings`, `rtk cargo test`. All pass with zero warnings.
+- [x] Tick every box above. Commit: `docs: tick the complexity cleanup plan`
 
 ## Verification (done by the reviewer, not by the implementer)
 
