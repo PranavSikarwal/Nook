@@ -9,7 +9,8 @@ This file records user-visible changes for each Nook release.
 ### Added
 
 - Add file tools and a command tool that run in the Daemon inside a native OS sandbox (Seatbelt on macOS, bubblewrap on Linux). Windows has no sandbox, so Nook turns these tools off there.
-- Manage the folders that the file and command tools can use in Settings, Folders, and in the app menu. A change applies at once.
+- On Linux, install `bubblewrap` to use the command tool and MCP servers. The Debian package recommends it. Without it, these tools stay off.
+- Manage the folders that the file and command tools can use in Settings, Folders, and in the macOS app menu. A change applies at once.
 - Register MCP servers in the configuration. Nook restarts a server that stopped.
 - Add news, video, and book search tools.
 - Add a Permissions tab with permanent grants and a preference for each tool.
@@ -27,6 +28,8 @@ This file records user-visible changes for each Nook release.
 - Keep comments and tool blocks in `config.toml` when Settings saves, and write the file as private.
 - Reconnect to the database later when it is down at start.
 - Flush the Daemon log after each line so the last line is not lost.
+- Read a fetch URL the same way in the Daemon and the Worker, so an approval names the host that the fetch really uses. A fetch now stops after 30 seconds in total.
+- Refuse to bind a socket that another Daemon answers on. Time out database connection attempts after 5 seconds.
 
 ## v0.1.4 - 2026-10-11
 
