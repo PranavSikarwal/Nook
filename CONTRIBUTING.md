@@ -53,4 +53,4 @@ Run GitHub commands through `scripts/gh`. Do not run `gh auth switch`.
 A release change keeps version metadata aligned, updates `CHANGELOG.md`, and
 passes CI, package verification, and the native Tauri test gate. The release
 workflow verifies the packaged Daemon and Worker runtime for macOS, Debian, and
-Windows artifacts.
+Windows artifacts. Bump the version and write the release notes in the pull request, before you merge it. Create the tag only after the merge and a package run that passes on all three platforms.

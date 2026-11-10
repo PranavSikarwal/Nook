@@ -78,6 +78,7 @@ Write the minimum. Prefer a clear name, a type, or a smaller function.
 1. Every command in `docs/testing.md` for each changed component passes with zero warnings.
 2. Each plan step is one commit, with its checklist box ticked in the same commit.
 3. A change stays inside the plan. If the plan is wrong or a change outside it is needed, stop and report.
+4. A pull request that completes a release bumps the application version and moves "Unreleased" in `CHANGELOG.md` under the new version before it merges. Create the tag only after the merge and a passing package run.
 
 ## GitHub CLI and commit rules
 
