@@ -246,11 +246,10 @@ async fn child_is_running(state: &DaemonState, socket_path: &Path) -> bool {
         match child.try_wait() {
             Ok(None) => {
                 drop(proc_guard);
-                if wait_for_daemon_ready(socket_path, std::time::Duration::from_millis(1500)).await
+                if !wait_for_daemon_ready(socket_path, std::time::Duration::from_millis(1500)).await
                 {
-                    return true;
+                    eprintln!("Existing nookd child is running but not responding on socket yet.");
                 }
-                eprintln!("Existing nookd child is running but not responding on socket yet.");
                 return true;
             }
             Ok(Some(status)) => {

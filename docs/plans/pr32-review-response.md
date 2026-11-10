@@ -126,6 +126,6 @@ fn check_send_request_counts_attachments_before_validating_them() {
 
 **Files:** `panel/src-tauri/src/lib.rs`.
 
-- [ ] In the `Ok(None)` arm of `child_is_running`, keep one `return true;`: log the "running but not responding" line only when `wait_for_daemon_ready(..., 1500 ms)` returns false, then return `true`. Keep the text of the log line and the wait time.
-- [ ] Run `timeout 280 rtk cargo fmt --check`, `timeout 280 rtk cargo clippy -- -D warnings` and `timeout 280 rtk cargo test` in `panel/src-tauri/` (re-run after a timeout). All pass.
-- [ ] Commit: `refactor(panel): return once from the running-child branch`
+- [x] In the `Ok(None)` arm of `child_is_running`, keep one `return true;`: log the "running but not responding" line only when `wait_for_daemon_ready(..., 1500 ms)` returns false, then return `true`. Keep the text of the log line and the wait time.
+- [x] Run `timeout 280 rtk cargo fmt --check`, `timeout 280 rtk cargo clippy -- -D warnings` and `timeout 280 rtk cargo test` in `panel/src-tauri/` (re-run after a timeout). All pass.
+- [x] Commit: `refactor(panel): return once from the running-child branch`
