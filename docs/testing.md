@@ -95,7 +95,7 @@ list. The shared `before` hook in `panel/e2e/wdio.conf.mjs` waits until the Pane
 enables its input, because the Panel keeps its input disabled until its own
 Daemon check passes.
 
-`folders_tests.rs` (13 tests) runs the Settings, Folders requests against the real tools. It
+`folders_tests.rs` (14 tests) runs the Settings, Folders requests against the real tools. It
 checks that an added folder works at once and reaches `config.toml`, that the
 tool descriptions and the Worker catalog follow a change (also an empty one), that
 a read-only change and a removal refuse new calls, and that a waiting approval in
@@ -105,7 +105,9 @@ chat grants inside a folder deleted from disk are dropped
 to read-only denies a waiting write with its specific reason
 (`a_read_only_change_denies_a_waiting_write_with_its_reason`), and that removing the
 last folder denies a waiting write as outside the allowed folders
-(`removing_the_last_folder_denies_a_waiting_write_as_outside`). `folders.rs` holds
+(`removing_the_last_folder_denies_a_waiting_write_as_outside`). One test covers that
+chat grants inside a folder that becomes read only are dropped
+(`a_read_only_change_drops_the_chat_grants_inside_the_folder`). `folders.rs` holds
 unit tests for the path checks. `socket_ownership_tests.rs` sets its folder mode
 itself because `Server::bind` changes the process-wide umask for a moment.
 `panel/e2e/specs/folders.spec.mjs` (6 tests, part of the 10 specs and 43 tests of the

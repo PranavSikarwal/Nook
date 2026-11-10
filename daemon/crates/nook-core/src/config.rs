@@ -573,6 +573,21 @@ env = { TOKEN = "secret-value" }
 
     #[cfg(unix)]
     #[test]
+    fn updating_the_roots_replaces_the_file_and_leaves_no_temporary_file() {
+        use std::os::unix::fs::MetadataExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(&path, HAND_EDITED).unwrap();
+        let before = std::fs::metadata(&path).unwrap().ino();
+
+        Config::update_filesystem_roots(&path, &[]).unwrap();
+
+        assert_ne!(std::fs::metadata(&path).unwrap().ino(), before);
+        assert!(!dir.path().join("config.toml.tmp").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn the_config_file_is_private_to_the_user() {
         use std::os::unix::fs::PermissionsExt;
         let dir = tempfile::tempdir().unwrap();

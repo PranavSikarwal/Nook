@@ -374,7 +374,7 @@ No test changes. The 14 tests in `folders_tests.rs` and the unit tests in `folde
 
 The test pins existing behavior and passes at once. It answers review finding 1.
 
-- [ ] **Step 1: Add the test** after `updating_the_roots_keeps_the_file_private`.
+- [x] **Step 1: Add the test** after `updating_the_roots_keeps_the_file_private`.
 
 ```rust
 #[cfg(unix)]
@@ -393,9 +393,9 @@ fn updating_the_roots_replaces_the_file_and_leaves_no_temporary_file() {
 }
 ```
 
-- [ ] **Step 2: Run it.** `rtk cargo test -p nook-core --lib updating_the_roots_replaces`. Expected: PASS.
-- [ ] **Step 3: Run fmt and clippy as in Task 1 step 6.**
-- [ ] **Step 4: Add this section at the end of the plan file, before "Final report":**
+- [x] **Step 2: Run it.** `rtk cargo test -p nook-core --lib updating_the_roots_replaces`. Expected: PASS.
+- [x] **Step 3: Run fmt and clippy as in Task 1 step 6.**
+- [x] **Step 4: Add this section at the end of the plan file, before "Final report":**
 
 ```
 ## Review response (GitHub review on PR 34)
@@ -408,9 +408,19 @@ fn updating_the_roots_replaces_the_file_and_leaves_no_temporary_file() {
 - Finding 6, `apply` does too many jobs: fixed (Task 11).
 ```
 
-- [ ] **Step 5: Add one sentence to the `folders_tests.rs` paragraph of `docs/testing.md`:** the file has 14 tests and one covers "chat grants inside a folder that becomes read only are dropped".
-- [ ] **Step 6: Commit.** `git add` the two files and `git commit -m "test(daemon): pin the atomic config write and record the review response"`.
+- [x] **Step 5: Add one sentence to the `folders_tests.rs` paragraph of `docs/testing.md`:** the file has 14 tests and one covers "chat grants inside a folder that becomes read only are dropped".
+- [x] **Step 6: Commit.** `git add` the two files and `git commit -m "test(daemon): pin the atomic config write and record the review response"`.
+
+## Review response (GitHub review on PR 34)
+
+- Finding 1, in-place write of `config.toml`: not a fault. `write_private` writes `config.toml.tmp` with mode `0600`, syncs it, and renames it over the file. A test pins this (Task 12).
+- Finding 2, folders outside home: the plan allows them. Only the error text was wrong (Task 9). Whether to limit folders to the home folder, or to block system folders such as `/etc`, is an open decision for the owner.
+- Finding 3, stale write grants after a downgrade: fixed (Task 10).
+- Finding 4, race between an approval and a removal: not changed. A call checks its path against the registry that it took, and the file tools have no persistent grants. The race can leave only a chat grant for a path that is outside every folder.
+- Finding 5, unresolved home folder: fixed (Task 9).
+- Finding 6, `apply` does too many jobs: fixed (Task 11).
 
 ## Final report
 
 End with a report that lists, for each task: the commit hash, the exact test commands that you ran, and their pass and fail counts. List every place where you stopped or where the result differed from "Expected".
+
