@@ -12,6 +12,36 @@ use crate::server::{validate_attachment, AppState};
 use crate::supervisor::WorkerSupervisor;
 use crate::tool_approval::{handle_authorize_tool, AuthorizeContext, AuthorizeToolCall};
 
+fn check_send_request(text: &str, attachments: &[Attachment]) -> Result<(), ErrorInfo> {
+    if text.trim().is_empty() && attachments.is_empty() {
+        return Err(ErrorInfo {
+            code: ErrorCode::InvalidRequest,
+            message: "Message text and attachments cannot both be empty".to_string(),
+            retryable: false,
+        });
+    }
+
+    if attachments.len() > 5 {
+        return Err(ErrorInfo {
+            code: ErrorCode::AttachmentInvalid,
+            message: "Attachments count exceeds maximum limit of 5".to_string(),
+            retryable: false,
+        });
+    }
+
+    for att in attachments {
+        if let Err(msg) = validate_attachment(att) {
+            return Err(ErrorInfo {
+                code: ErrorCode::AttachmentInvalid,
+                message: msg,
+                retryable: false,
+            });
+        }
+    }
+
+    Ok(())
+}
+
 pub(crate) async fn handle_send_message(
     id: Uuid,
     chat_id: Uuid,
@@ -40,52 +70,10 @@ pub(crate) async fn handle_send_message(
         }
     };
 
-    // 1. Validate
-    if text.trim().is_empty() && attachments.is_empty() {
+    if let Err(error) = check_send_request(&text, &attachments) {
         cleanup(&state).await;
-        let _ = tx_out
-            .send(DaemonMessage::Error {
-                id,
-                error: ErrorInfo {
-                    code: ErrorCode::InvalidRequest,
-                    message: "Message text and attachments cannot both be empty".to_string(),
-                    retryable: false,
-                },
-            })
-            .await;
+        let _ = tx_out.send(DaemonMessage::Error { id, error }).await;
         return;
-    }
-
-    if attachments.len() > 5 {
-        cleanup(&state).await;
-        let _ = tx_out
-            .send(DaemonMessage::Error {
-                id,
-                error: ErrorInfo {
-                    code: ErrorCode::AttachmentInvalid,
-                    message: "Attachments count exceeds maximum limit of 5".to_string(),
-                    retryable: false,
-                },
-            })
-            .await;
-        return;
-    }
-
-    for att in &attachments {
-        if let Err(msg) = validate_attachment(att) {
-            cleanup(&state).await;
-            let _ = tx_out
-                .send(DaemonMessage::Error {
-                    id,
-                    error: ErrorInfo {
-                        code: ErrorCode::AttachmentInvalid,
-                        message: msg,
-                        retryable: false,
-                    },
-                })
-                .await;
-            return;
-        }
     }
 
     let pool = match state.pool.get() {

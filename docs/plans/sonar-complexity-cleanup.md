@@ -75,11 +75,11 @@ Same method as Task 2. Keep the order: environment override, next to the executa
 
 ### Task 4: `handle_send_message`
 
-- [ ] Add `fn check_send_request(text: &str, attachments: &[Attachment]) -> Result<(), ErrorInfo>`. It holds the three checks in the same order: empty request, more than 5 attachments, each `validate_attachment`. It returns the same `ErrorInfo` values as today.
-- [ ] In the handler, replace the three blocks with one `if let Err(error) = check_send_request(&text, &attachments) { cleanup(&state).await; let _ = tx_out.send(DaemonMessage::Error { id, error }).await; return; }`.
-- [ ] If clippy still names the handler after this, stop and report. Do not extract the `state.pool.get()` failure branch without approval.
-- [ ] Run `rtk cargo test -p nook-core` in `daemon/` for the message and socket tests (`rtk cargo test -p nook-core message`). All pass.
-- [ ] Commit: `refactor(daemon): check a send request in one function`
+- [x] Add `fn check_send_request(text: &str, attachments: &[Attachment]) -> Result<(), ErrorInfo>`. It holds the three checks in the same order: empty request, more than 5 attachments, each `validate_attachment`. It returns the same `ErrorInfo` values as today.
+- [x] In the handler, replace the three blocks with one `if let Err(error) = check_send_request(&text, &attachments) { cleanup(&state).await; let _ = tx_out.send(DaemonMessage::Error { id, error }).await; return; }`.
+- [x] If clippy still names the handler after this, stop and report. Do not extract the `state.pool.get()` failure branch without approval.
+- [x] Run `rtk cargo test -p nook-core` in `daemon/` for the message and socket tests (`rtk cargo test -p nook-core message`). All pass.
+- [x] Commit: `refactor(daemon): check a send request in one function`
 
 ### Task 5: `send_message` (Panel)
 
