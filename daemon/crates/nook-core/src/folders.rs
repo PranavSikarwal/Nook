@@ -218,6 +218,11 @@ async fn apply(
         tools = descriptors.len(),
         "Rebuilt the file and command tools"
     );
+    settle(state, removed).await;
+    Ok(roots)
+}
+
+async fn settle(state: &Arc<AppState>, removed: Option<PathBuf>) {
     if let Some(directory) = removed {
         state
             .policy
@@ -228,7 +233,6 @@ async fn apply(
             .remove_paths_inside(&directory);
     }
     crate::tool_approval::deny_stale_approvals(state).await;
-    Ok(roots)
 }
 
 #[cfg(test)]

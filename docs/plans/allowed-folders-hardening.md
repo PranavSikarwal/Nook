@@ -361,10 +361,10 @@ No test changes. The 14 tests in `folders_tests.rs` and the unit tests in `folde
 **Interfaces:**
 - Produces: `async fn settle(state: &Arc<AppState>, removed: Option<PathBuf>)` (private). It holds what `apply` does after the lock block: drop the chat grants inside `removed`, then call `deny_stale_approvals`. The `info!` line about the rebuilt tools stays in `apply`.
 
-- [ ] **Step 1: Run the tests as a baseline.** `rtk cargo test -p nook-core --test folders_tests` and `rtk cargo test -p nook-core --lib folders`. Expected: all pass.
-- [ ] **Step 2: Extract `settle`** as described, and call it from `apply` as the last step. Keep the order: grants first, then stale approvals.
-- [ ] **Step 3: Run the tests of step 1 again, then fmt and clippy as in Task 1 step 6.** Expected: the same counts, no warning.
-- [ ] **Step 4: Commit.** `git commit -m "refactor(daemon): move the steps after a folder change into settle"`.
+- [x] **Step 1: Run the tests as a baseline.** `rtk cargo test -p nook-core --test folders_tests` and `rtk cargo test -p nook-core --lib folders`. Expected: all pass.
+- [x] **Step 2: Extract `settle`** as described, and call it from `apply` as the last step. Keep the order: grants first, then stale approvals.
+- [x] **Step 3: Run the tests of step 1 again, then fmt and clippy as in Task 1 step 6.** Expected: the same counts, no warning.
+- [x] **Step 4: Commit.** `git commit -m "refactor(daemon): move the steps after a folder change into settle"`.
 
 ### Task 12: Pin that `config.toml` is replaced through a rename
 
