@@ -3,7 +3,7 @@ import sys
 from typing import Any
 
 from ddgs.exceptions import DDGSException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from nook_worker.tools.common import tool_error, tool_result
 
@@ -17,6 +17,16 @@ class WebSearchInput(BaseModel):
     max_results: int = Field(
         default=5, ge=1, le=10, description="Maximum number of results (1 to 10)"
     )
+
+
+class StrictWebSearchInput(WebSearchInput):
+    @field_validator("query")
+    @classmethod
+    def _query_not_blank(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("query must not be empty")
+        return cleaned
 
 
 def _run_ddgs_sync(query: str, max_results: int) -> list[dict[str, Any]]:

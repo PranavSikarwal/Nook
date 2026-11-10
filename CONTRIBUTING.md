@@ -1,243 +1,56 @@
 # Contributing to Nook
 
-This document outlines the branch, commit, and pull request workflow for Nook.
+Use a dedicated branch for each change. Keep a change focused, run the relevant
+checks, and open a pull request before merging.
 
-## Branch strategy
+## Branches and commits
 
-Always work on a dedicated branch. Never commit directly to `main`.
+Use a conventional branch prefix such as `feat/`, `fix/`, `docs/`, `test/`, or
+`refactor/`. Name the rest of the branch after the capability being changed.
 
-### Branch naming
+Use conventional commit messages:
 
-Branch names follow this pattern:
-
-`<type>/<phase-name>`
-
-Common types:
-- `feat/`: new capabilities or phase implementations
-- `fix/`: bug fixes
-- `docs/`: documentation updates
-- `test/`: test additions or test harness updates
-- `refactor/`: code refactoring without behavior changes
-
-Phases from `CHECKLIST.md` and `docs/plan.md`:
-- Contracts: `feat/phase-c-contracts` (or `feat/c1-json-schemas`)
-- Worker: `feat/phase-w-worker`
-- Daemon: `feat/phase-d-daemon`
-- Panel: `feat/phase-p-panel`
-- Integration: `feat/phase-i-integration`
-
-Examples:
-- `feat/phase-w-worker`
-- `feat/phase-d-daemon`
-- `fix/phase-w-stream-reconnect`
-
-## Development workflow
-
-Follow these steps for every change:
-
-1. Update your local `main` branch.
-   ```sh
-   git checkout main
-   git pull origin main
-   ```
-2. Create your phase branch.
-   ```sh
-   git checkout -b feat/phase-w-worker
-   ```
-3. Make your changes and run the relevant tests and linters.
-   Before committing anything, verify all linting and type checks pass:
-   - Python linting: `uv tool run ruff check .` and `uv tool run ruff format --check .`
-   - Python type checking: `uv run --with pyright pyright` (in Python packages) or `uv run --with pyright --with pytest --with jsonschema pyright tests/contracts` (for root tests)
-   - Rust linting: `cd daemon && cargo clippy --all-targets -- -D warnings` and `cargo fmt --check`
-   - Panel build and lint: `cd panel && npm run build` and `cd src-tauri && cargo clippy --all-targets -- -D warnings`
-   - Contract tests: `uv run --with pytest --with jsonschema pytest tests/contracts`
-4. Stage and commit your changes using concise commit messages.
-   ```sh
-   git add <files>
-   git commit -m "feat(worker): implement agent runner and streaming"
-   ```
-5. Push the branch to your remote repository.
-   ```sh
-   git push -u origin feat/phase-w-worker
-   ```
-6. Open a pull request on GitHub (one pull request per phase).
-7. For a release PR, include the version bump, changelog, and release validation in the same PR as the feature. Do not merge the feature first and open a separate version-only PR.
-
-## Release checklist
-
-Every release PR must keep the application version consistent across all package metadata, include the release notes, and pass the platform package checks before merge. Use the next version after the latest published GitHub release.
-
-Update these files to the same `MAJOR.MINOR.PATCH` version:
-
-- `panel/package.json`
-- `panel/package-lock.json`, both the root package and lockfile package entries
-- `panel/src-tauri/tauri.conf.json`
-- `panel/src-tauri/Cargo.toml`
-- `panel/src-tauri/Cargo.lock`, the `nook-panel` package entry
-
-Before requesting merge, complete these steps in the same PR:
-
-1. Move the release entries from `Unreleased` into a dated version section in `CHANGELOG.md`.
-2. Confirm every version file listed above contains the same version.
-3. Run CI, SonarCloud, Windows named-pipe checks, and the Native Tauri E2E Gate against the PR head.
-4. Run `Package and Release` on the PR head and verify the macOS DMG, Ubuntu `.deb`, and Windows installer checks and artifacts pass.
-5. Merge only after all required checks pass. Create the matching `vMAJOR.MINOR.PATCH` tag and GitHub release after merge. Do not overwrite an existing tag or release.
-
-The package workflow uploads verified artifacts. Confirm whether the release process publishes those artifacts before claiming the GitHub release is complete.
-
-## Code quality and linting rules
-
-Before committing any change to the repository, you must run the following checks. All checks must pass with zero errors and zero warnings before creating a commit.
-
-### 1. Python linting and formatting (Ruff)
-
-Run Ruff linting and formatting checks across the repository:
-
-```sh
-uv tool run ruff check .
-uv tool run ruff format --check .
+```text
+<type>(<scope>): <subject>
 ```
 
-To automatically resolve fixable lint issues and format code:
+Do not add author-attribution trailers or generator notices to commits.
+
+## Development checks
+
+Run the component checks that match the files you changed.
 
 ```sh
-uv tool run ruff check --fix .
-uv tool run ruff format .
+cd daemon && rtk cargo test
+cd daemon && rtk cargo clippy --workspace --all-targets -- -D warnings
+cd worker && rtk uv run pytest
+cd panel && rtk npm run build
+rtk uv run --with pytest --with jsonschema pytest tests/contracts
 ```
 
-### 2. Python type checking (Pyright)
+`docs/testing.md` describes native desktop and package checks.
 
-Run Pyright type checking across Python packages:
+## Documentation
 
-```sh
-# For worker:
-cd worker && uv run --with pyright pyright
+Update current documentation in the same change as a behavior change. Keep
+`README.md`, `docs/architecture.md`, `docs/contracts.md`,
+`docs/tools-and-authorization.md`, `docs/release.md`, and `docs/testing.md`
+consistent with the implementation.
 
-# For model-check:
-cd model-check && uv run --with pyright pyright
-```
+Do not edit accepted ADRs to change history. Create a new ADR when an accepted
+decision changes. Keep completed plans in `docs/archive/plans/`.
 
-### 3. Rust quality checks (Clippy and rustfmt)
+## Pull requests
 
-Run Cargo checks in the daemon workspace:
+A pull request states the behavior change and the checks that were run. Update
+`docs/plan.md` and `CHECKLIST.md` when the change completes or adds an active
+task.
 
-```sh
-cd daemon
-cargo fmt --check
-cargo clippy --all-targets -- -D warnings
-```
+Run GitHub commands through `scripts/gh`. Do not run `gh auth switch`.
 
-### 4. Contract validation
+## Releases
 
-Run the contract pytest suite whenever message schemas, contracts, or examples are modified:
-
-```sh
-uv run --with pytest --with jsonschema pytest tests/contracts
-```
-
-## Native macOS end-to-end tests
-
-Run the manual native workflow from GitHub Actions to check a pull request's
-Tauri app on macOS. The workflow reports the PR test and the trusted live
-baseline as separate status checks.
-
-1. Open the repository's **Actions** tab.
-2. Select **Native Tauri E2E Gate** and click **Run workflow**.
-3. Select the branch that contains the workflow and enter the open pull request
-   number.
-4. Check **Native Tauri E2E Gate** on the PR head. This status covers the
-   deterministic native suite for that exact commit. It fails if the PR head
-   changes during the run.
-5. Check **Native Tauri Live Baseline** on the `main` commit recorded when the
-   workflow starts. It runs one live India news query with the repository action
-   secrets `REVIEWER_BASE_URL`, `REVIEWER_MODEL`, and `REVIEWER_API_KEY`. GitHub
-   may request approval for the `native-e2e-live` environment.
-
-Only **Native Tauri E2E Gate** is a PR status. The live baseline checks trusted
-`main` code. It does not validate changes in the PR and does not block the PR
-status. If the live job fails, download its `native-e2e-live-<run-id>` artifact
-and inspect `daemon-stderr.log` and `worker-stderr.log`. Rerun the workflow after
-pushing a new PR commit.
-
-GitHub requires the workflow file to exist on `main` before it can dispatch the
-workflow. The first PR that adds the workflow cannot run it before merge. After
-that PR merges, maintainers can require **Native Tauri E2E Gate** in the `main`
-branch ruleset.
-
-## Commit message format
-
-Commit messages follow conventional formatting:
-
-`<type>(<scope>): <subject>`
-
-Allowed types: `feat`, `fix`, `docs`, `test`, `refactor`, `chore`, `style`.
-
-Examples:
-- `feat(contracts): add json schema files and examples`
-- `test(worker): add fake model streaming test`
-- `fix(daemon): handle worker exit during stream`
-
-Do not include author attribution trailers, co-author lines, or generator notices in commit messages.
-
-## GitHub account and commit identity
-
-If you maintain multiple GitHub accounts on your machine, keep operations in this repository isolated so other workspaces remain unaffected. Follow the profile and GitHub CLI rules documented in `AGENTS.md`.
-
-### Commit author identity
-
-Configure the local git identity for this repository so commits use your personal account rather than your global work account:
-
-```sh
-git config --local user.name "Pranav Sikarwal"
-git config --local user.email "<your-personal-email>"
-git config --local credential.helper '!f() { echo username=PranavSikarwal; echo "password=$(gh auth token --user PranavSikarwal)"; }; f'
-```
-
-This modifies `.git/config` for Nook only and leaves your global git settings untouched.
-
-### GitHub CLI wrapper for multi-account setups
-
-If your machine has multiple GitHub accounts configured and you want to ensure commands always use your intended profile without altering global state via `gh auth switch`:
-
-Create an optional local wrapper script at `scripts/gh`:
-
-```sh
-#!/bin/sh
-exec env GH_TOKEN="$(gh auth token --user <your-github-username>)" gh "$@"
-```
-
-Make it executable:
-```sh
-chmod +x scripts/gh
-```
-
-`scripts/gh` is untracked and gitignored so your personal account name remains strictly local to your machine. The codebase tooling will automatically detect and use `scripts/gh` if present.
-
-## Stacked pull requests
-
-Many tasks in Nook depend on earlier tasks across phases. For example, Daemon task D4 depends on D2, D3, and Worker task W2.
-
-When building a task that depends on unmerged work:
-
-1. Branch from the parent feature branch instead of `main`.
-   ```sh
-   git checkout feat/w1-worker-skeleton
-   git checkout -b feat/w2-real-agent
-   ```
-2. Implement your changes on the child branch.
-3. Open a pull request on GitHub with the base branch set to the parent branch (`feat/w1-worker-skeleton`).
-4. Once the parent pull request merges into `main`, change the base branch of the child pull request to `main` on GitHub, or rebase on `main`.
-   ```sh
-   git checkout feat/w2-real-agent
-   git rebase origin/main
-   git push --force-with-lease origin feat/w2-real-agent
-   ```
-
-## Pull request guidelines
-
-Each pull request should contain:
-
-1. A clear title matching the commit format.
-2. A summary describing what changed.
-3. A test plan with the commands you ran and the results.
-4. References to the task ID in `CHECKLIST.md`.
+A release change keeps version metadata aligned, updates `CHANGELOG.md`, and
+passes CI, package verification, and the native Tauri test gate. The release
+workflow verifies the packaged Daemon and Worker runtime for macOS, Debian, and
+Windows artifacts.

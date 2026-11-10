@@ -11,9 +11,11 @@
     "preview": "vite preview",
     "build:e2e": "vite build --mode e2e",
     "dev:browser-mock": "VITE_ENABLE_BROWSER_MOCK=true vite",
+    "test:unit": "node --test \"e2e/unit/*.test.mjs\"",
     "test:e2e:smoke": "node e2e/run.mjs smoke",
     "test:e2e:deterministic": "node e2e/run.mjs deterministic",
-    "test:e2e:live": "node e2e/run.mjs live"
+    "test:e2e:live": "node e2e/run.mjs live",
+    "test:e2e:live-tools": "NOOK_E2E_LIVE_TOOLS=1 node e2e/run.mjs live"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",

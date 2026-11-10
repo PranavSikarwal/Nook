@@ -2,6 +2,7 @@ import { Check, Copy } from 'lucide-react'
 import { useState } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { isWebLink, openExternalLink } from '../lib/daemon'
 
 interface MarkdownRendererProps {
   readonly content: string
@@ -67,6 +68,21 @@ const markdownComponents: Components = {
       )
     }
     return <CodeBlock code={String(children).replace(/\n$/, '')} />
+  },
+  a({ href, children }) {
+    if (!isWebLink(href)) return <span>{children}</span>
+    return (
+      <a
+        href={href}
+        onClick={(event) => {
+          event.preventDefault()
+          void openExternalLink(href)
+        }}
+        className="text-purple-300 underline underline-offset-2 hover:text-purple-200"
+      >
+        {children}
+      </a>
+    )
   },
   p({ children }) {
     return <p className="mb-2 last:mb-0 leading-normal">{children}</p>

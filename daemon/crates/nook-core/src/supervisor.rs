@@ -1,7 +1,7 @@
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::sync::Arc;
+use std::sync::{Arc, PoisonError};
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{ChildStderr, Command};
@@ -10,7 +10,9 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::config::Config;
-use crate::protocol::{DaemonWorkerEvent, DaemonWorkerRequest, ErrorCode, ErrorInfo};
+use crate::protocol::{
+    DaemonWorkerEvent, DaemonWorkerRequest, ErrorCode, ErrorInfo, ToolDescriptor,
+};
 
 #[derive(thiserror::Error, Debug)]
 pub enum SupervisorError {
@@ -32,16 +34,24 @@ struct Inner {
 #[derive(Clone)]
 pub struct WorkerSupervisor {
     inner: Arc<Mutex<Inner>>,
+    tools: Arc<std::sync::Mutex<Arc<Vec<ToolDescriptor>>>>,
 }
 
-fn find_worker_directory() -> Option<PathBuf> {
+fn is_worker_project(dir: &Path) -> bool {
+    dir.is_dir() && dir.join("pyproject.toml").is_file()
+}
+
+fn worker_dir_from_env() -> Option<PathBuf> {
     if let Ok(dir_str) = std::env::var("NOOK_WORKER_DIR") {
         let p = PathBuf::from(dir_str);
         if p.is_dir() {
             return Some(p);
         }
     }
+    None
+}
 
+fn worker_dir_near_working_directory() -> Option<PathBuf> {
     for candidate in &["worker", "../worker", "../../worker"] {
         let p = PathBuf::from(candidate);
         if p.is_dir() && (p.join("pyproject.toml").is_file() || p.join("src/nook_worker").is_dir())
@@ -49,7 +59,10 @@ fn find_worker_directory() -> Option<PathBuf> {
             return Some(p);
         }
     }
+    None
+}
 
+fn worker_dir_near_executable() -> Option<PathBuf> {
     if let Ok(current_exe) = std::env::current_exe() {
         if let Some(exe_dir) = current_exe.parent() {
             let bundle_worker = exe_dir.join("resources/worker");
@@ -62,13 +75,16 @@ fn find_worker_directory() -> Option<PathBuf> {
             }
             for relative in &["../../worker", "../../../worker", "../worker"] {
                 let candidate = exe_dir.join(relative);
-                if candidate.is_dir() && candidate.join("pyproject.toml").is_file() {
+                if is_worker_project(&candidate) {
                     return Some(candidate);
                 }
             }
         }
     }
+    None
+}
 
+fn worker_dir_in_home() -> Option<PathBuf> {
     if let Ok(home) = std::env::var("HOME") {
         let home_path = PathBuf::from(&home);
         let candidates = [
@@ -76,13 +92,19 @@ fn find_worker_directory() -> Option<PathBuf> {
             home_path.join("personal/Nook/worker"),
         ];
         for candidate in &candidates {
-            if candidate.is_dir() && candidate.join("pyproject.toml").is_file() {
+            if is_worker_project(candidate) {
                 return Some(candidate.clone());
             }
         }
     }
-
     None
+}
+
+fn find_worker_directory() -> Option<PathBuf> {
+    worker_dir_from_env()
+        .or_else(worker_dir_near_working_directory)
+        .or_else(worker_dir_near_executable)
+        .or_else(worker_dir_in_home)
 }
 
 fn find_uv_binary() -> String {
@@ -167,12 +189,15 @@ fn resolve_worker_command(config: &Config, custom_command: Option<Vec<String>>) 
         return cmd;
     }
     if let Ok(cmd_str) = std::env::var("NOOK_WORKER_COMMAND") {
-        return cmd_str.split_whitespace().map(|s| s.to_string()).collect();
+        return cmd_str
+            .split_whitespace()
+            .map(ToString::to_string)
+            .collect();
     }
     if let Some(ref override_cmd) = config.worker_command {
         return override_cmd
             .split_whitespace()
-            .map(|s| s.to_string())
+            .map(ToString::to_string)
             .collect();
     }
     if let Some(command) = bundled_worker_command() {
@@ -207,10 +232,43 @@ fn resolve_worker_command(config: &Config, custom_command: Option<Vec<String>>) 
 }
 
 impl WorkerSupervisor {
+    fn current_tools(&self) -> Arc<Vec<ToolDescriptor>> {
+        self.tools
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+
+    /// Gives the running Worker a new tool list and keeps it for a Worker that
+    /// starts later. Sends the list also when it is empty, so the Worker drops
+    /// tools that are gone.
+    pub async fn update_tools(&self, tools: Vec<ToolDescriptor>) {
+        let tools = Arc::new(tools);
+        *self.tools.lock().unwrap_or_else(PoisonError::into_inner) = tools.clone();
+        let sender = self.inner.lock().await.stdin_tx.clone();
+        let Some(sender) = sender else { return };
+        let catalog = DaemonWorkerRequest::ToolCatalog {
+            tools: tools.as_ref().clone(),
+        };
+        if let Ok(mut payload) = serde_json::to_string(&catalog) {
+            payload.push('\n');
+            let _ = sender.send(payload).await;
+        }
+    }
+
     pub async fn new(
         config: &Config,
         api_key: Option<String>,
         custom_command: Option<Vec<String>>,
+    ) -> Result<Self, SupervisorError> {
+        Self::with_tools(config, api_key, custom_command, Vec::new()).await
+    }
+
+    pub async fn with_tools(
+        config: &Config,
+        api_key: Option<String>,
+        custom_command: Option<Vec<String>>,
+        tools: Vec<ToolDescriptor>,
     ) -> Result<Self, SupervisorError> {
         let command_args = resolve_worker_command(config, custom_command);
 
@@ -238,7 +296,10 @@ impl WorkerSupervisor {
             shutdown_tx,
         }));
 
-        let supervisor = Self { inner };
+        let supervisor = Self {
+            inner,
+            tools: Arc::new(std::sync::Mutex::new(Arc::new(tools))),
+        };
 
         // Start initial process and wait for ready
         let (first_ready_tx, first_ready_rx) = tokio::sync::oneshot::channel();
@@ -426,6 +487,16 @@ impl WorkerSupervisor {
 
         // Stdin writing channel
         let (stdin_tx, mut stdin_rx) = mpsc::channel::<String>(100);
+        let tools = self.current_tools();
+        if !tools.is_empty() {
+            let catalog = DaemonWorkerRequest::ToolCatalog {
+                tools: tools.as_ref().clone(),
+            };
+            if let Ok(mut payload) = serde_json::to_string(&catalog) {
+                payload.push('\n');
+                let _ = stdin_tx.send(payload).await;
+            }
+        }
         {
             let mut inner = self.inner.lock().await;
             inner.stdin_tx = Some(stdin_tx);
@@ -483,7 +554,8 @@ impl WorkerSupervisor {
             | DaemonWorkerEvent::TextDelta { request_id, .. }
             | DaemonWorkerEvent::ToolCallStarted { request_id, .. }
             | DaemonWorkerEvent::ToolCallFinished { request_id, .. }
-            | DaemonWorkerEvent::ApprovalRequested { request_id, .. }
+            | DaemonWorkerEvent::AuthorizeTool { request_id, .. }
+            | DaemonWorkerEvent::ExecuteTool { request_id, .. }
             | DaemonWorkerEvent::MessageFinished { request_id, .. }
             | DaemonWorkerEvent::TitleReady { request_id, .. }
             | DaemonWorkerEvent::Deleted { request_id, .. }
@@ -541,9 +613,11 @@ impl WorkerSupervisor {
             DaemonWorkerRequest::Run { request_id, .. }
             | DaemonWorkerRequest::Title { request_id, .. }
             | DaemonWorkerRequest::DeleteChat { request_id, .. } => Some(*request_id),
-            // A decision shares the running reply's request_id. Registering a
+            // A result shares the running reply's request_id. Registering a
             // listener for it would replace the reply's sender.
-            DaemonWorkerRequest::ApprovalDecision { .. }
+            DaemonWorkerRequest::AuthorizationResult { .. }
+            | DaemonWorkerRequest::ToolCatalog { .. }
+            | DaemonWorkerRequest::ToolResult { .. }
             | DaemonWorkerRequest::Cancel { .. }
             | DaemonWorkerRequest::Shutdown => None,
         };

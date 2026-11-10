@@ -1,58 +1,63 @@
-# Nook
+# Nook glossary
 
-Nook is a macOS overlay that lets one user ask an AI agent a question with a keystroke, read the answer, and dismiss it. Version 1 is a general chatbot.
+## Terms
 
-## Language
+**Panel**
 
-**Panel**:
-The overlay window the user sees. It opens and closes with a global hotkey, starts as a compact input, and grows to show the current Chat.
-_Avoid_: Window, popup, UI
+The Tauri desktop overlay that displays chats, settings, shortcuts, attachments,
+and approval cards.
 
-**Daemon**:
-The background process that sits between the Panel and the Worker and owns the Chat list.
-_Avoid_: Server, backend, service
+**Daemon**
 
-**Worker**:
-The process that runs the agent and streams its reply to the Daemon.
-_Avoid_: Agent process, runner
+The Rust process that owns local IPC, chat transcripts, configuration, database
+migrations, Worker supervision, and tool authorization.
 
-**Chat**:
-One whole conversation, however many questions it holds. The user can reopen it later and keep asking.
-_Avoid_: Thread, session, conversation
+**Worker**
 
-**Message**:
-One user question or one agent reply inside a Chat.
-_Avoid_: Turn, entry
+The Python process that runs the agent, persists checkpoint memory, invokes the
+model endpoint, and exposes registered tools.
 
-**Attachment**:
-An image or file the user pastes, drops, or picks to send with a Message.
-_Avoid_: Upload, file, media
+**Chat**
 
-**History**:
-The list of all Chats, shown in the Panel so the user can open a past Chat.
-_Avoid_: Archive, sidebar
+A saved conversation identified by a UUID.
 
-**Transcript**:
-The full, unabridged record of a Chat's Messages, as the user reads it.
-_Avoid_: Log, chat log
+**Message**
 
-**Memory**:
-What the agent carries between questions in a Chat. It can be shorter than the Transcript.
-_Avoid_: Context, state
+A user request or an assistant reply in a Chat.
 
-**Model endpoint**:
-The self-hosted, OpenAI-compatible service that supplies the language model.
-_Avoid_: LLM server, API
+**Attachment**
 
-**Focused shortcut**:
-A key combination that Nook handles only while the Panel has focus.
-_Avoid_: Hotkey, global shortcut
+An image, text file, or PDF sent with a Message.
 
-**Tool registry**:
-The Worker's catalog of tools that the agent may call.
-_Avoid_: Plugin list, tool list
+**History**
 
-**Approval grant**:
-A temporary record of the user's permission for a tool request in a defined
-scope.
-_Avoid_: Permission, approval state
+The Panel view that lists saved Chats.
+
+**Transcript**
+
+The stored Messages for a Chat.
+
+**Memory**
+
+The Worker's checkpoint data for a Chat.
+
+**Model endpoint**
+
+The OpenAI-compatible service used by the Worker.
+
+**Focused shortcut**
+
+A key combination that the Panel handles only while it has focus.
+
+**Tool registry**
+
+The Worker catalog of tools that the agent can request.
+
+**Approval grant**
+
+A scoped record of a user decision that permits a tool request.
+
+**Approval tier**
+
+The policy metadata that determines whether Nook permits, asks about, or denies
+a tool request.

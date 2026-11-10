@@ -1,5 +1,17 @@
-import { Eye, EyeOff, Keyboard, RotateCcw, Save, Settings as SettingsIcon, X } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import {
+  Eye,
+  EyeOff,
+  FolderOpen,
+  Keyboard,
+  type LucideIcon,
+  RotateCcw,
+  Save,
+  Settings as SettingsIcon,
+  ShieldCheck,
+  Wrench,
+  X,
+} from 'lucide-react'
+import { type ReactNode, useEffect, useState } from 'react'
 import {
   DEFAULT_SHORTCUTS,
   findShortcutConflict,
@@ -10,13 +22,17 @@ import {
   type ShortcutAction,
   type ShortcutMap,
 } from '../lib/shortcuts'
-import type { SettingsInfo, SettingsPayload } from '../lib/types'
+import type { SettingsInfo, SettingsPayload, SettingsTab } from '../lib/types'
+import { FoldersTab } from './FoldersTab'
+import { PermissionsTab } from './PermissionsTab'
+import { ToolsTab } from './ToolsTab'
 
 interface SettingsModalProps {
   readonly currentSettings: SettingsInfo | null
   readonly onSave: (payload: SettingsPayload) => Promise<void>
   readonly onClose: () => void
   readonly onShortcutsChanged?: (shortcuts: ShortcutMap) => void
+  readonly requestedTab?: { readonly tab: SettingsTab; readonly nonce: number }
 }
 
 interface ModelSettingsTabProps {
@@ -269,42 +285,56 @@ function ShortcutsTab({ onShortcutsChanged }: ShortcutsTabProps) {
   )
 }
 
+type TabId = SettingsTab
+
+const TAB_BUTTONS: { id: TabId; label: string; Icon: LucideIcon }[] = [
+  { id: 'model', label: 'Model Settings', Icon: SettingsIcon },
+  { id: 'shortcuts', label: 'Shortcuts', Icon: Keyboard },
+  { id: 'permissions', label: 'Permissions', Icon: ShieldCheck },
+  { id: 'tools', label: 'Tools', Icon: Wrench },
+  { id: 'folders', label: 'Folders', Icon: FolderOpen },
+]
+
 export function SettingsModal({
   currentSettings,
   onSave,
   onClose,
   onShortcutsChanged,
+  requestedTab,
 }: SettingsModalProps) {
-  const [activeTab, setActiveTab] = useState<'model' | 'shortcuts'>('model')
+  const [activeTab, setActiveTab] = useState<TabId>(requestedTab?.tab ?? 'model')
+  const [appliedRequest, setAppliedRequest] = useState(requestedTab)
+  if (requestedTab !== appliedRequest) {
+    setAppliedRequest(requestedTab)
+    if (requestedTab) setActiveTab(requestedTab.tab)
+  }
+  const tabs: Record<TabId, ReactNode> = {
+    model: <ModelSettingsTab currentSettings={currentSettings} onSave={onSave} onClose={onClose} />,
+    shortcuts: <ShortcutsTab onShortcutsChanged={onShortcutsChanged} />,
+    permissions: <PermissionsTab />,
+    tools: <ToolsTab />,
+    folders: <FoldersTab />,
+  }
 
   return (
     <div className="flex flex-col h-full bg-[#161618] border-b border-white/10 overflow-hidden text-zinc-200">
       <div className="flex items-center justify-between px-4 py-2 border-b border-white/10 bg-white/5">
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setActiveTab('model')}
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold transition-colors ${
-              activeTab === 'model'
-                ? 'bg-purple-600 text-white'
-                : 'text-zinc-400 hover:text-white hover:bg-white/5'
-            }`}
-          >
-            <SettingsIcon className="size-3.5" />
-            <span>Model Settings</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('shortcuts')}
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold transition-colors ${
-              activeTab === 'shortcuts'
-                ? 'bg-purple-600 text-white'
-                : 'text-zinc-400 hover:text-white hover:bg-white/5'
-            }`}
-          >
-            <Keyboard className="size-3.5" />
-            <span>Shortcuts</span>
-          </button>
+          {TAB_BUTTONS.map(({ id, label, Icon }) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setActiveTab(id)}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold transition-colors ${
+                activeTab === id
+                  ? 'bg-purple-600 text-white'
+                  : 'text-zinc-400 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <Icon className="size-3.5" />
+              <span>{label}</span>
+            </button>
+          ))}
         </div>
         <button
           onClick={onClose}
@@ -316,15 +346,7 @@ export function SettingsModal({
         </button>
       </div>
 
-      {activeTab === 'model' ? (
-        <ModelSettingsTab
-          currentSettings={currentSettings}
-          onSave={onSave}
-          onClose={onClose}
-        />
-      ) : (
-        <ShortcutsTab onShortcutsChanged={onShortcutsChanged} />
-      )}
+      {tabs[activeTab]}
     </div>
   )
 }

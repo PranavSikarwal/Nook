@@ -1,5 +1,5 @@
 import json
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
@@ -77,19 +77,40 @@ class ShutdownRequest(BaseModel):
     type: Literal["shutdown"] = "shutdown"
 
 
-class ApprovalDecisionRequest(BaseModel):
+class AuthorizationResultRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    type: Literal["approval_decision"] = "approval_decision"
+    type: Literal["authorization_result"] = "authorization_result"
     request_id: UUID
     call_id: str
-    action: Literal[
-        "allow_once",
-        "allow_for_chat",
-        "allow_for_chat_host",
-        "always_allow",
-        "deny",
-    ]
+    decision: Literal["allow", "deny"]
+    reason: str | None = None
+
+
+class ToolDescriptor(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(min_length=1)
+    name: str = Field(pattern=r"^[A-Za-z0-9_-]{1,64}$")
+    description: str = Field(min_length=1)
+    input_schema: dict[str, Any]
+
+
+class ToolCatalogRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["tool_catalog"] = "tool_catalog"
+    tools: list[ToolDescriptor]
+
+
+class ToolResultRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["tool_result"] = "tool_result"
+    request_id: UUID
+    call_id: str
+    status: Literal["ok", "error", "denied"]
+    output: str
 
 
 RequestMessage = Annotated[
@@ -98,7 +119,9 @@ RequestMessage = Annotated[
     | CancelRequest
     | DeleteChatRequest
     | ShutdownRequest
-    | ApprovalDecisionRequest,
+    | AuthorizationResultRequest
+    | ToolCatalogRequest
+    | ToolResultRequest,
     Field(discriminator="type"),
 ]
 
@@ -148,18 +171,28 @@ class ToolCallFinishedEvent(BaseModel):
     result: str
 
 
-class ApprovalRequestedEvent(BaseModel):
+class AuthorizeToolEvent(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    type: Literal["approval_requested"] = "approval_requested"
+    type: Literal["authorize_tool"] = "authorize_tool"
     request_id: UUID
     message_id: UUID
     call_id: str
+    chat_id: UUID
     tool_name: str
     arguments: str
-    explanation: str
-    resource_summary: str
-    actions: list[str]
+
+
+class ExecuteToolEvent(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["execute_tool"] = "execute_tool"
+    request_id: UUID
+    message_id: UUID
+    call_id: str
+    chat_id: UUID
+    tool_name: str
+    arguments: str
 
 
 class MessageFinishedEvent(BaseModel):
@@ -201,7 +234,8 @@ EventMessage = Annotated[
     | TextDeltaEvent
     | ToolCallStartedEvent
     | ToolCallFinishedEvent
-    | ApprovalRequestedEvent
+    | AuthorizeToolEvent
+    | ExecuteToolEvent
     | MessageFinishedEvent
     | TitleReadyEvent
     | DeletedEvent

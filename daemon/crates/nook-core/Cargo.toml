@@ -12,11 +12,20 @@ serde_json.workspace = true
 uuid.workspace = true
 chrono.workspace = true
 toml.workspace = true
+toml_edit.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 sqlx.workspace = true
 cedar-policy.workspace = true
+url.workspace = true
+idna.workspace = true
+sha2.workspace = true
+async-trait.workspace = true
+cap-std.workspace = true
+jsonschema.workspace = true
 libc = { workspace = true }
+tempfile.workspace = true
+serde_norway = "0.9.42"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 security-framework.workspace = true
@@ -26,4 +35,3 @@ windows-sys = { version = "0.61", features = ["Win32_Security", "Win32_Security_
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
-tempfile.workspace = true

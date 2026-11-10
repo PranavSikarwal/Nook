@@ -1,86 +1,30 @@
 # Nook
 
-Nook is a cross-platform desktop overlay assistant. It lets you ask questions with a global shortcut (`Option+Space` on macOS, `Alt+Space` on Linux and Windows), streams replies as formatted Markdown, and moves behind other windows naturally upon click-away.
+Nook is a cross-platform desktop overlay assistant. The Tauri Panel opens with
+a global shortcut, sends requests to a local Rust Daemon, and renders streamed
+responses from a Python Worker.
 
-## Architecture
+## Install
 
-Nook consists of three processes:
-1. **Panel**: Cross-platform desktop overlay in `panel/` built with Tauri v2, React 19, and Tailwind CSS. It automatically manages the background daemon.
-2. **Daemon**: Rust supervisor in `daemon/`. It coordinates chats, transcripts, migrations, and watches the worker process over a local socket.
-3. **Worker**: Python process in `worker/`. It runs Deep Agents, persists conversation memory in Postgres, and streams completions from an OpenAI-compatible model endpoint.
+Download a platform package from [GitHub Releases](https://github.com/PranavSikarwal/Nook/releases).
+macOS uses an Apple Silicon disk image. Debian and Ubuntu use a `.deb` package.
+Windows packages are available for preview testing.
 
-All processes share a local PostgreSQL database named `nook`.
+Nook packages the Panel, Daemon, and Worker runtime. PostgreSQL is a separate,
+user-managed prerequisite.
 
----
+On macOS, run the installer to replace `Nook.app`. The installer keeps
+`~/Library/Application Support/Nook/config.toml` during an upgrade.
 
-## Downloads
+## Configure
 
-Download native pre-built packages from [GitHub Releases](https://github.com/PranavSikarwal/Nook/releases):
+Set the model endpoint, model name, and database connection in the platform
+configuration file:
 
-- **macOS (Apple Silicon)**: `Nook_<version>_aarch64.dmg`
-- **Ubuntu / Debian**: `nook_<version>_amd64.deb`
-- **Windows (x64)**: `Nook_<version>_x64-setup.exe` or `Nook_<version>_x64.msi` (preview until native packaged runtime tests pass)
+- macOS: `~/Library/Application Support/Nook/config.toml`
+- Linux: `~/.config/nook/config.toml`
+- Windows: `%APPDATA%\Nook\config.toml`
 
----
-
-## Quick installation
-
-### One-command install (macOS and Debian-based Linux)
-
-Install Nook with this command on macOS or Debian-based Linux:
-```sh
-curl -fsSL https://raw.githubusercontent.com/PranavSikarwal/Nook/main/install.sh | sh
-```
-
-Or from a cloned repository:
-```sh
-./install.sh
-```
-
-The installer downloads the macOS app or Debian package and creates the `nook` launcher in `~/.local/bin`. It does not install PostgreSQL. You can install the app before PostgreSQL is running. Nook needs a reachable PostgreSQL service when you launch it. Set `database_url` in the platform config file. Windows installation uses the release installer.
-
----
-
-## Install or upgrade
-
-On macOS, quit Nook, run the installer again, and launch Nook. The installer replaces `Nook.app` and keeps the configuration in `~/Library/Application Support/Nook/config.toml`. Do not delete that directory when upgrading.
-
-On Debian or Ubuntu, install the new `.deb` package with your package manager. The package must include `nookd` and the Worker runtime. `install.sh` does not support AppImage installation.
-
-Windows remains a preview. Use the release installer only for preview testing. Packaged daemon and Worker startup have not passed native Windows release validation.
-
-## How Nook starts
-
-Nook is a self-starting desktop application. You do not need to manage background services or terminal scripts:
-
-1. **Launch `Nook`** (via app icon, terminal command `nook`, or global hotkey).
-2. **Automatic daemon startup**: Nook automatically detects and starts `nookd` in the background if it is not already running.
-3. **Clean exit**: When you quit Nook, any child daemon process is terminated cleanly.
-
-### Custom binary location
-
-If you want Nook to use a specific `nookd` binary, specify its path via an environment variable in your shell profile or `.env`:
-```sh
-export NOOKD_PATH="/custom/path/to/nookd"
-```
-
-If `NOOKD_PATH` is not set, Nook locates the binary automatically:
-1. Embedded inside the app bundle (`Nook.app/Contents/MacOS/nookd`) or next to `nook-panel`.
-2. In your workspace build paths (`daemon/target/release/nookd`).
-3. In your standard path (`~/.local/bin/nookd`, `~/.cargo/bin/nookd`, `/usr/local/bin/nookd`).
-
----
-
-## Configuration and credentials
-
-Nook connects to any self-hosted or remote OpenAI-compatible endpoint.
-
-Configuration files are located at:
-- **macOS**: `~/Library/Application Support/Nook/config.toml`
-- **Linux**: `~/.config/nook/config.toml`
-- **Windows**: `%APPDATA%\Nook\config.toml`
-
-### Example `config.toml`
 ```toml
 base_url = "https://models.example.internal/v1"
 model = "your-model-name"
@@ -89,89 +33,50 @@ max_input_tokens = 1000000
 summarize_at_tokens = 750000
 ```
 
-On all platforms, you can also supply configuration via a local `.env` file at the repository root:
-```env
-NOOK_BASE_URL=https://models.example.internal/v1
-NOOK_MODEL=your-model-name
-NOOK_API_KEY=your-api-key
-NOOK_DATABASE_URL=postgres://localhost/nook
-```
+The Daemon reads `NOOK_API_KEY` when it is set. On macOS, it otherwise reads
+the API key from Keychain. Nook reports a database error until the configured
+PostgreSQL service accepts connections.
 
-On macOS, you can also store your API key in Keychain:
-```sh
-security add-generic-password -s "Nook" -a "model-api-key" -w "your-api-key"
-```
+## Develop
 
----
+Start the Daemon from the repository root:
 
-## Development and tests
-
-### Run tests
-
-Run daemon unit tests:
 ```sh
 cd daemon
-cargo test
-cargo clippy --workspace --all-targets -- -D warnings
+rtk cargo run -p nookd
 ```
 
-Run worker tests:
-```sh
-cd worker
-uv run pytest
-```
+Start the Panel in another terminal:
 
-Build and test the frontend panel:
 ```sh
 cd panel
-npm run build
-cd src-tauri
-cargo clippy --all-targets -- -D warnings
+rtk npm install
+rtk npm run tauri dev
 ```
 
-Run end-to-end integration test:
+The development stack is separate from the installed application. A development
+Daemon can use source-checkout configuration and Worker files.
+
+## Test
+
+Run the checks for the component that changed:
+
 ```sh
-./scripts/smoke.sh
+cd daemon && rtk cargo test
+cd worker && rtk uv run pytest
+cd panel && rtk npm run build
+rtk uv run --with pytest --with jsonschema pytest tests/contracts
 ```
 
----
+See [docs/testing.md](docs/testing.md) for native desktop and package checks.
 
-## CLI usage (`nookctl`)
+## Documentation
 
-The `nookctl` CLI lets you interact with the running daemon directly:
-
-Ping the daemon:
-```sh
-cargo run --manifest-path daemon/Cargo.toml --bin nookctl -- ping
-```
-
-Ask a question:
-```sh
-cargo run --manifest-path daemon/Cargo.toml --bin nookctl -- send "What is 2 + 2?"
-```
-
-Attach a file or image:
-```sh
-cargo run --manifest-path daemon/Cargo.toml --bin nookctl -- send "Summarize this document" --attach /path/to/report.pdf
-```
-
-List conversations:
-```sh
-cargo run --manifest-path daemon/Cargo.toml --bin nookctl -- list
-```
-
-Show a transcript:
-```sh
-cargo run --manifest-path daemon/Cargo.toml --bin nookctl -- show <chat-id>
-```
-
-Delete a conversation:
-```sh
-cargo run --manifest-path daemon/Cargo.toml --bin nookctl -- delete <chat-id>
-```
-
----
-
-## License
-
-This project is licensed under the [MIT License](LICENSE).
+- [Architecture](docs/architecture.md)
+- [Contracts](docs/contracts.md)
+- [Tools and authorization](docs/tools-and-authorization.md)
+- [Release and installation](docs/release.md)
+- [Testing](docs/testing.md)
+- [Implementation plan](docs/plan.md)
+- [Architecture decisions](docs/adr/)
+- [Contribution guide](CONTRIBUTING.md)

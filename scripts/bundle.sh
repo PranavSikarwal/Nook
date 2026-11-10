@@ -20,6 +20,8 @@ rm -rf "$BUNDLE_DIR"
 mkdir -p "$BUNDLE_DIR/Contents/MacOS"
 mkdir -p "$BUNDLE_DIR/Contents/Resources/daemon"
 mkdir -p "$BUNDLE_DIR/Contents/Resources/worker"
+mkdir -p "$BUNDLE_DIR/Contents/Resources/policy"
+cp -R "$ROOT_DIR/policy/." "$BUNDLE_DIR/Contents/Resources/policy/"
 
 cp "$PANEL_DIR/src-tauri/target/release/nook-panel" "$BUNDLE_DIR/Contents/MacOS/Nook"
 chmod +x "$BUNDLE_DIR/Contents/MacOS/Nook"
@@ -44,6 +46,10 @@ fi
 "$WORKER_VENV_PYINSTALLER" --noconfirm --clean --onedir --name release_entry --paths "$ROOT_DIR/worker/src" --distpath "$BUILD_DIR/worker-dist" "$ROOT_DIR/worker/src/nook_worker/release_entry.py"
 cp -R "$BUILD_DIR/worker-dist/release_entry/." "$BUNDLE_DIR/Contents/Resources/worker/"
 NOOK_SMOKE_EXECUTABLE="$BUNDLE_DIR/Contents/Resources/worker/release_entry" "$BUNDLE_DIR/Contents/Resources/worker/release_entry" --smoke-test
+
+if [ -x "$BUNDLE_DIR/Contents/Resources/daemon/nookd" ]; then
+    (cd "$BUILD_DIR" && env -u NOOK_POLICY_DIR "$BUNDLE_DIR/Contents/Resources/daemon/nookd" --check-policy)
+fi
 
 if [ -f "$PANEL_DIR/src-tauri/icons/icon.icns" ]; then
     cp "$PANEL_DIR/src-tauri/icons/icon.icns" "$BUNDLE_DIR/Contents/Resources/icon.icns"

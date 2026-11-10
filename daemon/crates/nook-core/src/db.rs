@@ -2,17 +2,55 @@ use chrono::{DateTime, Utc};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::{PgPool, Row};
 use std::collections::HashMap;
+use std::time::{Duration, Instant};
+use tracing::warn;
 use uuid::Uuid;
 
 use crate::protocol::{
     Attachment, AttachmentKind, ChatMessage, ChatSummary, ErrorCode, ErrorInfo, MessageStatus, Role,
 };
 
+pub const CONNECT_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(5);
+
 pub async fn create_pool(database_url: &str) -> Result<PgPool, sqlx::Error> {
+    create_pool_with_timeout(database_url, CONNECT_ATTEMPT_TIMEOUT).await
+}
+
+pub async fn create_pool_with_timeout(
+    database_url: &str,
+    attempt_timeout: Duration,
+) -> Result<PgPool, sqlx::Error> {
     PgPoolOptions::new()
         .max_connections(10)
+        .acquire_timeout(attempt_timeout)
         .connect(database_url)
         .await
+}
+
+pub async fn connect_with_retry(
+    database_url: &str,
+    total: Duration,
+    attempt_timeout: Duration,
+) -> Option<PgPool> {
+    let start = Instant::now();
+    let mut attempt = 1u32;
+    loop {
+        match create_pool_with_timeout(database_url, attempt_timeout).await {
+            Ok(pool) => return Some(pool),
+            Err(error) => {
+                warn!("Database connection attempt {attempt} failed: {error}");
+                if start.elapsed() >= total {
+                    warn!(
+                        "Database connection failed after {} attempts in {:?}",
+                        attempt, total
+                    );
+                    return None;
+                }
+                attempt += 1;
+                tokio::time::sleep(Duration::from_secs(1)).await;
+            }
+        }
+    }
 }
 
 pub async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::migrate::MigrateError> {
@@ -366,4 +404,85 @@ pub async fn delete_chat(pool: &PgPool, chat_id: Uuid) -> Result<bool, sqlx::Err
         .await?;
 
     Ok(result.rows_affected() > 0)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredGrant {
+    pub id: String,
+    pub tool_key: String,
+    pub scope: String,
+    pub host: Option<String>,
+}
+
+pub async fn save_persistent_grant(pool: &PgPool, grant: &StoredGrant) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "INSERT INTO app.persistent_grants (id, tool_key, scope, host) \
+         VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO NOTHING",
+    )
+    .bind(&grant.id)
+    .bind(&grant.tool_key)
+    .bind(&grant.scope)
+    .bind(&grant.host)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+pub async fn delete_persistent_grant(pool: &PgPool, id: &str) -> Result<(), sqlx::Error> {
+    sqlx::query("DELETE FROM app.persistent_grants WHERE id = $1")
+        .bind(id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+pub async fn load_persistent_grants(pool: &PgPool) -> Result<Vec<StoredGrant>, sqlx::Error> {
+    let rows = sqlx::query(
+        "SELECT id, tool_key, scope, host FROM app.persistent_grants ORDER BY created_at, id",
+    )
+    .fetch_all(pool)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| StoredGrant {
+            id: row.get("id"),
+            tool_key: row.get("tool_key"),
+            scope: row.get("scope"),
+            host: row.get("host"),
+        })
+        .collect())
+}
+
+pub async fn save_tool_preference(
+    pool: &PgPool,
+    tool_id: &str,
+    tier: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "INSERT INTO app.tool_preferences (tool_id, tier) VALUES ($1, $2) \
+         ON CONFLICT (tool_id) DO UPDATE SET tier = EXCLUDED.tier, updated_at = now()",
+    )
+    .bind(tool_id)
+    .bind(tier)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+pub async fn delete_tool_preference(pool: &PgPool, tool_id: &str) -> Result<(), sqlx::Error> {
+    sqlx::query("DELETE FROM app.tool_preferences WHERE tool_id = $1")
+        .bind(tool_id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+pub async fn load_tool_preferences(pool: &PgPool) -> Result<Vec<(String, String)>, sqlx::Error> {
+    let rows = sqlx::query("SELECT tool_id, tier FROM app.tool_preferences ORDER BY tool_id")
+        .fetch_all(pool)
+        .await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| (row.get("tool_id"), row.get("tier")))
+        .collect())
 }

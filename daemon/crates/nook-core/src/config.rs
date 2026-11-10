@@ -1,5 +1,115 @@
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RootAccess {
+    Read,
+    ReadWrite,
+}
+
+impl RootAccess {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Read => "read",
+            Self::ReadWrite => "read_write",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RootConfig {
+    pub path: String,
+    pub access: RootAccess,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FilesystemConfig {
+    #[serde(default)]
+    pub roots: Vec<RootConfig>,
+    #[serde(default = "default_max_file_bytes")]
+    pub max_read_bytes: usize,
+    #[serde(default = "default_max_file_bytes")]
+    pub max_write_bytes: usize,
+}
+
+fn default_max_file_bytes() -> usize {
+    1024 * 1024
+}
+
+impl Default for FilesystemConfig {
+    fn default() -> Self {
+        Self {
+            roots: Vec::new(),
+            max_read_bytes: default_max_file_bytes(),
+            max_write_bytes: default_max_file_bytes(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TerminalConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub network: bool,
+    #[serde(default = "default_command_timeout_seconds")]
+    pub timeout_seconds: u64,
+    #[serde(default = "default_command_output_bytes")]
+    pub max_output_bytes: usize,
+}
+
+fn default_command_timeout_seconds() -> u64 {
+    30
+}
+
+fn default_command_output_bytes() -> usize {
+    64 * 1024
+}
+
+impl Default for TerminalConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            network: false,
+            timeout_seconds: default_command_timeout_seconds(),
+            max_output_bytes: default_command_output_bytes(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct McpServerConfig {
+    pub name: String,
+    pub command: String,
+    #[serde(default)]
+    pub args: Vec<String>,
+    #[serde(default)]
+    pub env: BTreeMap<String, String>,
+    #[serde(default)]
+    pub network: bool,
+    #[serde(default)]
+    pub read_paths: Vec<String>,
+    #[serde(default)]
+    pub write_paths: Vec<String>,
+    #[serde(default = "default_mcp_timeout_seconds")]
+    pub timeout_seconds: u64,
+}
+
+fn default_mcp_timeout_seconds() -> u64 {
+    60
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ToolsConfig {
+    #[serde(default)]
+    pub filesystem: FilesystemConfig,
+    #[serde(default)]
+    pub terminal: TerminalConfig,
+    #[serde(default)]
+    pub mcp_servers: Vec<McpServerConfig>,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Config {
@@ -13,6 +123,8 @@ pub struct Config {
     pub summarize_at_tokens: i64,
     #[serde(default)]
     pub worker_command: Option<String>,
+    #[serde(default)]
+    pub tools: ToolsConfig,
 }
 
 fn default_database_url() -> String {
@@ -36,6 +148,7 @@ impl Default for Config {
             max_input_tokens: default_max_input_tokens(),
             summarize_at_tokens: default_summarize_at_tokens(),
             worker_command: None,
+            tools: ToolsConfig::default(),
         }
     }
 }
@@ -111,36 +224,25 @@ impl Config {
     }
 
     pub fn load_env_file() {
-        let candidates = [
-            PathBuf::from(".env"),
-            PathBuf::from("../.env"),
-            PathBuf::from("../../.env"),
-        ];
-        for p in candidates {
-            if p.exists() {
-                if let Ok(content) = std::fs::read_to_string(&p) {
-                    for line in content.lines() {
-                        let trimmed = line.trim();
-                        if trimmed.is_empty() || trimmed.starts_with('#') {
-                            continue;
-                        }
-                        if let Some((k, v)) = trimmed.split_once('=') {
-                            let k = k.trim();
-                            let mut v = v.trim();
-                            if (v.starts_with('"') && v.ends_with('"'))
-                                || (v.starts_with('\'') && v.ends_with('\''))
-                            {
-                                v = &v[1..v.len() - 1];
-                            }
-                            if std::env::var_os(k).is_none() {
-                                std::env::set_var(k, v);
-                            }
-                        }
-                    }
+        let Some(path) = first_env_file() else {
+            return;
+        };
+        let Ok(content) = std::fs::read_to_string(&path) else {
+            return;
+        };
+        for line in content.lines() {
+            if let Some((k, v)) = parse_env_line(line) {
+                if std::env::var_os(k).is_none() {
+                    std::env::set_var(k, v);
                 }
-                break;
             }
         }
+    }
+
+    /// Reads the file and nothing else: no `.env`, no environment overrides, no
+    /// file creation. Returns `None` when the file is missing or not valid.
+    pub fn read_only(path: &Path) -> Option<Self> {
+        toml::from_str(&std::fs::read_to_string(path).ok()?).ok()
     }
 
     pub fn from_file(path: &Path) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
@@ -152,7 +254,7 @@ impl Config {
                 std::fs::create_dir_all(parent)?;
             }
             let toml_str = toml::to_string_pretty(&default_cfg)?;
-            std::fs::write(path, toml_str)?;
+            write_private(path, &toml_str)?;
             default_cfg
         } else {
             let content = std::fs::read_to_string(path)?;
@@ -178,17 +280,112 @@ impl Config {
         Ok(cfg)
     }
 
-    pub fn save_to_file(
-        &self,
+    /// Sets `base_url` and `model` in the file and leaves every other line, comment,
+    /// and table as it is. Creates the file when it is missing.
+    pub fn update_model_settings(
         path: &Path,
+        base_url: &str,
+        model: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        let toml_str = toml::to_string_pretty(self)?;
-        std::fs::write(path, toml_str)?;
-        Ok(())
+        let text = match std::fs::read_to_string(path) {
+            Ok(text) => text,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+            Err(error) => return Err(error.into()),
+        };
+        let mut document = text.parse::<toml_edit::DocumentMut>()?;
+        document["base_url"] = toml_edit::value(base_url);
+        document["model"] = toml_edit::value(model);
+        write_private(path, &document.to_string())
     }
+
+    /// Replaces `tools.filesystem.roots` and leaves every other line, comment, and
+    /// table as it is. Creates the file when it is missing.
+    pub fn update_filesystem_roots(
+        path: &Path,
+        roots: &[RootConfig],
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let text = match std::fs::read_to_string(path) {
+            Ok(text) => text,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+            Err(error) => return Err(error.into()),
+        };
+        let mut document = text.parse::<toml_edit::DocumentMut>()?;
+        let mut array = toml_edit::Array::new();
+        for root in roots {
+            let mut entry = toml_edit::InlineTable::new();
+            entry.insert("path", root.path.as_str().into());
+            entry.insert("access", root.access.as_str().into());
+            let mut value = toml_edit::Value::from(entry);
+            value.decor_mut().set_prefix("\n  ");
+            array.push_formatted(value);
+        }
+        array.set_trailing("\n");
+        array.set_trailing_comma(!roots.is_empty());
+        let tools = document
+            .entry("tools")
+            .or_insert_with(|| toml_edit::Item::Table(toml_edit::Table::new()))
+            .as_table_mut()
+            .ok_or("`tools` in config.toml is not a table")?;
+        tools.set_implicit(true);
+        let filesystem = tools
+            .entry("filesystem")
+            .or_insert_with(|| toml_edit::Item::Table(toml_edit::Table::new()))
+            .as_table_mut()
+            .ok_or("`tools.filesystem` in config.toml is not a table")?;
+        filesystem.insert("roots", toml_edit::value(array));
+        write_private(path, &document.to_string())
+    }
+}
+
+fn first_env_file() -> Option<PathBuf> {
+    let candidates = [
+        PathBuf::from(".env"),
+        PathBuf::from("../.env"),
+        PathBuf::from("../../.env"),
+    ];
+    candidates.into_iter().find(|p| p.exists())
+}
+
+fn parse_env_line(line: &str) -> Option<(&str, &str)> {
+    let trimmed = line.trim();
+    if trimmed.is_empty() || trimmed.starts_with('#') {
+        return None;
+    }
+    let (k, v) = trimmed.split_once('=')?;
+    let k = k.trim();
+    let mut v = v.trim();
+    if v.len() >= 2
+        && ((v.starts_with('"') && v.ends_with('"')) || (v.starts_with('\'') && v.ends_with('\'')))
+    {
+        v = &v[1..v.len() - 1];
+    }
+    Some((k, v))
+}
+
+/// Writes the file so that only the user can read it. The file can hold secrets
+/// in the `env` of an MCP server.
+fn write_private(
+    path: &Path,
+    contents: &str,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    use std::io::Write;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let temporary = path.with_extension("toml.tmp");
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options.open(&temporary)?;
+    file.write_all(contents.as_bytes())?;
+    file.sync_all()?;
+    drop(file);
+    std::fs::rename(&temporary, path)?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -240,31 +437,290 @@ mod tests {
         assert_eq!(cfg.database_url, "postgres://localhost/nook");
     }
 
+    const HAND_EDITED: &str = r#"# My Nook settings
+base_url = "https://old.example.com/v1" # the proxy
+model = "old-model"
+database_url = "postgres://localhost/mine"
+
+# Files the assistant may read
+[tools.filesystem]
+roots = [{ path = "/tmp/docs", access = "read" }]
+
+[[tools.mcp_servers]]
+name = "notes"
+command = "/opt/tools/notes"
+env = { TOKEN = "secret-value" }
+"#;
+
     #[test]
-    fn test_save_and_load_config() {
+    fn updating_the_model_keeps_comments_and_tool_blocks() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("config.toml");
-        let cfg = Config {
-            base_url: "https://example.com/v1".to_string(),
-            model: "test-model".to_string(),
-            database_url: "postgres://localhost/test_db".to_string(),
-            max_input_tokens: 500_000,
-            summarize_at_tokens: 350_000,
-            worker_command: None,
-        };
-        cfg.save_to_file(&path).unwrap();
+        std::fs::write(&path, HAND_EDITED).unwrap();
 
-        let loaded = Config::from_file(&path).unwrap();
-        assert_eq!(loaded.max_input_tokens, 500_000);
-        assert_eq!(loaded.summarize_at_tokens, 350_000);
-        if std::env::var("NOOK_BASE_URL").is_err() {
-            assert_eq!(loaded.base_url, "https://example.com/v1");
+        Config::update_model_settings(&path, "https://new.example.com/v1", "new-model").unwrap();
+
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("# My Nook settings"));
+        assert!(text.contains("# Files the assistant may read"));
+        assert!(text.contains("env = { TOKEN = \"secret-value\" }"));
+        assert!(text.contains("database_url = \"postgres://localhost/mine\""));
+        let loaded: Config = toml::from_str(&text).unwrap();
+        assert_eq!(loaded.base_url, "https://new.example.com/v1");
+        assert_eq!(loaded.model, "new-model");
+        assert_eq!(loaded.tools.mcp_servers[0].name, "notes");
+    }
+
+    #[test]
+    fn updating_a_missing_file_creates_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("nested").join("config.toml");
+
+        Config::update_model_settings(&path, "https://a.example.com/v1", "m").unwrap();
+
+        let loaded: Config = toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(loaded.base_url, "https://a.example.com/v1");
+        assert_eq!(loaded.model, "m");
+    }
+
+    #[test]
+    fn a_file_that_is_not_toml_is_left_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(&path, "base_url = [unclosed").unwrap();
+
+        assert!(Config::update_model_settings(&path, "u", "m").is_err());
+
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "base_url = [unclosed"
+        );
+    }
+
+    fn root(path: &str, access: RootAccess) -> RootConfig {
+        RootConfig {
+            path: path.to_string(),
+            access,
         }
-        if std::env::var("NOOK_MODEL").is_err() {
-            assert_eq!(loaded.model, "test-model");
-        }
-        if std::env::var("NOOK_DATABASE_URL").is_err() {
-            assert_eq!(loaded.database_url, "postgres://localhost/test_db");
-        }
+    }
+
+    #[test]
+    fn updating_the_roots_keeps_comments_and_other_blocks() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(&path, HAND_EDITED).unwrap();
+
+        Config::update_filesystem_roots(
+            &path,
+            &[
+                root("/tmp/docs", RootAccess::Read),
+                root("/tmp/work", RootAccess::ReadWrite),
+            ],
+        )
+        .unwrap();
+
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("# My Nook settings"));
+        assert!(text.contains("# Files the assistant may read"));
+        assert!(text.contains("env = { TOKEN = \"secret-value\" }"));
+        assert!(text.contains("model = \"old-model\""));
+        let loaded: Config = toml::from_str(&text).unwrap();
+        assert_eq!(
+            loaded.tools.filesystem.roots,
+            vec![
+                root("/tmp/docs", RootAccess::Read),
+                root("/tmp/work", RootAccess::ReadWrite)
+            ]
+        );
+        assert_eq!(loaded.tools.mcp_servers[0].name, "notes");
+    }
+
+    #[test]
+    fn updating_the_roots_of_a_file_without_tools_adds_them() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(&path, "base_url = \"u\"\nmodel = \"m\"\n").unwrap();
+
+        Config::update_filesystem_roots(&path, &[root("/tmp/work", RootAccess::ReadWrite)])
+            .unwrap();
+
+        let loaded: Config = toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(loaded.model, "m");
+        assert_eq!(
+            loaded.tools.filesystem.roots,
+            vec![root("/tmp/work", RootAccess::ReadWrite)]
+        );
+    }
+
+    #[test]
+    fn removing_every_root_leaves_an_empty_list() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(&path, HAND_EDITED).unwrap();
+
+        Config::update_filesystem_roots(&path, &[]).unwrap();
+
+        let loaded: Config = toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert!(loaded.tools.filesystem.roots.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn updating_the_roots_keeps_the_file_private() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(&path, HAND_EDITED).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+        Config::update_filesystem_roots(&path, &[]).unwrap();
+
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn updating_the_roots_replaces_the_file_and_leaves_no_temporary_file() {
+        use std::os::unix::fs::MetadataExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(&path, HAND_EDITED).unwrap();
+        let before = std::fs::metadata(&path).unwrap().ino();
+
+        Config::update_filesystem_roots(&path, &[]).unwrap();
+
+        assert_ne!(std::fs::metadata(&path).unwrap().ino(), before);
+        assert!(!dir.path().join("config.toml.tmp").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_config_file_is_private_to_the_user() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(&path, HAND_EDITED).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+        Config::update_model_settings(&path, "u", "m").unwrap();
+
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+        let created = dir.path().join("created.toml");
+        Config::update_model_settings(&created, "u", "m").unwrap();
+        let mode = std::fs::metadata(&created).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_first_start_writes_a_private_default_file() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+
+        Config::from_file(&path).unwrap();
+
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+    }
+
+    #[test]
+    fn tools_default_to_off_and_empty() {
+        let cfg: Config = toml::from_str("base_url = \"u\"\nmodel = \"m\"\n").unwrap();
+
+        assert!(cfg.tools.filesystem.roots.is_empty());
+        assert!(!cfg.tools.terminal.enabled);
+        assert!(cfg.tools.mcp_servers.is_empty());
+        assert_eq!(cfg.tools.filesystem.max_read_bytes, 1024 * 1024);
+        assert_eq!(cfg.tools.terminal.timeout_seconds, 30);
+    }
+
+    #[test]
+    fn tools_section_round_trips() {
+        let text = r#"
+base_url = "u"
+model = "m"
+
+[tools.filesystem]
+roots = [
+  { path = "/work/a", access = "read" },
+  { path = "/work/b", access = "read_write" },
+]
+
+[tools.terminal]
+enabled = true
+network = true
+timeout_seconds = 10
+
+[[tools.mcp_servers]]
+name = "files"
+command = "npx"
+args = ["-y", "server"]
+env = { TOKEN = "x" }
+read_paths = ["/opt/tools"]
+write_paths = ["/work/cache"]
+timeout_seconds = 20
+"#;
+        let cfg: Config = toml::from_str(text).unwrap();
+
+        assert_eq!(cfg.tools.filesystem.roots[0].access, RootAccess::Read);
+        assert_eq!(cfg.tools.filesystem.roots[1].access, RootAccess::ReadWrite);
+        assert!(cfg.tools.terminal.enabled && cfg.tools.terminal.network);
+        assert_eq!(cfg.tools.mcp_servers[0].args, ["-y", "server"]);
+        assert_eq!(cfg.tools.mcp_servers[0].read_paths, ["/opt/tools"]);
+        assert_eq!(cfg.tools.mcp_servers[0].timeout_seconds, 20);
+        assert!(!cfg.tools.mcp_servers[0].network);
+        let again: Config = toml::from_str(&toml::to_string_pretty(&cfg).unwrap()).unwrap();
+        assert_eq!(again, cfg);
+    }
+
+    #[test]
+    fn an_unknown_root_access_is_rejected() {
+        let text = "base_url = \"u\"\nmodel = \"m\"\n[tools.filesystem]\nroots = [{ path = \"/a\", access = \"admin\" }]\n";
+
+        assert!(toml::from_str::<Config>(text).is_err());
+    }
+
+    #[test]
+    fn parse_env_line_reads_plain_key_value() {
+        assert_eq!(parse_env_line("KEY=value"), Some(("KEY", "value")));
+    }
+
+    #[test]
+    fn parse_env_line_strips_double_quotes() {
+        assert_eq!(parse_env_line("KEY=\"value\""), Some(("KEY", "value")));
+    }
+
+    #[test]
+    fn parse_env_line_strips_single_quotes() {
+        assert_eq!(parse_env_line("KEY='value'"), Some(("KEY", "value")));
+    }
+
+    #[test]
+    fn parse_env_line_trims_spaces_around_equals() {
+        assert_eq!(parse_env_line("  KEY  =  value  "), Some(("KEY", "value")));
+    }
+
+    #[test]
+    fn parse_env_line_ignores_comments() {
+        assert_eq!(parse_env_line("# this is a comment"), None);
+    }
+
+    #[test]
+    fn parse_env_line_ignores_empty_lines() {
+        assert_eq!(parse_env_line(""), None);
+        assert_eq!(parse_env_line("   "), None);
+    }
+
+    #[test]
+    fn parse_env_line_rejects_line_without_equals() {
+        assert_eq!(parse_env_line("NO_EQUALS_HERE"), None);
+    }
+
+    #[test]
+    fn parse_env_line_keeps_a_lone_quote() {
+        assert_eq!(parse_env_line("KEY=\""), Some(("KEY", "\"")));
     }
 }

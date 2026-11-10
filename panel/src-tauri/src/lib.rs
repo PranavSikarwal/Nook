@@ -1,6 +1,7 @@
-use nook_core::config::Config;
+use nook_core::config::{Config, RootAccess};
 use nook_core::protocol::{
-    Attachment, AttachmentKind, ChatMessage, ChatSummary, ClientMessage, DaemonMessage,
+    Attachment, AttachmentKind, ChatMessage, ChatSummary, ClientMessage, DaemonMessage, GrantInfo,
+    RootInfo, ToolPolicyInfo, ToolSourceInfo,
 };
 #[cfg(windows)]
 use nook_core::windows_pipe_name;
@@ -8,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
-use tauri::{AppHandle, Manager, Runtime};
+use tauri::{AppHandle, Emitter, Manager, Runtime};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 #[cfg(windows)]
@@ -53,6 +54,23 @@ async fn capture_daemon_stderr(
     }
 }
 
+/// Keeps the Daemon's log in the application folder, with secrets removed, so a
+/// user can see why an MCP server or the database did not start.
+async fn capture_daemon_log(stderr: tokio::process::ChildStderr) {
+    use nook_core::daemon_log::{capture, secrets_to_redact, RotatingLog, MAX_LOG_BYTES};
+    let config = Config::read_only(&Config::default_config_path()).unwrap_or_default();
+    let secrets = secrets_to_redact(&config, std::env::var("NOOK_API_KEY").ok().as_deref());
+    let path = Config::app_dir().join("daemon.log");
+    match RotatingLog::open(path, MAX_LOG_BYTES).await {
+        Ok(log) => capture(stderr, log, secrets).await,
+        Err(error) => {
+            eprintln!("Could not open the Daemon log: {error}");
+            let mut stderr = stderr;
+            let _ = tokio::io::copy(&mut stderr, &mut tokio::io::stderr()).await;
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatTranscript {
     pub chat_id: Uuid,
@@ -89,9 +107,15 @@ pub struct SettingsPayload {
     pub api_key: Option<String>,
 }
 
-/// Locate the nookd binary from environment, app bundle, or development paths
-pub fn find_nookd_binary() -> Option<PathBuf> {
-    // 1. Explicit environment override
+fn nookd_file_name() -> &'static str {
+    if cfg!(windows) {
+        "nookd.exe"
+    } else {
+        "nookd"
+    }
+}
+
+fn nookd_from_env() -> Option<PathBuf> {
     for env_key in &["NOOKD_PATH", "NOOKD_BIN", "NOOK_DAEMON_BIN"] {
         if let Ok(path_str) = std::env::var(env_key) {
             let p = PathBuf::from(path_str);
@@ -100,14 +124,13 @@ pub fn find_nookd_binary() -> Option<PathBuf> {
             }
         }
     }
+    None
+}
 
-    // 2. Next to current executable (in app bundle or install directory)
+fn nookd_near_executable() -> Option<PathBuf> {
     if let Ok(current_exe) = std::env::current_exe() {
         if let Some(exe_dir) = current_exe.parent() {
-            #[cfg(windows)]
-            let bin_name = "nookd.exe";
-            #[cfg(not(windows))]
-            let bin_name = "nookd";
+            let bin_name = nookd_file_name();
 
             let candidate = exe_dir.join(bin_name);
             if candidate.is_file() {
@@ -122,13 +145,11 @@ pub fn find_nookd_binary() -> Option<PathBuf> {
             }
         }
     }
+    None
+}
 
-    // 3. Development and workspace build paths
-    #[cfg(windows)]
-    let bin_name = "nookd.exe";
-    #[cfg(not(windows))]
-    let bin_name = "nookd";
-
+fn nookd_in_build_folders() -> Option<PathBuf> {
+    let bin_name = nookd_file_name();
     let dev_candidates = [
         PathBuf::from("daemon/target/release").join(bin_name),
         PathBuf::from("daemon/target/debug").join(bin_name),
@@ -142,8 +163,12 @@ pub fn find_nookd_binary() -> Option<PathBuf> {
             return Some(candidate.clone());
         }
     }
+    None
+}
 
-    // 4. Standard system install locations
+fn nookd_in_system_locations() -> Option<PathBuf> {
+    let bin_name = nookd_file_name();
+
     #[cfg(target_os = "macos")]
     {
         let system_app_bin = PathBuf::from("/Applications/Nook.app/Contents/MacOS").join(bin_name);
@@ -179,6 +204,14 @@ pub fn find_nookd_binary() -> Option<PathBuf> {
     None
 }
 
+/// Locate the nookd binary from environment, app bundle, or development paths
+pub fn find_nookd_binary() -> Option<PathBuf> {
+    nookd_from_env()
+        .or_else(nookd_near_executable)
+        .or_else(nookd_in_build_folders)
+        .or_else(nookd_in_system_locations)
+}
+
 /// Poll Unix socket with a timeout until it accepts connections
 pub async fn wait_for_daemon_ready(socket_path: &Path, timeout: std::time::Duration) -> bool {
     #[cfg(any(unix, windows))]
@@ -186,7 +219,7 @@ pub async fn wait_for_daemon_ready(socket_path: &Path, timeout: std::time::Durat
         let start = std::time::Instant::now();
         while start.elapsed() < timeout {
             #[cfg(unix)]
-            let ready = socket_path.exists() && connect_local_daemon().await.is_ok();
+            let ready = UnixStream::connect(socket_path).await.is_ok();
             #[cfg(windows)]
             let ready = {
                 let _ = socket_path;
@@ -206,6 +239,87 @@ pub async fn wait_for_daemon_ready(socket_path: &Path, timeout: std::time::Durat
     }
 }
 
+#[cfg(any(unix, windows))]
+async fn child_is_running(state: &DaemonState, socket_path: &Path) -> bool {
+    let mut proc_guard = state.spawned_process.lock().await;
+    if let Some(child) = proc_guard.as_mut() {
+        match child.try_wait() {
+            Ok(None) => {
+                drop(proc_guard);
+                if !wait_for_daemon_ready(socket_path, std::time::Duration::from_millis(1500)).await
+                {
+                    eprintln!("Existing nookd child is running but not responding on socket yet.");
+                }
+                return true;
+            }
+            Ok(Some(status)) => {
+                eprintln!("Previous nookd child process exited ({status}). Reaping.");
+                *proc_guard = None;
+            }
+            Err(err) => {
+                eprintln!("Error checking child process status ({err}). Clearing.");
+                *proc_guard = None;
+            }
+        }
+    }
+    false
+}
+
+#[cfg(any(unix, windows))]
+fn daemon_command(bin_path: PathBuf) -> tokio::process::Command {
+    let mut cmd = tokio::process::Command::new(bin_path);
+    cmd.kill_on_drop(true);
+
+    if let Ok(path_var) = std::env::var("PATH") {
+        if let Ok(home) = std::env::var("HOME") {
+            let extra = format!("{home}/.local/bin:{home}/.cargo/bin:{path_var}");
+            cmd.env("PATH", extra);
+        }
+    }
+    if let Some(app_dir) = std::env::var_os("NOOK_APP_DIR") {
+        cmd.env("NOOK_APP_DIR", app_dir);
+    }
+    for env_key in [
+        "NOOK_BASE_URL",
+        "NOOK_MODEL",
+        "NOOK_DATABASE_URL",
+        "NOOK_API_KEY",
+        "NOOK_DISABLE_KEYCHAIN",
+        "NOOK_E2E_RUN_DIR",
+        "NOOK_WORKER_DIR",
+    ] {
+        if let Some(value) = std::env::var_os(env_key) {
+            cmd.env(env_key, value);
+        }
+    }
+    #[cfg(feature = "e2e")]
+    for env_key in ["NOOK_E2E_WORKER_COMMAND", "NOOK_E2E_APPROVAL_TIMEOUT_MS"] {
+        if let Some(value) = std::env::var_os(env_key) {
+            cmd.env(env_key, value);
+        }
+    }
+
+    cmd.stderr(Stdio::piped());
+    cmd
+}
+
+#[cfg(any(unix, windows))]
+fn start_stderr_capture(child: &mut tokio::process::Child) {
+    let e2e_log_path = std::env::var_os("NOOK_E2E_RUN_DIR")
+        .map(|dir| PathBuf::from(dir).join("daemon-stderr.log"));
+    if let Some(stderr) = child.stderr.take() {
+        if let Some(path) = e2e_log_path {
+            let redactions = ["NOOK_BASE_URL", "NOOK_MODEL", "NOOK_API_KEY"]
+                .into_iter()
+                .filter_map(|name| std::env::var(name).ok())
+                .collect();
+            tauri::async_runtime::spawn(capture_daemon_stderr(stderr, path, redactions));
+        } else {
+            tauri::async_runtime::spawn(capture_daemon_log(stderr));
+        }
+    }
+}
+
 /// Ensure nookd is running; spawn it if not currently responding
 pub async fn ensure_daemon_started(state: &DaemonState) {
     #[cfg(any(unix, windows))]
@@ -214,7 +328,8 @@ pub async fn ensure_daemon_started(state: &DaemonState) {
 
         let socket_path = Config::default_socket_path();
         #[cfg(unix)]
-        let daemon_is_ready = socket_path.exists() && connect_local_daemon().await.is_ok();
+        let daemon_is_ready = tokio::fs::try_exists(&socket_path).await.unwrap_or(false)
+            && connect_local_daemon().await.is_ok();
         #[cfg(windows)]
         let daemon_is_ready = connect_local_daemon().await.is_ok();
         if daemon_is_ready {
@@ -222,35 +337,8 @@ pub async fn ensure_daemon_started(state: &DaemonState) {
         }
 
         // Check if an existing spawned process is still running
-        {
-            let mut proc_guard = state.spawned_process.lock().await;
-            if let Some(child) = proc_guard.as_mut() {
-                match child.try_wait() {
-                    Ok(None) => {
-                        drop(proc_guard);
-                        if wait_for_daemon_ready(
-                            &socket_path,
-                            std::time::Duration::from_millis(1500),
-                        )
-                        .await
-                        {
-                            return;
-                        }
-                        eprintln!(
-                            "Existing nookd child is running but not responding on socket yet."
-                        );
-                        return;
-                    }
-                    Ok(Some(status)) => {
-                        eprintln!("Previous nookd child process exited ({status}). Reaping.");
-                        *proc_guard = None;
-                    }
-                    Err(err) => {
-                        eprintln!("Error checking child process status ({err}). Clearing.");
-                        *proc_guard = None;
-                    }
-                }
-            }
+        if child_is_running(state, &socket_path).await {
+            return;
         }
 
         if wait_for_daemon_ready(&socket_path, std::time::Duration::from_millis(200)).await {
@@ -259,53 +347,11 @@ pub async fn ensure_daemon_started(state: &DaemonState) {
 
         if let Some(bin_path) = find_nookd_binary() {
             eprintln!("Auto-starting nookd daemon from {}", bin_path.display());
-            let mut cmd = tokio::process::Command::new(bin_path);
-            cmd.kill_on_drop(true);
-
-            if let Ok(path_var) = std::env::var("PATH") {
-                if let Ok(home) = std::env::var("HOME") {
-                    let extra = format!("{home}/.local/bin:{home}/.cargo/bin:{path_var}");
-                    cmd.env("PATH", extra);
-                }
-            }
-            if let Some(app_dir) = std::env::var_os("NOOK_APP_DIR") {
-                cmd.env("NOOK_APP_DIR", app_dir);
-            }
-            for env_key in [
-                "NOOK_BASE_URL",
-                "NOOK_MODEL",
-                "NOOK_DATABASE_URL",
-                "NOOK_API_KEY",
-                "NOOK_DISABLE_KEYCHAIN",
-                "NOOK_E2E_RUN_DIR",
-                "NOOK_WORKER_DIR",
-            ] {
-                if let Some(value) = std::env::var_os(env_key) {
-                    cmd.env(env_key, value);
-                }
-            }
-            #[cfg(feature = "e2e")]
-            if let Some(value) = std::env::var_os("NOOK_E2E_WORKER_COMMAND") {
-                cmd.env("NOOK_E2E_WORKER_COMMAND", value);
-            }
-
-            let daemon_log_path = std::env::var_os("NOOK_E2E_RUN_DIR")
-                .map(|dir| PathBuf::from(dir).join("daemon-stderr.log"));
-            if daemon_log_path.is_some() {
-                cmd.stderr(Stdio::piped());
-            }
+            let mut cmd = daemon_command(bin_path);
 
             match cmd.spawn() {
                 Ok(mut child) => {
-                    if let (Some(stderr), Some(path)) = (child.stderr.take(), daemon_log_path) {
-                        let redactions = ["NOOK_BASE_URL", "NOOK_MODEL", "NOOK_API_KEY"]
-                            .into_iter()
-                            .filter_map(|name| std::env::var(name).ok())
-                            .collect();
-                        tauri::async_runtime::spawn(capture_daemon_stderr(
-                            stderr, path, redactions,
-                        ));
-                    }
+                    start_stderr_capture(&mut child);
                     {
                         let mut proc_guard = state.spawned_process.lock().await;
                         *proc_guard = Some(child);
@@ -528,6 +574,71 @@ async fn delete_chat<R: Runtime>(app: AppHandle<R>, chat_id: Uuid) -> Result<boo
     }
 }
 
+fn attachment_kind(mime: &str) -> Result<AttachmentKind, String> {
+    if mime.starts_with("image/") {
+        match mime {
+            "image/png" | "image/jpeg" | "image/webp" | "image/gif" => Ok(AttachmentKind::Image),
+            _ => Err(format!("Unsupported image format: {mime}")),
+        }
+    } else if mime == "application/pdf" {
+        Ok(AttachmentKind::Pdf)
+    } else if mime.starts_with("text/")
+        || mime == "application/json"
+        || mime == "application/javascript"
+    {
+        Ok(AttachmentKind::Text)
+    } else {
+        Err(format!("Unsupported attachment MIME type: {mime}"))
+    }
+}
+
+async fn store_attachment(att: AttachmentInput, att_dir: &Path) -> Result<Attachment, String> {
+    let safe_name = sanitize_attachment_name(&att.name);
+    let att_id = Uuid::new_v4();
+    let dest_path = att_dir.join(format!("{att_id}-{safe_name}"));
+
+    let size_bytes: i64;
+    if let Some(ref path_str) = att.file_path {
+        let src = Path::new(path_str);
+        if !tokio::fs::try_exists(src).await.unwrap_or(false) {
+            return Err(format!("File does not exist: {path_str}"));
+        }
+        let meta = tokio::fs::metadata(src).await.map_err(|e| e.to_string())?;
+        size_bytes = meta.len() as i64;
+        if size_bytes > 10 * 1024 * 1024 {
+            return Err(format!("Attachment exceeds 10MB limit: {safe_name}"));
+        }
+        tokio::fs::copy(src, &dest_path)
+            .await
+            .map_err(|e| e.to_string())?;
+    } else if let Some(ref b64) = att.data_base64 {
+        use base64::Engine;
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(b64)
+            .map_err(|e| format!("Invalid base64 attachment data: {e}"))?;
+        size_bytes = bytes.len() as i64;
+        if size_bytes > 10 * 1024 * 1024 {
+            return Err(format!("Attachment exceeds 10MB limit: {safe_name}"));
+        }
+        tokio::fs::write(&dest_path, bytes)
+            .await
+            .map_err(|e| e.to_string())?;
+    } else {
+        return Err("Attachment must provide either file_path or data_base64".to_string());
+    }
+
+    let kind = attachment_kind(&att.mime)?;
+
+    Ok(Attachment {
+        id: att_id,
+        kind,
+        name: safe_name,
+        mime: att.mime,
+        size_bytes,
+        path: dest_path.to_string_lossy().to_string(),
+    })
+}
+
 #[tauri::command]
 async fn send_message<R: Runtime>(
     app: AppHandle<R>,
@@ -546,65 +657,12 @@ async fn send_message<R: Runtime>(
 
     let att_dir = Config::default_attachments_dir().join(chat_id.to_string());
     if !attachments.is_empty() {
-        let _ = std::fs::create_dir_all(&att_dir);
+        let _ = tokio::fs::create_dir_all(&att_dir).await;
     }
 
     let mut processed_attachments = Vec::new();
     for att in attachments {
-        let safe_name = sanitize_attachment_name(&att.name);
-        let att_id = Uuid::new_v4();
-        let dest_path = att_dir.join(format!("{att_id}-{safe_name}"));
-
-        let size_bytes: i64;
-        if let Some(ref path_str) = att.file_path {
-            let src = Path::new(path_str);
-            if !src.exists() {
-                return Err(format!("File does not exist: {path_str}"));
-            }
-            let meta = std::fs::metadata(src).map_err(|e| e.to_string())?;
-            size_bytes = meta.len() as i64;
-            if size_bytes > 10 * 1024 * 1024 {
-                return Err(format!("Attachment exceeds 10MB limit: {safe_name}"));
-            }
-            std::fs::copy(src, &dest_path).map_err(|e| e.to_string())?;
-        } else if let Some(ref b64) = att.data_base64 {
-            use base64::Engine;
-            let bytes = base64::engine::general_purpose::STANDARD
-                .decode(b64)
-                .map_err(|e| format!("Invalid base64 attachment data: {e}"))?;
-            size_bytes = bytes.len() as i64;
-            if size_bytes > 10 * 1024 * 1024 {
-                return Err(format!("Attachment exceeds 10MB limit: {safe_name}"));
-            }
-            std::fs::write(&dest_path, bytes).map_err(|e| e.to_string())?;
-        } else {
-            return Err("Attachment must provide either file_path or data_base64".to_string());
-        }
-
-        let kind = if att.mime.starts_with("image/") {
-            match att.mime.as_str() {
-                "image/png" | "image/jpeg" | "image/webp" | "image/gif" => AttachmentKind::Image,
-                _ => return Err(format!("Unsupported image format: {}", att.mime)),
-            }
-        } else if att.mime == "application/pdf" {
-            AttachmentKind::Pdf
-        } else if att.mime.starts_with("text/")
-            || att.mime == "application/json"
-            || att.mime == "application/javascript"
-        {
-            AttachmentKind::Text
-        } else {
-            return Err(format!("Unsupported attachment MIME type: {}", att.mime));
-        };
-
-        processed_attachments.push(Attachment {
-            id: att_id,
-            kind,
-            name: safe_name,
-            mime: att.mime,
-            size_bytes,
-            path: dest_path.to_string_lossy().to_string(),
-        });
+        processed_attachments.push(store_attachment(att, &att_dir).await?);
     }
 
     let req_id = Uuid::new_v4();
@@ -796,6 +854,219 @@ async fn set_settings<R: Runtime>(
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PermissionsPayload {
+    pub grants: Vec<GrantInfo>,
+    pub tools: Vec<ToolPolicyInfo>,
+}
+
+async fn ask_daemon<R: Runtime>(
+    app: &AppHandle<R>,
+    msg: ClientMessage,
+) -> Result<DaemonMessage, String> {
+    let stream = connect_to_daemon(app).await?;
+    let (reader, mut writer) = tokio::io::split(stream);
+    let mut lines = BufReader::new(reader).lines();
+
+    let mut payload = serde_json::to_string(&msg).map_err(|e| e.to_string())?;
+    payload.push('\n');
+    writer
+        .write_all(payload.as_bytes())
+        .await
+        .map_err(|e| e.to_string())?;
+    writer.flush().await.map_err(|e| e.to_string())?;
+
+    let Some(line) = lines.next_line().await.map_err(|e| e.to_string())? else {
+        return Err("Daemon closed connection unexpectedly".to_string());
+    };
+    match serde_json::from_str::<DaemonMessage>(&line).map_err(|e| e.to_string())? {
+        DaemonMessage::Error { error, .. } => Err(error.message),
+        reply => Ok(reply),
+    }
+}
+
+async fn ask_for_permissions<R: Runtime>(
+    app: &AppHandle<R>,
+    msg: ClientMessage,
+) -> Result<PermissionsPayload, String> {
+    match ask_daemon(app, msg).await? {
+        DaemonMessage::Permissions { grants, tools, .. } => {
+            Ok(PermissionsPayload { grants, tools })
+        }
+        _ => Err("Unexpected response from daemon".to_string()),
+    }
+}
+
+#[tauri::command]
+async fn get_tool_sources<R: Runtime>(app: AppHandle<R>) -> Result<Vec<ToolSourceInfo>, String> {
+    match ask_daemon(&app, ClientMessage::ListToolSources { id: Uuid::new_v4() }).await? {
+        DaemonMessage::ToolSources { sources, .. } => Ok(sources),
+        _ => Err("Unexpected response from daemon".to_string()),
+    }
+}
+
+async fn ask_for_roots<R: Runtime>(
+    app: &AppHandle<R>,
+    msg: ClientMessage,
+) -> Result<Vec<RootInfo>, String> {
+    match ask_daemon(app, msg).await? {
+        DaemonMessage::Roots { roots, .. } => Ok(roots),
+        _ => Err("Unexpected response from daemon".to_string()),
+    }
+}
+
+#[tauri::command]
+async fn get_roots<R: Runtime>(app: AppHandle<R>) -> Result<Vec<RootInfo>, String> {
+    ask_for_roots(&app, ClientMessage::ListRoots { id: Uuid::new_v4() }).await
+}
+
+#[tauri::command]
+async fn add_root<R: Runtime>(
+    app: AppHandle<R>,
+    path: String,
+    access: RootAccess,
+) -> Result<Vec<RootInfo>, String> {
+    ask_for_roots(
+        &app,
+        ClientMessage::AddRoot {
+            id: Uuid::new_v4(),
+            path,
+            access,
+        },
+    )
+    .await
+}
+
+#[tauri::command]
+async fn set_root_access<R: Runtime>(
+    app: AppHandle<R>,
+    path: String,
+    access: RootAccess,
+) -> Result<Vec<RootInfo>, String> {
+    ask_for_roots(
+        &app,
+        ClientMessage::SetRootAccess {
+            id: Uuid::new_v4(),
+            path,
+            access,
+        },
+    )
+    .await
+}
+
+#[tauri::command]
+async fn remove_root<R: Runtime>(app: AppHandle<R>, path: String) -> Result<Vec<RootInfo>, String> {
+    ask_for_roots(
+        &app,
+        ClientMessage::RemoveRoot {
+            id: Uuid::new_v4(),
+            path,
+        },
+    )
+    .await
+}
+
+/// Opens the system folder picker. Returns `None` when the user cancels.
+#[cfg(not(feature = "e2e"))]
+#[tauri::command]
+async fn pick_folder<R: Runtime>(app: AppHandle<R>) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    let picked = app.dialog().file().blocking_pick_folder();
+    picked
+        .map(|folder| folder.into_path().map_err(|error| error.to_string()))
+        .transpose()
+        .map(|path| path.map(|path| path.display().to_string()))
+}
+
+/// Test builds cannot drive the system picker. They read the folder from the
+/// environment instead.
+#[cfg(feature = "e2e")]
+#[tauri::command]
+async fn pick_folder<R: Runtime>(_app: AppHandle<R>) -> Result<Option<String>, String> {
+    Ok(std::env::var("NOOK_E2E_PICK_FOLDER").ok())
+}
+
+#[tauri::command]
+async fn get_permissions<R: Runtime>(app: AppHandle<R>) -> Result<PermissionsPayload, String> {
+    ask_for_permissions(&app, ClientMessage::ListPermissions { id: Uuid::new_v4() }).await
+}
+
+#[tauri::command]
+async fn revoke_grant<R: Runtime>(
+    app: AppHandle<R>,
+    grant_id: String,
+) -> Result<PermissionsPayload, String> {
+    ask_for_permissions(
+        &app,
+        ClientMessage::RevokeGrant {
+            id: Uuid::new_v4(),
+            grant_id,
+        },
+    )
+    .await
+}
+
+const MAX_LINK_LENGTH: usize = 2048;
+
+/// A link the Panel may hand to the system browser: `http` or `https`, no spaces
+/// or control characters, and a host.
+fn is_web_link(url: &str) -> bool {
+    let lower = url.to_ascii_lowercase();
+    let rest = lower
+        .strip_prefix("https://")
+        .or_else(|| lower.strip_prefix("http://"));
+    url.len() <= MAX_LINK_LENGTH
+        && !url.chars().any(|c| c.is_control() || c.is_whitespace())
+        && rest.is_some_and(|rest| !rest.is_empty() && !rest.starts_with('/'))
+}
+
+#[cfg(not(feature = "e2e"))]
+fn open_in_system_browser(app: &tauri::AppHandle, url: String) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    app.opener()
+        .open_url(url, None::<&str>)
+        .map_err(|error| error.to_string())
+}
+
+/// Test builds never start a browser. They append the link to a file in the run
+/// folder, and the native tests read it.
+#[cfg(feature = "e2e")]
+fn open_in_system_browser(_app: &tauri::AppHandle, url: String) -> Result<(), String> {
+    use std::io::Write;
+    let dir = std::env::var_os("NOOK_E2E_RUN_DIR").ok_or("NOOK_E2E_RUN_DIR is not set")?;
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(PathBuf::from(dir).join("opened-links.log"))
+        .map_err(|error| error.to_string())?;
+    writeln!(file, "{url}").map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn open_external_link(app: tauri::AppHandle, url: String) -> Result<(), String> {
+    if !is_web_link(&url) {
+        return Err("Only http and https links can be opened".to_string());
+    }
+    open_in_system_browser(&app, url)
+}
+
+#[tauri::command]
+async fn set_tool_preference<R: Runtime>(
+    app: AppHandle<R>,
+    tool_id: String,
+    tier: String,
+) -> Result<PermissionsPayload, String> {
+    ask_for_permissions(
+        &app,
+        ClientMessage::SetToolPreference {
+            id: Uuid::new_v4(),
+            tool_id,
+            tier,
+        },
+    )
+    .await
+}
+
 #[tauri::command]
 async fn set_window_size<R: Runtime>(
     app: AppHandle<R>,
@@ -840,6 +1111,8 @@ pub fn run() {
 
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(move |app, s, event| {
@@ -857,10 +1130,18 @@ pub fn run() {
 
     builder
         .manage(DaemonState::default())
+        .on_menu_event(|app, event| {
+            if let Some(tab) = settings_tab_for_menu(event.id().as_ref()) {
+                open_settings_tab(app, tab);
+            }
+        })
         .setup(move |app| {
             #[cfg(target_os = "macos")]
             {
                 app.set_activation_policy(tauri::ActivationPolicy::Regular);
+                if let Err(error) = install_menu(app.handle()) {
+                    eprintln!("Failed to install the application menu: {error}");
+                }
             }
 
             let state = app.state::<DaemonState>();
@@ -893,6 +1174,16 @@ pub fn run() {
             send_approval_decision,
             get_settings,
             set_settings,
+            get_permissions,
+            get_tool_sources,
+            get_roots,
+            add_root,
+            set_root_access,
+            remove_root,
+            pick_folder,
+            revoke_grant,
+            set_tool_preference,
+            open_external_link,
             set_window_size,
             toggle_window,
             start_drag,
@@ -913,6 +1204,46 @@ pub fn run() {
             }
             let _ = (app, event);
         });
+}
+
+const MENU_SETTINGS: &str = "open-settings";
+const MENU_FOLDERS: &str = "open-folders";
+
+/// The Settings tab that a menu item opens.
+fn settings_tab_for_menu(id: &str) -> Option<&'static str> {
+    match id {
+        MENU_SETTINGS => Some("model"),
+        MENU_FOLDERS => Some("folders"),
+        _ => None,
+    }
+}
+
+fn open_settings_tab<R: Runtime>(app: &AppHandle<R>, tab: &'static str) {
+    let handle = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        if let Some(window) = handle.get_webview_window("main") {
+            let _ = window.show();
+            let _ = window.set_focus();
+        }
+        let _ = handle.emit("open_settings", tab);
+    });
+}
+
+/// Adds "Settings" and "Allowed Folders" to the app menu and keeps the standard
+/// menus, which hold copy and paste for the input.
+#[cfg(target_os = "macos")]
+fn install_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
+    use tauri::menu::{Menu, MenuItem, MenuItemKind, PredefinedMenuItem};
+    let menu = Menu::default(app)?;
+    if let Some(MenuItemKind::Submenu(app_menu)) = menu.items()?.into_iter().next() {
+        let settings =
+            MenuItem::with_id(app, MENU_SETTINGS, "Settings…", true, Some("CmdOrCtrl+,"))?;
+        let folders = MenuItem::with_id(app, MENU_FOLDERS, "Allowed Folders…", true, None::<&str>)?;
+        let separator = PredefinedMenuItem::separator(app)?;
+        app_menu.insert_items(&[&settings, &folders, &separator], 2)?;
+    }
+    app.set_menu(menu)?;
+    Ok(())
 }
 
 fn toggle_window_internal<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
@@ -974,5 +1305,153 @@ mod tests {
         }
         let proc = state.spawned_process.lock().await;
         assert!(proc.is_none() || proc.is_some());
+    }
+}
+
+#[cfg(test)]
+mod menu_tests {
+    use super::settings_tab_for_menu;
+
+    #[test]
+    fn each_menu_item_opens_its_settings_tab() {
+        assert_eq!(settings_tab_for_menu("open-settings"), Some("model"));
+        assert_eq!(settings_tab_for_menu("open-folders"), Some("folders"));
+        assert_eq!(settings_tab_for_menu("quit"), None);
+    }
+}
+
+#[cfg(test)]
+mod link_tests {
+    use super::is_web_link;
+
+    #[test]
+    fn only_web_links_may_be_opened() {
+        for good in [
+            "https://example.com/docs",
+            "http://example.com",
+            "HTTPS://Example.com/Path?q=1#top",
+        ] {
+            assert!(is_web_link(good), "{good}");
+        }
+        for bad in [
+            "",
+            "javascript:alert(1)",
+            "file:///etc/passwd",
+            "ftp://example.com",
+            "mailto:a@example.com",
+            "https://",
+            "https:///etc/passwd",
+            "https://example.com/a b",
+            "https://example.com/\nHost: x",
+            "//example.com",
+            "example.com",
+        ] {
+            assert!(!is_web_link(bad), "{bad:?}");
+        }
+        let long = format!("https://example.com/{}", "a".repeat(2100));
+        assert!(!is_web_link(&long));
+    }
+}
+
+#[cfg(all(test, unix))]
+mod daemon_log_tests {
+    #[tokio::test]
+    async fn the_daemon_output_lands_in_the_app_folder_without_secrets() {
+        const SECRET: &str = "s3cr%40t!";
+        let dir = tempfile::tempdir().unwrap();
+        std::env::set_var("NOOK_APP_DIR", dir.path());
+        std::fs::write(
+            dir.path().join("config.toml"),
+            format!(
+                "base_url = \"u\"\nmodel = \"m\"\ndatabase_url = \"postgres://nook:{SECRET}@localhost/nook\"\n"
+            ),
+        )
+        .unwrap();
+        let mut child = tokio::process::Command::new("/bin/sh")
+            .args([
+                "-c",
+                &format!("echo 'connect nook:{SECRET}@localhost failed' >&2; echo second >&2"),
+            ])
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+
+        super::capture_daemon_log(child.stderr.take().unwrap()).await;
+        child.wait().await.unwrap();
+
+        let log = std::fs::read_to_string(dir.path().join("daemon.log")).unwrap();
+        assert_eq!(log, "connect ***@localhost failed\nsecond\n");
+        assert!(!log.contains(SECRET));
+    }
+}
+
+#[cfg(test)]
+mod attachment_tests {
+    use super::*;
+    use base64::Engine;
+    use nook_core::protocol::AttachmentKind;
+
+    #[test]
+    fn attachment_kind_parses_supported_types_and_rejects_unsupported() {
+        assert_eq!(attachment_kind("image/png"), Ok(AttachmentKind::Image));
+        assert_eq!(
+            attachment_kind("image/bmp"),
+            Err("Unsupported image format: image/bmp".to_string())
+        );
+        assert_eq!(attachment_kind("application/pdf"), Ok(AttachmentKind::Pdf));
+        assert_eq!(attachment_kind("text/plain"), Ok(AttachmentKind::Text));
+        assert_eq!(
+            attachment_kind("application/zip"),
+            Err("Unsupported attachment MIME type: application/zip".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn store_attachment_requires_file_path_or_data_base64() {
+        let dir = tempfile::tempdir().unwrap();
+        let att = AttachmentInput {
+            name: "test.txt".to_string(),
+            mime: "text/plain".to_string(),
+            data_base64: None,
+            file_path: None,
+        };
+        let err = store_attachment(att, dir.path()).await.unwrap_err();
+        assert_eq!(
+            err,
+            "Attachment must provide either file_path or data_base64"
+        );
+    }
+
+    #[tokio::test]
+    async fn store_attachment_rejects_base64_exceeding_10mb() {
+        let dir = tempfile::tempdir().unwrap();
+        let large_bytes = vec![0u8; 10 * 1024 * 1024 + 1];
+        let large_b64 = base64::engine::general_purpose::STANDARD.encode(&large_bytes);
+        let att = AttachmentInput {
+            name: "big.txt".to_string(),
+            mime: "text/plain".to_string(),
+            data_base64: Some(large_b64),
+            file_path: None,
+        };
+        let err = store_attachment(att, dir.path()).await.unwrap_err();
+        assert_eq!(err, "Attachment exceeds 10MB limit: big.txt");
+    }
+
+    #[tokio::test]
+    async fn store_attachment_writes_small_base64_payload() {
+        let dir = tempfile::tempdir().unwrap();
+        let payload = b"hello world";
+        let payload_b64 = base64::engine::general_purpose::STANDARD.encode(payload);
+        let att = AttachmentInput {
+            name: "sample.txt".to_string(),
+            mime: "text/plain".to_string(),
+            data_base64: Some(payload_b64),
+            file_path: None,
+        };
+        let result = store_attachment(att, dir.path()).await.unwrap();
+        assert_eq!(result.size_bytes, payload.len() as i64);
+        assert_eq!(result.kind, AttachmentKind::Text);
+        let written = std::fs::read(&result.path).unwrap();
+        assert_eq!(written, payload);
     }
 }
