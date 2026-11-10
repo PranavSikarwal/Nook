@@ -313,7 +313,7 @@ fn a_home_folder_behind_a_link_is_resolved() {
 - Modify: `daemon/crates/nook-core/src/folders.rs` (the closure in `set_access` only)
 - Test: `daemon/crates/nook-core/tests/folders_tests.rs`
 
-- [ ] **Step 1: Write the failing test** after `chat_grants_inside_a_folder_deleted_from_disk_are_dropped`. Copy the structure of `chat_grants_inside_a_removed_folder_are_dropped`.
+- [x] **Step 1: Write the failing test** after `chat_grants_inside_a_folder_deleted_from_disk_are_dropped`. Copy the structure of `chat_grants_inside_a_removed_folder_are_dropped`.
 
 ```rust
 #[tokio::test]
@@ -345,11 +345,11 @@ async fn a_read_only_change_drops_the_chat_grants_inside_the_folder() {
 }
 ```
 
-- [ ] **Step 2: Run it.** `rtk cargo test -p nook-core --test folders_tests a_read_only_change_drops`. Expected: FAIL on the first `assert!` (the grant is still there).
-- [ ] **Step 3: Fix the closure in `set_access`.** Read the old access before the change. Return `Ok(Some(PathBuf::from(path)))` when the old access is `RootAccess::ReadWrite` and the new access is `RootAccess::Read`. Return `Ok(None)` in every other case. `apply` already drops the grants inside the returned folder. Add a one-line comment that gives the reason: an old write approval must not revive when the folder becomes writable again.
-- [ ] **Step 4: Run the whole file.** `rtk cargo test -p nook-core --test folders_tests`. Expected: 14 pass.
-- [ ] **Step 5: Run fmt and clippy as in Task 1 step 6.**
-- [ ] **Step 6: Commit.** `git commit -m "fix(daemon): drop chat grants inside a folder that becomes read only"`.
+- [x] **Step 2: Run it.** `rtk cargo test -p nook-core --test folders_tests a_read_only_change_drops`. Expected: FAIL on the first `assert!` (the grant is still there).
+- [x] **Step 3: Fix the closure in `set_access`.** Read the old access before the change. Return `Ok(Some(PathBuf::from(path)))` when the old access is `RootAccess::ReadWrite` and the new access is `RootAccess::Read`. Return `Ok(None)` in every other case. `apply` already drops the grants inside the returned folder. Add a one-line comment that gives the reason: an old write approval must not revive when the folder becomes writable again.
+- [x] **Step 4: Run the whole file.** `rtk cargo test -p nook-core --test folders_tests`. Expected: 14 pass.
+- [x] **Step 5: Run fmt and clippy as in Task 1 step 6.**
+- [x] **Step 6: Commit.** `git commit -m "fix(daemon): drop chat grants inside a folder that becomes read only"`.
 
 ### Task 11: Split the steps after the save out of `apply`
 

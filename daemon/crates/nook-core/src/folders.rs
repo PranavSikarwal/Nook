@@ -149,8 +149,14 @@ pub async fn set_access(
             .iter_mut()
             .find(|root| root.path == path)
             .ok_or(UNKNOWN_FOLDER)?;
+        let old_access = root.access;
         root.access = access;
-        Ok(None)
+        // An old write approval must not revive when the folder becomes writable again.
+        if old_access == RootAccess::ReadWrite && access == RootAccess::Read {
+            Ok(Some(PathBuf::from(path)))
+        } else {
+            Ok(None)
+        }
     })
     .await?;
     info!(

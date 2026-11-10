@@ -333,6 +333,40 @@ async fn chat_grants_inside_a_folder_deleted_from_disk_are_dropped() {
 }
 
 #[tokio::test]
+async fn a_read_only_change_drops_the_chat_grants_inside_the_folder() {
+    let area = Area::new();
+    let mut h = area.harness(&["one", "two"]).await;
+    let chat = Uuid::new_v4();
+    let inside = area.base.join("two/file.txt");
+    let other = area.base.join("one/file.txt");
+    for (call, path) in [("g1", &inside), ("g2", &other)] {
+        let result = h
+            .approve_and_run(
+                chat,
+                call,
+                WRITE,
+                &write_args(path, "x"),
+                "allow_for_chat_path",
+            )
+            .await;
+        assert_eq!(result["status"], "ok", "{result}");
+    }
+
+    folders::set_access(&h.state, &area.path("two"), RootAccess::Read)
+        .await
+        .unwrap();
+
+    let store = h.state.policy.authorizer.grant_store();
+    let guard = store.lock().await;
+    assert!(guard
+        .matching_scopes(chat, "write_local_file", None, inside.to_str(), None)
+        .is_empty());
+    assert!(!guard
+        .matching_scopes(chat, "write_local_file", None, other.to_str(), None)
+        .is_empty());
+}
+
+#[tokio::test]
 async fn a_failed_save_changes_nothing() {
     let area = Area::new();
     let h = area.harness(&["one"]).await;
