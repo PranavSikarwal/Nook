@@ -238,34 +238,7 @@ impl Config {
             }
         }
     }
-}
 
-fn first_env_file() -> Option<PathBuf> {
-    let candidates = [
-        PathBuf::from(".env"),
-        PathBuf::from("../.env"),
-        PathBuf::from("../../.env"),
-    ];
-    candidates.into_iter().find(|p| p.exists())
-}
-
-fn parse_env_line(line: &str) -> Option<(&str, &str)> {
-    let trimmed = line.trim();
-    if trimmed.is_empty() || trimmed.starts_with('#') {
-        return None;
-    }
-    let (k, v) = trimmed.split_once('=')?;
-    let k = k.trim();
-    let mut v = v.trim();
-    if v.len() >= 2
-        && ((v.starts_with('"') && v.ends_with('"')) || (v.starts_with('\'') && v.ends_with('\'')))
-    {
-        v = &v[1..v.len() - 1];
-    }
-    Some((k, v))
-}
-
-impl Config {
     /// Reads the file and nothing else: no `.env`, no environment overrides, no
     /// file creation. Returns `None` when the file is missing or not valid.
     pub fn read_only(path: &Path) -> Option<Self> {
@@ -362,6 +335,31 @@ impl Config {
         filesystem.insert("roots", toml_edit::value(array));
         write_private(path, &document.to_string())
     }
+}
+
+fn first_env_file() -> Option<PathBuf> {
+    let candidates = [
+        PathBuf::from(".env"),
+        PathBuf::from("../.env"),
+        PathBuf::from("../../.env"),
+    ];
+    candidates.into_iter().find(|p| p.exists())
+}
+
+fn parse_env_line(line: &str) -> Option<(&str, &str)> {
+    let trimmed = line.trim();
+    if trimmed.is_empty() || trimmed.starts_with('#') {
+        return None;
+    }
+    let (k, v) = trimmed.split_once('=')?;
+    let k = k.trim();
+    let mut v = v.trim();
+    if v.len() >= 2
+        && ((v.starts_with('"') && v.ends_with('"')) || (v.starts_with('\'') && v.ends_with('\'')))
+    {
+        v = &v[1..v.len() - 1];
+    }
+    Some((k, v))
 }
 
 /// Writes the file so that only the user can read it. The file can hold secrets
@@ -719,5 +717,10 @@ timeout_seconds = 20
     #[test]
     fn parse_env_line_rejects_line_without_equals() {
         assert_eq!(parse_env_line("NO_EQUALS_HERE"), None);
+    }
+
+    #[test]
+    fn parse_env_line_keeps_a_lone_quote() {
+        assert_eq!(parse_env_line("KEY=\""), Some(("KEY", "\"")));
     }
 }

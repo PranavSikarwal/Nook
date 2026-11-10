@@ -36,9 +36,9 @@
 
 ### Task 1: `config.rs` (findings 3 and 7)
 
-- [ ] Add the test `parse_env_line_keeps_a_lone_quote` to the existing tests: `assert_eq!(parse_env_line("KEY=\""), Some(("KEY", "\"")));`. Run it. It passes, because the code already has the guard. This is a test that pins existing behavior.
-- [ ] Move `read_only` into the first `impl Config` block (right after `load_env_file`). Remove the second `impl Config {` line and its closing brace if they become empty. Place `first_env_file` and `parse_env_line` after the impl.
-- [ ] Run `timeout 280 rtk cargo test -p nook-core config` in `daemon/`. All pass.
+- [x] Add the test `parse_env_line_keeps_a_lone_quote` to the existing tests: `assert_eq!(parse_env_line("KEY=\""), Some(("KEY", "\"")));`. Run it. It passes, because the code already has the guard. This is a test that pins existing behavior.
+- [x] Move `read_only` into the first `impl Config` block (right after `load_env_file`). Remove the second `impl Config {` line and its closing brace if they become empty. Place `first_env_file` and `parse_env_line` after the impl.
+- [x] Run `timeout 280 rtk cargo test -p nook-core config` in `daemon/`. All pass.
 - [ ] Commit: `refactor(daemon): keep Config in one impl block and pin the lone quote case`
 
 ### Task 2: `server.rs` (findings 5 and 6)
