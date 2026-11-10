@@ -92,12 +92,12 @@ Same method as Task 2. Keep the order: environment override, next to the executa
 
 ### Task 6: `ensure_daemon_started` (Panel)
 
-- [ ] Add `async fn running_child_is_ready(state: &DaemonState, socket_path: &Path) -> Option<bool>` or an enum `ChildCheck { Ready, Starting, Gone }` for the block "Check if an existing spawned process is still running". Keep every `eprintln!` message and the `Ok(None)`, `Ok(Some)`, `Err` handling.
-- [ ] Add `fn daemon_command(bin_path: PathBuf) -> tokio::process::Command` for the `PATH`, `NOOK_APP_DIR`, forwarded variables, and the `e2e` feature variables. Keep the `#[cfg(feature = "e2e")]` loop.
-- [ ] Add `fn start_stderr_capture(child: &mut tokio::process::Child)` for the "stderr to log file or to the daemon log" block.
-- [ ] Keep the `#[cfg(any(unix, windows))]` and `#[cfg(not(any(unix, windows)))]` structure unchanged.
-- [ ] Run `rtk cargo check` and `rtk cargo clippy -- -D warnings` in `panel/src-tauri/`. Both pass.
-- [ ] Commit: `refactor(panel): split the daemon start into small steps`
+- [x] Add `async fn running_child_is_ready(state: &DaemonState, socket_path: &Path) -> Option<bool>` or an enum `ChildCheck { Ready, Starting, Gone }` for the block "Check if an existing spawned process is still running". Keep every `eprintln!` message and the `Ok(None)`, `Ok(Some)`, `Err` handling.
+- [x] Add `fn daemon_command(bin_path: PathBuf) -> tokio::process::Command` for the `PATH`, `NOOK_APP_DIR`, forwarded variables, and the `e2e` feature variables. Keep the `#[cfg(feature = "e2e")]` loop.
+- [x] Add `fn start_stderr_capture(child: &mut tokio::process::Child)` for the "stderr to log file or to the daemon log" block.
+- [x] Keep the `#[cfg(any(unix, windows))]` and `#[cfg(not(any(unix, windows)))]` structure unchanged.
+- [x] Run `rtk cargo check` and `rtk cargo clippy -- -D warnings` in `panel/src-tauri/`. Both pass.
+- [x] Commit: `refactor(panel): split the daemon start into small steps`
 
 ### Task 7: `process_client_message`
 

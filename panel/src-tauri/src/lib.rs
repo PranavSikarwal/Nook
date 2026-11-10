@@ -239,6 +239,88 @@ pub async fn wait_for_daemon_ready(socket_path: &Path, timeout: std::time::Durat
     }
 }
 
+#[cfg(any(unix, windows))]
+async fn running_child_is_ready(state: &DaemonState, socket_path: &Path) -> Option<bool> {
+    let mut proc_guard = state.spawned_process.lock().await;
+    if let Some(child) = proc_guard.as_mut() {
+        match child.try_wait() {
+            Ok(None) => {
+                drop(proc_guard);
+                if wait_for_daemon_ready(socket_path, std::time::Duration::from_millis(1500)).await
+                {
+                    return Some(true);
+                }
+                eprintln!("Existing nookd child is running but not responding on socket yet.");
+                return Some(false);
+            }
+            Ok(Some(status)) => {
+                eprintln!("Previous nookd child process exited ({status}). Reaping.");
+                *proc_guard = None;
+            }
+            Err(err) => {
+                eprintln!("Error checking child process status ({err}). Clearing.");
+                *proc_guard = None;
+            }
+        }
+    }
+    None
+}
+
+#[cfg(any(unix, windows))]
+fn daemon_command(bin_path: PathBuf) -> tokio::process::Command {
+    let mut cmd = tokio::process::Command::new(bin_path);
+    cmd.kill_on_drop(true);
+
+    if let Ok(path_var) = std::env::var("PATH") {
+        if let Ok(home) = std::env::var("HOME") {
+            let extra = format!("{home}/.local/bin:{home}/.cargo/bin:{path_var}");
+            cmd.env("PATH", extra);
+        }
+    }
+    if let Some(app_dir) = std::env::var_os("NOOK_APP_DIR") {
+        cmd.env("NOOK_APP_DIR", app_dir);
+    }
+    for env_key in [
+        "NOOK_BASE_URL",
+        "NOOK_MODEL",
+        "NOOK_DATABASE_URL",
+        "NOOK_API_KEY",
+        "NOOK_DISABLE_KEYCHAIN",
+        "NOOK_E2E_RUN_DIR",
+        "NOOK_WORKER_DIR",
+    ] {
+        if let Some(value) = std::env::var_os(env_key) {
+            cmd.env(env_key, value);
+        }
+    }
+    #[cfg(feature = "e2e")]
+    for env_key in ["NOOK_E2E_WORKER_COMMAND", "NOOK_E2E_APPROVAL_TIMEOUT_MS"] {
+        if let Some(value) = std::env::var_os(env_key) {
+            cmd.env(env_key, value);
+        }
+    }
+
+    cmd.stderr(Stdio::piped());
+    cmd
+}
+
+#[cfg(any(unix, windows))]
+fn start_stderr_capture(child: &mut tokio::process::Child) {
+    let e2e_log_path =
+        std::env::var_os("NOOK_E2E_RUN_DIR").map(|dir| PathBuf::from(dir).join("daemon-stderr.log"));
+    if let Some(stderr) = child.stderr.take() {
+        if let Some(path) = e2e_log_path {
+            let redactions = ["NOOK_BASE_URL", "NOOK_MODEL", "NOOK_API_KEY"]
+                .into_iter()
+                .filter_map(|name| std::env::var(name).ok())
+                .collect();
+            tauri::async_runtime::spawn(capture_daemon_stderr(stderr, path, redactions));
+        } else {
+            tauri::async_runtime::spawn(capture_daemon_log(stderr));
+        }
+    }
+}
+
 /// Ensure nookd is running; spawn it if not currently responding
 pub async fn ensure_daemon_started(state: &DaemonState) {
     #[cfg(any(unix, windows))]
@@ -255,35 +337,8 @@ pub async fn ensure_daemon_started(state: &DaemonState) {
         }
 
         // Check if an existing spawned process is still running
-        {
-            let mut proc_guard = state.spawned_process.lock().await;
-            if let Some(child) = proc_guard.as_mut() {
-                match child.try_wait() {
-                    Ok(None) => {
-                        drop(proc_guard);
-                        if wait_for_daemon_ready(
-                            &socket_path,
-                            std::time::Duration::from_millis(1500),
-                        )
-                        .await
-                        {
-                            return;
-                        }
-                        eprintln!(
-                            "Existing nookd child is running but not responding on socket yet."
-                        );
-                        return;
-                    }
-                    Ok(Some(status)) => {
-                        eprintln!("Previous nookd child process exited ({status}). Reaping.");
-                        *proc_guard = None;
-                    }
-                    Err(err) => {
-                        eprintln!("Error checking child process status ({err}). Clearing.");
-                        *proc_guard = None;
-                    }
-                }
-            }
+        if running_child_is_ready(state, &socket_path).await.is_some() {
+            return;
         }
 
         if wait_for_daemon_ready(&socket_path, std::time::Duration::from_millis(200)).await {
@@ -292,57 +347,11 @@ pub async fn ensure_daemon_started(state: &DaemonState) {
 
         if let Some(bin_path) = find_nookd_binary() {
             eprintln!("Auto-starting nookd daemon from {}", bin_path.display());
-            let mut cmd = tokio::process::Command::new(bin_path);
-            cmd.kill_on_drop(true);
-
-            if let Ok(path_var) = std::env::var("PATH") {
-                if let Ok(home) = std::env::var("HOME") {
-                    let extra = format!("{home}/.local/bin:{home}/.cargo/bin:{path_var}");
-                    cmd.env("PATH", extra);
-                }
-            }
-            if let Some(app_dir) = std::env::var_os("NOOK_APP_DIR") {
-                cmd.env("NOOK_APP_DIR", app_dir);
-            }
-            for env_key in [
-                "NOOK_BASE_URL",
-                "NOOK_MODEL",
-                "NOOK_DATABASE_URL",
-                "NOOK_API_KEY",
-                "NOOK_DISABLE_KEYCHAIN",
-                "NOOK_E2E_RUN_DIR",
-                "NOOK_WORKER_DIR",
-            ] {
-                if let Some(value) = std::env::var_os(env_key) {
-                    cmd.env(env_key, value);
-                }
-            }
-            #[cfg(feature = "e2e")]
-            for env_key in ["NOOK_E2E_WORKER_COMMAND", "NOOK_E2E_APPROVAL_TIMEOUT_MS"] {
-                if let Some(value) = std::env::var_os(env_key) {
-                    cmd.env(env_key, value);
-                }
-            }
-
-            let e2e_log_path = std::env::var_os("NOOK_E2E_RUN_DIR")
-                .map(|dir| PathBuf::from(dir).join("daemon-stderr.log"));
-            cmd.stderr(Stdio::piped());
+            let mut cmd = daemon_command(bin_path);
 
             match cmd.spawn() {
                 Ok(mut child) => {
-                    if let Some(stderr) = child.stderr.take() {
-                        if let Some(path) = e2e_log_path {
-                            let redactions = ["NOOK_BASE_URL", "NOOK_MODEL", "NOOK_API_KEY"]
-                                .into_iter()
-                                .filter_map(|name| std::env::var(name).ok())
-                                .collect();
-                            tauri::async_runtime::spawn(capture_daemon_stderr(
-                                stderr, path, redactions,
-                            ));
-                        } else {
-                            tauri::async_runtime::spawn(capture_daemon_log(stderr));
-                        }
-                    }
+                    start_stderr_capture(&mut child);
                     {
                         let mut proc_guard = state.spawned_process.lock().await;
                         *proc_guard = Some(child);
