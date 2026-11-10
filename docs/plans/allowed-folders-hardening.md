@@ -281,7 +281,7 @@ No new test is possible for a lint rule. The existing tests are the safety net. 
 **Interfaces:**
 - Produces: `fn resolve_home(home: PathBuf) -> PathBuf` (private, in `folders.rs`). It returns the resolved path, or the path as it is when it cannot be resolved.
 
-- [ ] **Step 1: Write the failing tests** in the `tests` module of `folders.rs`.
+- [x] **Step 1: Write the failing tests** in the `tests` module of `folders.rs`.
 
 ```rust
 #[test]
@@ -300,12 +300,12 @@ fn a_home_folder_behind_a_link_is_resolved() {
 }
 ```
 
-- [ ] **Step 2: Run them.** From `daemon/`: `rtk cargo test -p nook-core --lib folders::tests::a_home_folder`. Expected: FAIL to compile with "cannot find function `resolve_home`".
-- [ ] **Step 3: Add `resolve_home`** above `Keepout` and use it in `Keepout::current`: replace `.and_then(|home| home.canonicalize().ok())` with `.map(resolve_home)`.
-- [ ] **Step 4: Change the text of `HOME_OR_ABOVE`** to `"That is your home folder or a folder above it. Choose a smaller folder"`. The tests compare the constant, so no test text changes. Run `rtk rg "Choose a folder inside your home" /home/azureuser/nook --glob '!target' --glob '!node_modules'` and update any other place that holds the old text. Expected after the change: no match.
-- [ ] **Step 5: Run the folders tests.** `rtk cargo test -p nook-core --lib folders` and `rtk cargo test -p nook-core --test folders_tests`. Expected: all pass.
-- [ ] **Step 6: Run fmt and clippy as in Task 1 step 6.**
-- [ ] **Step 7: Commit.** `git commit -m "fix(daemon): keep an unresolved home folder in the keepout and fix the home error text"`.
+- [x] **Step 2: Run them.** From `daemon/`: `rtk cargo test -p nook-core --lib folders::tests::a_home_folder`. Expected: FAIL to compile with "cannot find function `resolve_home`".
+- [x] **Step 3: Add `resolve_home`** above `Keepout` and use it in `Keepout::current`: replace `.and_then(|home| home.canonicalize().ok())` with `.map(resolve_home)`.
+- [x] **Step 4: Change the text of `HOME_OR_ABOVE`** to `"That is your home folder or a folder above it. Choose a smaller folder"`. The tests compare the constant, so no test text changes. Run `rtk rg "Choose a folder inside your home" /home/azureuser/nook --glob '!target' --glob '!node_modules'` and update any other place that holds the old text. Expected after the change: no match.
+- [x] **Step 5: Run the folders tests.** `rtk cargo test -p nook-core --lib folders` and `rtk cargo test -p nook-core --test folders_tests`. Expected: all pass.
+- [x] **Step 6: Run fmt and clippy as in Task 1 step 6.**
+- [x] **Step 7: Commit.** `git commit -m "fix(daemon): keep an unresolved home folder in the keepout and fix the home error text"`.
 
 ### Task 10: Drop the chat grants of a folder that goes from read and write to read only
 

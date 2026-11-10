@@ -10,12 +10,16 @@ pub const MAX_ROOTS: usize = 16;
 
 const NOT_A_FOLDER: &str = "That path is not a folder";
 const HOME_OR_ABOVE: &str =
-    "Choose a folder inside your home folder. Your home folder and the folders above it give too much access";
+    "That is your home folder or a folder above it. Choose a smaller folder";
 const APP_FOLDER: &str = "That folder holds the Nook settings and cannot be shared";
 const ALREADY_LISTED: &str = "That folder overlaps a folder that is already in the list";
 const TOO_MANY: &str = "The list is full";
 const UNKNOWN_FOLDER: &str = "That folder is not in the list";
 const NOT_SAVED: &str = "The list could not be saved to config.toml";
+
+fn resolve_home(home: PathBuf) -> PathBuf {
+    home.canonicalize().unwrap_or(home)
+}
 
 /// The places a new folder must stay away from.
 pub struct Keepout {
@@ -28,7 +32,7 @@ impl Keepout {
         let home = std::env::var_os("HOME")
             .or_else(|| std::env::var_os("USERPROFILE"))
             .map(PathBuf::from)
-            .and_then(|home| home.canonicalize().ok());
+            .map(resolve_home);
         let app_dir = Config::app_dir();
         Self {
             home,
@@ -391,5 +395,20 @@ mod tests {
             Some("The path is not absolute")
         );
         assert_eq!(listed[2].access, RootAccess::ReadWrite);
+    }
+
+    #[test]
+    fn a_home_folder_that_cannot_be_resolved_is_kept_as_it_is() {
+        let missing = PathBuf::from("/nowhere/home-that-does-not-exist");
+        assert_eq!(resolve_home(missing.clone()), missing);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_home_folder_behind_a_link_is_resolved() {
+        let l = layout();
+        let link = l.home.parent().unwrap().join("home-link");
+        std::os::unix::fs::symlink(&l.home, &link).unwrap();
+        assert_eq!(resolve_home(link), l.home);
     }
 }
