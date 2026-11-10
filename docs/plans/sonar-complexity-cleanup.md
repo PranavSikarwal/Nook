@@ -83,12 +83,12 @@ Same method as Task 2. Keep the order: environment override, next to the executa
 
 ### Task 5: `send_message` (Panel)
 
-- [ ] Add `fn attachment_kind(mime: &str) -> Result<AttachmentKind, String>` with the exact current rules and messages.
-- [ ] Add `async fn store_attachment(att: AttachmentInput, att_dir: &Path) -> Result<Attachment, String>` that holds the body of the `for att in attachments` loop: copy or decode, the 10 MB checks, the kind, and the `Attachment` value.
-- [ ] Add `async fn store_attachments(attachments: Vec<AttachmentInput>, att_dir: &Path) -> Result<Vec<Attachment>, String>` or keep the loop in `send_message` with a single call to `store_attachment`.
-- [ ] Add `async fn forward_events(...)` for the spawned task that reads lines and clears `active_request_id`, only if `send_message` is still above 30. Keep the clearing logic as it is.
-- [ ] Run `rtk cargo check`, `rtk cargo clippy -- -D warnings`, and `rtk cargo test` in `panel/src-tauri/`. All pass.
-- [ ] Commit: `refactor(panel): store each attachment in its own function`
+- [x] Add `fn attachment_kind(mime: &str) -> Result<AttachmentKind, String>` with the exact current rules and messages.
+- [x] Add `async fn store_attachment(att: AttachmentInput, att_dir: &Path) -> Result<Attachment, String>` that holds the body of the `for att in attachments` loop: copy or decode, the 10 MB checks, the kind, and the `Attachment` value.
+- [x] Add `async fn store_attachments(attachments: Vec<AttachmentInput>, att_dir: &Path) -> Result<Vec<Attachment>, String>` or keep the loop in `send_message` with a single call to `store_attachment`.
+- [x] Add `async fn forward_events(...)` for the spawned task that reads lines and clears `active_request_id`, only if `send_message` is still above 30. Keep the clearing logic as it is.
+- [x] Run `rtk cargo check`, `rtk cargo clippy -- -D warnings`, and `rtk cargo test` in `panel/src-tauri/`. All pass.
+- [x] Commit: `refactor(panel): store each attachment in its own function`
 
 ### Task 6: `ensure_daemon_started` (Panel)
 

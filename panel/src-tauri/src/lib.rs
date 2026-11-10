@@ -565,6 +565,71 @@ async fn delete_chat<R: Runtime>(app: AppHandle<R>, chat_id: Uuid) -> Result<boo
     }
 }
 
+fn attachment_kind(mime: &str) -> Result<AttachmentKind, String> {
+    if mime.starts_with("image/") {
+        match mime {
+            "image/png" | "image/jpeg" | "image/webp" | "image/gif" => Ok(AttachmentKind::Image),
+            _ => Err(format!("Unsupported image format: {mime}")),
+        }
+    } else if mime == "application/pdf" {
+        Ok(AttachmentKind::Pdf)
+    } else if mime.starts_with("text/")
+        || mime == "application/json"
+        || mime == "application/javascript"
+    {
+        Ok(AttachmentKind::Text)
+    } else {
+        Err(format!("Unsupported attachment MIME type: {mime}"))
+    }
+}
+
+async fn store_attachment(att: AttachmentInput, att_dir: &Path) -> Result<Attachment, String> {
+    let safe_name = sanitize_attachment_name(&att.name);
+    let att_id = Uuid::new_v4();
+    let dest_path = att_dir.join(format!("{att_id}-{safe_name}"));
+
+    let size_bytes: i64;
+    if let Some(ref path_str) = att.file_path {
+        let src = Path::new(path_str);
+        if !src.exists() {
+            return Err(format!("File does not exist: {path_str}"));
+        }
+        let meta = tokio::fs::metadata(src).await.map_err(|e| e.to_string())?;
+        size_bytes = meta.len() as i64;
+        if size_bytes > 10 * 1024 * 1024 {
+            return Err(format!("Attachment exceeds 10MB limit: {safe_name}"));
+        }
+        tokio::fs::copy(src, &dest_path)
+            .await
+            .map_err(|e| e.to_string())?;
+    } else if let Some(ref b64) = att.data_base64 {
+        use base64::Engine;
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(b64)
+            .map_err(|e| format!("Invalid base64 attachment data: {e}"))?;
+        size_bytes = bytes.len() as i64;
+        if size_bytes > 10 * 1024 * 1024 {
+            return Err(format!("Attachment exceeds 10MB limit: {safe_name}"));
+        }
+        tokio::fs::write(&dest_path, bytes)
+            .await
+            .map_err(|e| e.to_string())?;
+    } else {
+        return Err("Attachment must provide either file_path or data_base64".to_string());
+    }
+
+    let kind = attachment_kind(&att.mime)?;
+
+    Ok(Attachment {
+        id: att_id,
+        kind,
+        name: safe_name,
+        mime: att.mime,
+        size_bytes,
+        path: dest_path.to_string_lossy().to_string(),
+    })
+}
+
 #[tauri::command]
 async fn send_message<R: Runtime>(
     app: AppHandle<R>,
@@ -588,64 +653,7 @@ async fn send_message<R: Runtime>(
 
     let mut processed_attachments = Vec::new();
     for att in attachments {
-        let safe_name = sanitize_attachment_name(&att.name);
-        let att_id = Uuid::new_v4();
-        let dest_path = att_dir.join(format!("{att_id}-{safe_name}"));
-
-        let size_bytes: i64;
-        if let Some(ref path_str) = att.file_path {
-            let src = Path::new(path_str);
-            if !src.exists() {
-                return Err(format!("File does not exist: {path_str}"));
-            }
-            let meta = tokio::fs::metadata(src).await.map_err(|e| e.to_string())?;
-            size_bytes = meta.len() as i64;
-            if size_bytes > 10 * 1024 * 1024 {
-                return Err(format!("Attachment exceeds 10MB limit: {safe_name}"));
-            }
-            tokio::fs::copy(src, &dest_path)
-                .await
-                .map_err(|e| e.to_string())?;
-        } else if let Some(ref b64) = att.data_base64 {
-            use base64::Engine;
-            let bytes = base64::engine::general_purpose::STANDARD
-                .decode(b64)
-                .map_err(|e| format!("Invalid base64 attachment data: {e}"))?;
-            size_bytes = bytes.len() as i64;
-            if size_bytes > 10 * 1024 * 1024 {
-                return Err(format!("Attachment exceeds 10MB limit: {safe_name}"));
-            }
-            tokio::fs::write(&dest_path, bytes)
-                .await
-                .map_err(|e| e.to_string())?;
-        } else {
-            return Err("Attachment must provide either file_path or data_base64".to_string());
-        }
-
-        let kind = if att.mime.starts_with("image/") {
-            match att.mime.as_str() {
-                "image/png" | "image/jpeg" | "image/webp" | "image/gif" => AttachmentKind::Image,
-                _ => return Err(format!("Unsupported image format: {}", att.mime)),
-            }
-        } else if att.mime == "application/pdf" {
-            AttachmentKind::Pdf
-        } else if att.mime.starts_with("text/")
-            || att.mime == "application/json"
-            || att.mime == "application/javascript"
-        {
-            AttachmentKind::Text
-        } else {
-            return Err(format!("Unsupported attachment MIME type: {}", att.mime));
-        };
-
-        processed_attachments.push(Attachment {
-            id: att_id,
-            kind,
-            name: safe_name,
-            mime: att.mime,
-            size_bytes,
-            path: dest_path.to_string_lossy().to_string(),
-        });
+        processed_attachments.push(store_attachment(att, &att_dir).await?);
     }
 
     let req_id = Uuid::new_v4();
