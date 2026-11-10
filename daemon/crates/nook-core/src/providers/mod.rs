@@ -2,7 +2,7 @@ use crate::protocol::{ToolDescriptor, ToolSourceInfo, ToolSourceState};
 use async_trait::async_trait;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::Arc;
+use std::sync::{Arc, PoisonError};
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -286,15 +286,12 @@ impl ProviderHandle {
     pub fn current(&self) -> Arc<ProviderRegistry> {
         self.current
             .read()
-            .unwrap_or_else(|error| error.into_inner())
+            .unwrap_or_else(PoisonError::into_inner)
             .clone()
     }
 
     pub fn replace(&self, registry: ProviderRegistry) {
-        *self
-            .current
-            .write()
-            .unwrap_or_else(|error| error.into_inner()) = Arc::new(registry);
+        *self.current.write().unwrap_or_else(PoisonError::into_inner) = Arc::new(registry);
     }
 
     pub fn is_empty(&self) -> bool {

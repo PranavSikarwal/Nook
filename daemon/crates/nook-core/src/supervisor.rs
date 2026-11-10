@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Stdio;
-use std::sync::Arc;
+use std::sync::{Arc, PoisonError};
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{ChildStderr, Command};
@@ -213,7 +213,7 @@ impl WorkerSupervisor {
     fn current_tools(&self) -> Arc<Vec<ToolDescriptor>> {
         self.tools
             .lock()
-            .unwrap_or_else(|error| error.into_inner())
+            .unwrap_or_else(PoisonError::into_inner)
             .clone()
     }
 
@@ -222,7 +222,7 @@ impl WorkerSupervisor {
     /// tools that are gone.
     pub async fn update_tools(&self, tools: Vec<ToolDescriptor>) {
         let tools = Arc::new(tools);
-        *self.tools.lock().unwrap_or_else(|error| error.into_inner()) = tools.clone();
+        *self.tools.lock().unwrap_or_else(PoisonError::into_inner) = tools.clone();
         let sender = self.inner.lock().await.stdin_tx.clone();
         let Some(sender) = sender else { return };
         let catalog = DaemonWorkerRequest::ToolCatalog {

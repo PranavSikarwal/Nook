@@ -96,11 +96,8 @@ export function FoldersTab() {
             <div className="flex items-center justify-between gap-2">
               <span className="text-zinc-200 text-[11px] font-medium break-all">{root.path}</span>
               <span className="flex items-center gap-2 shrink-0">
-                <span
-                  role="group"
-                  aria-label={`Access for ${root.path}`}
-                  className="flex rounded-md border border-white/10 overflow-hidden"
-                >
+                <fieldset className="flex min-w-0 rounded-md border border-white/10 overflow-hidden">
+                  <legend className="sr-only">Access for {root.path}</legend>
                   {(Object.keys(ACCESS_LABEL) as RootAccess[]).map((access) => (
                     <button
                       key={access}
@@ -120,7 +117,7 @@ export function FoldersTab() {
                       {ACCESS_LABEL[access]}
                     </button>
                   ))}
-                </span>
+                </fieldset>
                 <button
                   type="button"
                   data-testid="folder-remove"

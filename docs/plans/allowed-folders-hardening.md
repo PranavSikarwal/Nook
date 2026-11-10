@@ -266,11 +266,11 @@ The boundary is the host file, and the spec already checks it with `existsSync(o
 
 No new test is possible for a lint rule. The existing tests are the safety net. Change nothing else in these files.
 
-- [ ] **Step 1: Replace the four closures.** In each of the four places `.unwrap_or_else(|error| error.into_inner())` becomes `.unwrap_or_else(PoisonError::into_inner)`. Add `use std::sync::PoisonError;` to each file, next to the existing `use std::sync::Arc;` (write it as `use std::sync::{Arc, PoisonError};`).
-- [ ] **Step 2: Replace the `role="group"` span in `FoldersTab.tsx` (line 99).** Use `<fieldset className="flex min-w-0 rounded-md border border-white/10 overflow-hidden">` with a first child `<legend className="sr-only">Access for {root.path}</legend>`. Remove the `role` and the `aria-label` attributes. Keep the buttons inside it as they are.
-- [ ] **Step 3: Run the Daemon checks from `daemon/`.** `rtk cargo fmt --check`, `rtk cargo clippy --workspace --all-targets -- -D warnings`, `rtk cargo test -p nook-core --test folders_tests --test supervisor_tests`. Expected: no output from fmt, no warning from clippy, all tests pass.
-- [ ] **Step 4: Run the Panel checks from `panel/`.** `rtk npm run lint`, `rtk npm run test:unit`, `rtk npm run build`. Expected: all pass. Do NOT run the native suite. The orchestrator runs it.
-- [ ] **Step 5: Commit.** `git add` the three files and this plan, then `git commit -m "fix: close the SonarCloud issues in the folders change"`.
+- [x] **Step 1: Replace the four closures.** In each of the four places `.unwrap_or_else(|error| error.into_inner())` becomes `.unwrap_or_else(PoisonError::into_inner)`. Add `use std::sync::PoisonError;` to each file, next to the existing `use std::sync::Arc;` (write it as `use std::sync::{Arc, PoisonError};`).
+- [x] **Step 2: Replace the `role="group"` span in `FoldersTab.tsx` (line 99).** Use `<fieldset className="flex min-w-0 rounded-md border border-white/10 overflow-hidden">` with a first child `<legend className="sr-only">Access for {root.path}</legend>`. Remove the `role` and the `aria-label` attributes. Keep the buttons inside it as they are.
+- [x] **Step 3: Run the Daemon checks from `daemon/`.** `rtk cargo fmt --check`, `rtk cargo clippy --workspace --all-targets -- -D warnings`, `rtk cargo test -p nook-core --test folders_tests --test supervisor_tests`. Expected: no output from fmt, no warning from clippy, all tests pass.
+- [x] **Step 4: Run the Panel checks from `panel/`.** `rtk npm run lint`, `rtk npm run test:unit`, `rtk npm run build`. Expected: all pass. Do NOT run the native suite. The orchestrator runs it.
+- [x] **Step 5: Commit.** `git add` the three files and this plan, then `git commit -m "fix: close the SonarCloud issues in the folders change"`.
 
 ## Final report
 
