@@ -37,5 +37,5 @@ A release change keeps application version metadata aligned, updates
 gate. `CONTRIBUTING.md` contains the release procedure. A pull request that
 completes a release bumps the application version and moves "Unreleased" in
 `CHANGELOG.md` under the new version before it merges. After the merge, run the
-Package and Release workflow by hand on the merge commit. Create the tag only
-when the package run passes on macOS, Ubuntu and Windows.
+Package and Release workflow by hand on `main` at the merge commit. Create the
+tag only when the package run passes on macOS, Ubuntu and Windows.
