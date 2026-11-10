@@ -10,7 +10,7 @@ use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, PoisonError};
 use std::time::{Duration, Instant};
 use thiserror::Error;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
@@ -392,7 +392,7 @@ impl ServerSlot {
             return guard.clone();
         }
         {
-            let mut started = self.started.lock().unwrap_or_else(|e| e.into_inner());
+            let mut started = self.started.lock().unwrap_or_else(PoisonError::into_inner);
             if started.elapsed() < limits.restart_interval {
                 return guard.clone();
             }

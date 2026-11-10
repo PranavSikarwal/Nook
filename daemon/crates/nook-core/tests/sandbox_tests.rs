@@ -52,7 +52,7 @@ fn area() -> Area {
 
 fn spec(area: &Area, argv: &[&str]) -> SandboxSpec {
     SandboxSpec {
-        argv: argv.iter().map(|part| part.to_string()).collect(),
+        argv: argv.iter().map(ToString::to_string).collect(),
         cwd: area.allowed.clone(),
         read_roots: vec![area.read_only.clone()],
         write_roots: vec![area.allowed.clone()],

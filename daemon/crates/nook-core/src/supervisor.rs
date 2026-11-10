@@ -170,12 +170,15 @@ fn resolve_worker_command(config: &Config, custom_command: Option<Vec<String>>) 
         return cmd;
     }
     if let Ok(cmd_str) = std::env::var("NOOK_WORKER_COMMAND") {
-        return cmd_str.split_whitespace().map(|s| s.to_string()).collect();
+        return cmd_str
+            .split_whitespace()
+            .map(ToString::to_string)
+            .collect();
     }
     if let Some(ref override_cmd) = config.worker_command {
         return override_cmd
             .split_whitespace()
-            .map(|s| s.to_string())
+            .map(ToString::to_string)
             .collect();
     }
     if let Some(command) = bundled_worker_command() {

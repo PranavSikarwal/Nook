@@ -51,10 +51,10 @@ Eight functions report "Cognitive Complexity above 30" (`server.rs:415`, `lib.rs
 
 **Files:** `daemon/crates/nook-core/src/server.rs` (lines near 97, 101), `policy_assets.rs` (near 202, 210, 215), `providers/mcp.rs` (near 395), `supervisor.rs` (near 173), `tests/sandbox_tests.rs` (near 55).
 
-- [ ] Replace `.unwrap_or_else(|e| e.into_inner())` with `.unwrap_or_else(PoisonError::into_inner)`. Add `PoisonError` to the existing `std::sync` import in each file. `providers/mod.rs` already shows the pattern.
-- [ ] Replace `.map(|s| s.to_string())` with `.map(ToString::to_string)` in `supervisor.rs` and `sandbox_tests.rs`. In `sandbox_tests.rs` the closure is `|part| part.to_string()` on `&&str`: use `.map(|part| (*part).to_string())` only if `ToString::to_string` does not compile, and say so in the commit body.
-- [ ] Run `rtk cargo fmt --check`, `rtk cargo clippy --all-targets -- -D warnings`, `rtk cargo test` in `daemon/`. All pass.
-- [ ] Commit: `refactor(daemon): name the method instead of a closure`
+- [x] Replace `.unwrap_or_else(|e| e.into_inner())` with `.unwrap_or_else(PoisonError::into_inner)`. Add `PoisonError` to the existing `std::sync` import in each file. `providers/mod.rs` already shows the pattern.
+- [x] Replace `.map(|s| s.to_string())` with `.map(ToString::to_string)` in `supervisor.rs` and `sandbox_tests.rs`. In `sandbox_tests.rs` the closure is `|part| part.to_string()` on `&&str`: use `.map(|part| (*part).to_string())` only if `ToString::to_string` does not compile, and say so in the commit body.
+- [x] Run `rtk cargo fmt --check`, `rtk cargo clippy --all-targets -- -D warnings`, `rtk cargo test` in `daemon/`. All pass.
+- [x] Commit: `refactor(daemon): name the method instead of a closure`
 
 ### Task 4: Tick the plan
 

@@ -3,6 +3,7 @@ use crate::protocol::ApprovalAction;
 use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::PoisonError;
 use thiserror::Error;
 
 pub(crate) const TOOL_NAMESPACE: &str = "nook:";
@@ -199,7 +200,10 @@ impl PolicyAssets {
 
     /// The tier a tool really has: the default, or a stricter choice of the user.
     pub fn effective_tier(&self, tool_id: &str, default_tier: &str) -> String {
-        let preferences = self.preferences.read().unwrap_or_else(|e| e.into_inner());
+        let preferences = self
+            .preferences
+            .read()
+            .unwrap_or_else(PoisonError::into_inner);
         crate::permissions::effective_tier(
             default_tier,
             preferences.get(tool_id).map(String::as_str),
@@ -207,12 +211,18 @@ impl PolicyAssets {
     }
 
     pub fn preference(&self, tool_id: &str) -> Option<String> {
-        let preferences = self.preferences.read().unwrap_or_else(|e| e.into_inner());
+        let preferences = self
+            .preferences
+            .read()
+            .unwrap_or_else(PoisonError::into_inner);
         preferences.get(tool_id).cloned()
     }
 
     pub fn set_preference(&self, tool_id: &str, tier: Option<&str>) {
-        let mut preferences = self.preferences.write().unwrap_or_else(|e| e.into_inner());
+        let mut preferences = self
+            .preferences
+            .write()
+            .unwrap_or_else(PoisonError::into_inner);
         match tier {
             Some(tier) => preferences.insert(tool_id.to_string(), tier.to_string()),
             None => preferences.remove(tool_id),

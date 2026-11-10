@@ -1,7 +1,7 @@
 use sqlx::PgPool;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, PoisonError};
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 #[cfg(windows)]
@@ -93,11 +93,14 @@ impl DbPool {
     }
 
     pub fn get(&self) -> Option<PgPool> {
-        self.0.read().unwrap_or_else(|e| e.into_inner()).clone()
+        self.0
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
     }
 
     pub fn set(&self, pool: PgPool) {
-        *self.0.write().unwrap_or_else(|e| e.into_inner()) = Some(pool);
+        *self.0.write().unwrap_or_else(PoisonError::into_inner) = Some(pool);
     }
 }
 
