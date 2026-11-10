@@ -1321,17 +1321,20 @@ mod link_tests {
 mod daemon_log_tests {
     #[tokio::test]
     async fn the_daemon_output_lands_in_the_app_folder_without_secrets() {
+        const SECRET: &str = "s3cr%40t!";
         let dir = tempfile::tempdir().unwrap();
         std::env::set_var("NOOK_APP_DIR", dir.path());
         std::fs::write(
             dir.path().join("config.toml"),
-            "base_url = \"u\"\nmodel = \"m\"\ndatabase_url = \"postgres://nook:hunter22@localhost/nook\"\n",
+            format!(
+                "base_url = \"u\"\nmodel = \"m\"\ndatabase_url = \"postgres://nook:{SECRET}@localhost/nook\"\n"
+            ),
         )
         .unwrap();
         let mut child = tokio::process::Command::new("/bin/sh")
             .args([
                 "-c",
-                "echo 'connect nook:hunter22@localhost failed' >&2; echo second >&2",
+                &format!("echo 'connect nook:{SECRET}@localhost failed' >&2; echo second >&2"),
             ])
             .stderr(std::process::Stdio::piped())
             .spawn()
@@ -1342,5 +1345,6 @@ mod daemon_log_tests {
 
         let log = std::fs::read_to_string(dir.path().join("daemon.log")).unwrap();
         assert_eq!(log, "connect ***@localhost failed\nsecond\n");
+        assert!(!log.contains(SECRET));
     }
 }

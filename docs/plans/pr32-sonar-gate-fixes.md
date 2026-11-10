@@ -31,9 +31,9 @@ Eight functions report "Cognitive Complexity above 30" (`server.rs:415`, `lib.rs
 
 **Files:** `daemon/crates/nook-core/src/daemon_log.rs` (test `config()` near line 156), `panel/src-tauri/src/lib.rs` (test `the_daemon_output_lands_in_the_app_folder_without_secrets` near line 1328).
 
-- [ ] In each test, define a `const` for the secret part (for example `SECRET: &str = "s3cr%40t!"`) and build the URL with `format!("postgres://nook:{SECRET}@db.example.com:5432/nook")`. The assertions that the secret is absent from the output stay as they are and use the same constant.
-- [ ] Run `rtk cargo test -p nook-core daemon_log` in `daemon/` and `rtk cargo test the_daemon_output_lands` in `panel/src-tauri/`. Both pass.
-- [ ] Commit: `test: build the fake database URL from a constant`
+- [x] In each test, define a `const` for the secret part (for example `SECRET: &str = "s3cr%40t!"`) and build the URL with `format!("postgres://nook:{SECRET}@db.example.com:5432/nook")`. The assertions that the secret is absent from the output stay as they are and use the same constant.
+- [x] Run `rtk cargo test -p nook-core daemon_log` in `daemon/` and `rtk cargo test the_daemon_output_lands` in `panel/src-tauri/`. Both pass.
+- [x] Commit: `test: build the fake database URL from a constant`
 
 ### Task 2: Use async file calls inside async functions (Reliability C)
 

@@ -151,9 +151,11 @@ mod tests {
     use std::collections::BTreeMap;
     use tokio::io::{duplex, AsyncWriteExt};
 
+    const SECRET: &str = "s3cr%40t!";
+
     fn config() -> Config {
         let mut config = Config {
-            database_url: "postgres://nook:s3cr%40t!@db.example.com:5432/nook".to_string(),
+            database_url: format!("postgres://nook:{SECRET}@db.example.com:5432/nook"),
             ..Config::default()
         };
         config.tools.mcp_servers.push(McpServerConfig {
@@ -176,8 +178,8 @@ mod tests {
     fn secrets_cover_the_password_the_user_pair_the_key_and_server_values() {
         let secrets = secrets_to_redact(&config(), Some("sk-live-abcdef"));
 
-        assert!(secrets.contains(&"nook:s3cr%40t!".to_string()));
-        assert!(secrets.contains(&"s3cr%40t!".to_string()));
+        assert!(secrets.contains(&format!("nook:{SECRET}")));
+        assert!(secrets.contains(&SECRET.to_string()));
         assert!(secrets.contains(&"s3cr@t!".to_string()));
         assert!(secrets.contains(&"sk-live-abcdef".to_string()));
         assert!(secrets.contains(&"tok-12345".to_string()));
@@ -190,9 +192,11 @@ mod tests {
     #[test]
     fn a_line_loses_every_secret_and_keeps_the_rest() {
         let secrets = secrets_to_redact(&config(), Some("sk-live-abcdef"));
-        let line = "connect nook:s3cr%40t!@db.example.com failed, key sk-live-abcdef, tok-12345 and s3cr@t!";
+        let line = format!(
+            "connect nook:{SECRET}@db.example.com failed, key sk-live-abcdef, tok-12345 and s3cr@t!"
+        );
 
-        let clean = redact_line(line, &secrets);
+        let clean = redact_line(&line, &secrets);
 
         assert_eq!(
             clean,
