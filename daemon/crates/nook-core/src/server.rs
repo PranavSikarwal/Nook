@@ -417,6 +417,245 @@ where
     let _ = writer_task.await;
 }
 
+async fn handle_get_settings(state: &AppState, id: Uuid, tx_out: &mpsc::Sender<DaemonMessage>) {
+    let cfg = state.config.read().await;
+    let has_key = keychain::get_api_key().is_some();
+    let _ = tx_out
+        .send(DaemonMessage::Settings {
+            id,
+            base_url: cfg.base_url.clone(),
+            model: cfg.model.clone(),
+            has_api_key: has_key,
+        })
+        .await;
+}
+
+async fn handle_set_settings(
+    state: &AppState,
+    id: Uuid,
+    base_url: String,
+    model: String,
+    api_key: Option<String>,
+    tx_out: &mpsc::Sender<DaemonMessage>,
+) {
+    if let Some(ref key) = api_key {
+        let _ = keychain::set_api_key(key);
+    }
+    {
+        let mut cfg = state.config.write().await;
+        cfg.base_url = base_url.clone();
+        cfg.model = model.clone();
+        if let Err(error) = Config::update_model_settings(&state.config_path, &base_url, &model) {
+            warn!("Could not save the settings to config.toml: {error}");
+        }
+    }
+
+    // Restart supervisor with updated settings without holding mutex across shutdown
+    if !state.preserve_worker_on_settings_update {
+        let old_sup_to_shutdown = {
+            let cfg = state.config.read().await;
+            let key = keychain::get_api_key();
+            match WorkerSupervisor::with_tools(
+                &cfg,
+                key,
+                None,
+                state.providers.descriptors().to_vec(),
+            )
+            .await
+            {
+                Ok(new_sup) => {
+                    let mut sup_guard = state.supervisor.lock().await;
+                    sup_guard.replace(new_sup)
+                }
+                Err(e) => {
+                    error!("Failed to restart worker supervisor with updated settings: {e}");
+                    None
+                }
+            }
+        };
+        if let Some(old_sup) = old_sup_to_shutdown {
+            old_sup.shutdown().await;
+        }
+    }
+
+    let has_key = keychain::get_api_key().is_some();
+    let _ = tx_out
+        .send(DaemonMessage::Settings {
+            id,
+            base_url,
+            model,
+            has_api_key: has_key,
+        })
+        .await;
+}
+
+async fn handle_list_chats(state: &AppState, id: Uuid, tx_out: &mpsc::Sender<DaemonMessage>) {
+    if let Some(pool) = state.pool.get() {
+        match db::list_chats(&pool).await {
+            Ok(chats) => {
+                let _ = tx_out.send(DaemonMessage::Chats { id, chats }).await;
+            }
+            Err(e) => {
+                let _ = tx_out
+                    .send(DaemonMessage::Error {
+                        id,
+                        error: ErrorInfo {
+                            code: ErrorCode::DatabaseUnavailable,
+                            message: e.to_string(),
+                            retryable: true,
+                        },
+                    })
+                    .await;
+            }
+        }
+    } else {
+        let _ = tx_out
+            .send(DaemonMessage::Error {
+                id,
+                error: ErrorInfo {
+                    code: ErrorCode::DatabaseUnavailable,
+                    message: "Database connection not available".to_string(),
+                    retryable: true,
+                },
+            })
+            .await;
+    }
+}
+
+async fn handle_get_chat(
+    state: &AppState,
+    id: Uuid,
+    chat_id: Uuid,
+    tx_out: &mpsc::Sender<DaemonMessage>,
+) {
+    if let Some(pool) = state.pool.get() {
+        match db::get_chat(&pool, chat_id).await {
+            Ok(Some((title, messages))) => {
+                let _ = tx_out
+                    .send(DaemonMessage::Chat {
+                        id,
+                        chat_id,
+                        title,
+                        messages,
+                    })
+                    .await;
+            }
+            Ok(None) => {
+                let _ = tx_out
+                    .send(DaemonMessage::Error {
+                        id,
+                        error: ErrorInfo {
+                            code: ErrorCode::InvalidRequest,
+                            message: "Chat not found".to_string(),
+                            retryable: false,
+                        },
+                    })
+                    .await;
+            }
+            Err(e) => {
+                let _ = tx_out
+                    .send(DaemonMessage::Error {
+                        id,
+                        error: ErrorInfo {
+                            code: ErrorCode::DatabaseUnavailable,
+                            message: e.to_string(),
+                            retryable: true,
+                        },
+                    })
+                    .await;
+            }
+        }
+    } else {
+        let _ = tx_out
+            .send(DaemonMessage::Error {
+                id,
+                error: ErrorInfo {
+                    code: ErrorCode::DatabaseUnavailable,
+                    message: "Database connection not available".to_string(),
+                    retryable: true,
+                },
+            })
+            .await;
+    }
+}
+
+async fn handle_delete_chat(
+    state: &AppState,
+    id: Uuid,
+    chat_id: Uuid,
+    tx_out: &mpsc::Sender<DaemonMessage>,
+) {
+    state
+        .policy
+        .authorizer
+        .grant_store()
+        .lock()
+        .await
+        .remove_chat(chat_id);
+
+    // 1. Tell worker to delete thread memory
+    let sup_opt = { state.supervisor.lock().await.clone() };
+    if let Some(sup) = sup_opt {
+        let worker_req_id = Uuid::new_v4();
+        if let Ok(mut rx) = sup
+            .send_request(DaemonWorkerRequest::DeleteChat {
+                request_id: worker_req_id,
+                chat_id,
+            })
+            .await
+        {
+            let _ = tokio::time::timeout(std::time::Duration::from_secs(5), rx.recv()).await;
+        }
+    }
+
+    // 2. Delete database row
+    if let Some(pool) = state.pool.get() {
+        if let Err(e) = db::delete_chat(&pool, chat_id).await {
+            error!("Failed to delete chat {chat_id} from database: {e}");
+        }
+    }
+
+    // 3. Remove attachments folder
+    let att_dir = Config::default_attachments_dir().join(chat_id.to_string());
+    if att_dir.exists() {
+        let _ = tokio::fs::remove_dir_all(att_dir).await;
+    }
+
+    let _ = tx_out.send(DaemonMessage::Deleted { id, chat_id }).await;
+}
+
+async fn handle_cancel(
+    state: &Arc<AppState>,
+    id: Uuid,
+    target_id: Uuid,
+    tx_out: &mpsc::Sender<DaemonMessage>,
+) {
+    {
+        let mut cancelled = state.cancelled_requests.lock().await;
+        cancelled.insert(target_id);
+    }
+    deny_pending_for_request(state, target_id, "Cancelled").await;
+    abort_running_tools(state, target_id).await;
+
+    let worker_req_id = {
+        let open_reqs = state.open_requests.lock().await;
+        open_reqs.get(&target_id).copied()
+    };
+
+    if let Some(w_id) = worker_req_id {
+        let sup_opt = { state.supervisor.lock().await.clone() };
+        if let Some(sup) = sup_opt {
+            let _ = sup
+                .send_request(DaemonWorkerRequest::Cancel { request_id: w_id })
+                .await;
+        }
+    }
+
+    let _ = tx_out
+        .send(DaemonMessage::Cancelled { id, target_id })
+        .await;
+}
+
 async fn process_client_message(
     msg: ClientMessage,
     state: Arc<AppState>,
@@ -428,16 +667,7 @@ async fn process_client_message(
         }
 
         ClientMessage::GetSettings { id } => {
-            let cfg = state.config.read().await;
-            let has_key = keychain::get_api_key().is_some();
-            let _ = tx_out
-                .send(DaemonMessage::Settings {
-                    id,
-                    base_url: cfg.base_url.clone(),
-                    model: cfg.model.clone(),
-                    has_api_key: has_key,
-                })
-                .await;
+            handle_get_settings(&state, id, &tx_out).await;
         }
 
         ClientMessage::SetSettings {
@@ -446,212 +676,23 @@ async fn process_client_message(
             model,
             api_key,
         } => {
-            if let Some(ref key) = api_key {
-                let _ = keychain::set_api_key(key);
-            }
-            {
-                let mut cfg = state.config.write().await;
-                cfg.base_url = base_url.clone();
-                cfg.model = model.clone();
-                if let Err(error) =
-                    Config::update_model_settings(&state.config_path, &base_url, &model)
-                {
-                    warn!("Could not save the settings to config.toml: {error}");
-                }
-            }
-
-            // Restart supervisor with updated settings without holding mutex across shutdown
-            if !state.preserve_worker_on_settings_update {
-                let old_sup_to_shutdown = {
-                    let cfg = state.config.read().await;
-                    let key = keychain::get_api_key();
-                    match WorkerSupervisor::with_tools(
-                        &cfg,
-                        key,
-                        None,
-                        state.providers.descriptors().to_vec(),
-                    )
-                    .await
-                    {
-                        Ok(new_sup) => {
-                            let mut sup_guard = state.supervisor.lock().await;
-                            sup_guard.replace(new_sup)
-                        }
-                        Err(e) => {
-                            error!(
-                                "Failed to restart worker supervisor with updated settings: {e}"
-                            );
-                            None
-                        }
-                    }
-                };
-                if let Some(old_sup) = old_sup_to_shutdown {
-                    old_sup.shutdown().await;
-                }
-            }
-
-            let has_key = keychain::get_api_key().is_some();
-            let _ = tx_out
-                .send(DaemonMessage::Settings {
-                    id,
-                    base_url,
-                    model,
-                    has_api_key: has_key,
-                })
-                .await;
+            handle_set_settings(&state, id, base_url, model, api_key, &tx_out).await;
         }
 
         ClientMessage::ListChats { id } => {
-            if let Some(pool) = state.pool.get() {
-                match db::list_chats(&pool).await {
-                    Ok(chats) => {
-                        let _ = tx_out.send(DaemonMessage::Chats { id, chats }).await;
-                    }
-                    Err(e) => {
-                        let _ = tx_out
-                            .send(DaemonMessage::Error {
-                                id,
-                                error: ErrorInfo {
-                                    code: ErrorCode::DatabaseUnavailable,
-                                    message: e.to_string(),
-                                    retryable: true,
-                                },
-                            })
-                            .await;
-                    }
-                }
-            } else {
-                let _ = tx_out
-                    .send(DaemonMessage::Error {
-                        id,
-                        error: ErrorInfo {
-                            code: ErrorCode::DatabaseUnavailable,
-                            message: "Database connection not available".to_string(),
-                            retryable: true,
-                        },
-                    })
-                    .await;
-            }
+            handle_list_chats(&state, id, &tx_out).await;
         }
 
         ClientMessage::GetChat { id, chat_id } => {
-            if let Some(pool) = state.pool.get() {
-                match db::get_chat(&pool, chat_id).await {
-                    Ok(Some((title, messages))) => {
-                        let _ = tx_out
-                            .send(DaemonMessage::Chat {
-                                id,
-                                chat_id,
-                                title,
-                                messages,
-                            })
-                            .await;
-                    }
-                    Ok(None) => {
-                        let _ = tx_out
-                            .send(DaemonMessage::Error {
-                                id,
-                                error: ErrorInfo {
-                                    code: ErrorCode::InvalidRequest,
-                                    message: "Chat not found".to_string(),
-                                    retryable: false,
-                                },
-                            })
-                            .await;
-                    }
-                    Err(e) => {
-                        let _ = tx_out
-                            .send(DaemonMessage::Error {
-                                id,
-                                error: ErrorInfo {
-                                    code: ErrorCode::DatabaseUnavailable,
-                                    message: e.to_string(),
-                                    retryable: true,
-                                },
-                            })
-                            .await;
-                    }
-                }
-            } else {
-                let _ = tx_out
-                    .send(DaemonMessage::Error {
-                        id,
-                        error: ErrorInfo {
-                            code: ErrorCode::DatabaseUnavailable,
-                            message: "Database connection not available".to_string(),
-                            retryable: true,
-                        },
-                    })
-                    .await;
-            }
+            handle_get_chat(&state, id, chat_id, &tx_out).await;
         }
 
         ClientMessage::DeleteChat { id, chat_id } => {
-            state
-                .policy
-                .authorizer
-                .grant_store()
-                .lock()
-                .await
-                .remove_chat(chat_id);
-
-            // 1. Tell worker to delete thread memory
-            let sup_opt = { state.supervisor.lock().await.clone() };
-            if let Some(sup) = sup_opt {
-                let worker_req_id = Uuid::new_v4();
-                if let Ok(mut rx) = sup
-                    .send_request(DaemonWorkerRequest::DeleteChat {
-                        request_id: worker_req_id,
-                        chat_id,
-                    })
-                    .await
-                {
-                    let _ =
-                        tokio::time::timeout(std::time::Duration::from_secs(5), rx.recv()).await;
-                }
-            }
-
-            // 2. Delete database row
-            if let Some(pool) = state.pool.get() {
-                if let Err(e) = db::delete_chat(&pool, chat_id).await {
-                    error!("Failed to delete chat {chat_id} from database: {e}");
-                }
-            }
-
-            // 3. Remove attachments folder
-            let att_dir = Config::default_attachments_dir().join(chat_id.to_string());
-            if att_dir.exists() {
-                let _ = tokio::fs::remove_dir_all(att_dir).await;
-            }
-
-            let _ = tx_out.send(DaemonMessage::Deleted { id, chat_id }).await;
+            handle_delete_chat(&state, id, chat_id, &tx_out).await;
         }
 
         ClientMessage::Cancel { id, target_id } => {
-            {
-                let mut cancelled = state.cancelled_requests.lock().await;
-                cancelled.insert(target_id);
-            }
-            deny_pending_for_request(&state, target_id, "Cancelled").await;
-            abort_running_tools(&state, target_id).await;
-
-            let worker_req_id = {
-                let open_reqs = state.open_requests.lock().await;
-                open_reqs.get(&target_id).copied()
-            };
-
-            if let Some(w_id) = worker_req_id {
-                let sup_opt = { state.supervisor.lock().await.clone() };
-                if let Some(sup) = sup_opt {
-                    let _ = sup
-                        .send_request(DaemonWorkerRequest::Cancel { request_id: w_id })
-                        .await;
-                }
-            }
-
-            let _ = tx_out
-                .send(DaemonMessage::Cancelled { id, target_id })
-                .await;
+            handle_cancel(&state, id, target_id, &tx_out).await;
         }
 
         ClientMessage::SendMessage {

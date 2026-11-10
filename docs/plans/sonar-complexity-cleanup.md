@@ -103,10 +103,10 @@ Same method as Task 2. Keep the order: environment override, next to the executa
 
 The function is a `match` on `ClientMessage`. Move the long arms into functions and keep the short arms. `send_permissions`, `send_roots` and `send_invalid_request` in the same file are the pattern to copy.
 
-- [ ] Move each long arm into `async fn handle_<name>(state: &AppState, id: Uuid, ..., tx_out: &mpsc::Sender<DaemonMessage>)`: `get_settings`, `set_settings`, `list_chats`, `get_chat`, `delete_chat`, `cancel`. Pass only what the arm uses. Keep the order of the database write, the memory change and the message sent.
-- [ ] Each arm in the `match` becomes one call, `handle_x(...).await`.
-- [ ] Run `rtk cargo fmt --check`, `rtk cargo clippy --all-targets -- -D warnings` in `daemon/`, and `NOOK_REQUIRE_SANDBOX=1 rtk cargo test -p nook-core --test socket_ownership_tests --test folders_tests` (background, log to a file). All pass.
-- [ ] Commit: `refactor(daemon): handle each client message in its own function`
+- [x] Move each long arm into `async fn handle_<name>(state: &AppState, id: Uuid, ..., tx_out: &mpsc::Sender<DaemonMessage>)`: `get_settings`, `set_settings`, `list_chats`, `get_chat`, `delete_chat`, `cancel`. Pass only what the arm uses. Keep the order of the database write, the memory change and the message sent.
+- [x] Each arm in the `match` becomes one call, `handle_x(...).await`.
+- [x] Run `rtk cargo fmt --check`, `rtk cargo clippy --all-targets -- -D warnings` in `daemon/`, and `NOOK_REQUIRE_SANDBOX=1 rtk cargo test -p nook-core --test socket_ownership_tests --test folders_tests` (background, log to a file). All pass.
+- [x] Commit: `refactor(daemon): handle each client message in its own function`
 
 ### Task 8: Verify and tick
 
