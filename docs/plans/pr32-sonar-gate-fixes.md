@@ -23,7 +23,7 @@
 
 ## Out of scope
 
-Eight functions report "Cognitive Complexity above 30" (`server.rs:415`, `lib.rs:228`, `config.rs:226`, `lib.rs:554`, `supervisor.rs:40`, `lib.rs:111`, `message_stream.rs:15`). That rating is Maintainability. It does not fail the gate. A later plan covers it. Do not touch those functions except where a task below requires it.
+Seven functions report "Cognitive Complexity above 30" (`server.rs:415`, `lib.rs:228`, `config.rs:226`, `lib.rs:554`, `supervisor.rs:40`, `lib.rs:111`, `message_stream.rs:15`). That rating is Maintainability. It does not fail the gate. A later plan covers it. Do not touch those functions except where a task below requires it.
 
 ## Tasks
 
