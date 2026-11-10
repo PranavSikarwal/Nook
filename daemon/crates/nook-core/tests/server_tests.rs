@@ -66,7 +66,9 @@ async fn test_server_ping_pong_and_permissions() {
         pending_approvals: Mutex::new(HashMap::new()),
         cancelled_requests: Mutex::new(std::collections::HashSet::new()),
         approval_timeout: nook_core::tool_approval::APPROVAL_TIMEOUT,
-        providers: std::sync::Arc::new(nook_core::providers::ProviderRegistry::empty()),
+        providers: nook_core::providers::ProviderHandle::new(
+            nook_core::providers::ProviderRegistry::empty(),
+        ),
         running_tools: tokio::sync::Mutex::new(std::collections::HashMap::new()),
         policy: test_policy(),
     });
@@ -137,7 +139,9 @@ async fn test_server_returns_error_for_unknown_type_with_id() {
         pending_approvals: Mutex::new(HashMap::new()),
         cancelled_requests: Mutex::new(std::collections::HashSet::new()),
         approval_timeout: nook_core::tool_approval::APPROVAL_TIMEOUT,
-        providers: std::sync::Arc::new(nook_core::providers::ProviderRegistry::empty()),
+        providers: nook_core::providers::ProviderHandle::new(
+            nook_core::providers::ProviderRegistry::empty(),
+        ),
         running_tools: tokio::sync::Mutex::new(std::collections::HashMap::new()),
         policy: test_policy(),
     });
@@ -253,7 +257,9 @@ async fn test_server_approval_decision_rejects_unknown_call_id() {
         pending_approvals: Mutex::new(HashMap::new()),
         cancelled_requests: Mutex::new(std::collections::HashSet::new()),
         approval_timeout: nook_core::tool_approval::APPROVAL_TIMEOUT,
-        providers: std::sync::Arc::new(nook_core::providers::ProviderRegistry::empty()),
+        providers: nook_core::providers::ProviderHandle::new(
+            nook_core::providers::ProviderRegistry::empty(),
+        ),
         running_tools: tokio::sync::Mutex::new(std::collections::HashMap::new()),
         policy: test_policy(),
     });
@@ -332,7 +338,9 @@ async fn test_server_approval_forward_failure_keeps_pending_entry() {
         pending_approvals: Mutex::new(HashMap::new()),
         cancelled_requests: Mutex::new(std::collections::HashSet::new()),
         approval_timeout: nook_core::tool_approval::APPROVAL_TIMEOUT,
-        providers: std::sync::Arc::new(nook_core::providers::ProviderRegistry::empty()),
+        providers: nook_core::providers::ProviderHandle::new(
+            nook_core::providers::ProviderRegistry::empty(),
+        ),
         running_tools: tokio::sync::Mutex::new(std::collections::HashMap::new()),
         policy: test_policy(),
     });
@@ -461,7 +469,9 @@ async fn test_server_approval_decision_mismatched_chat_is_nondestructive() {
         pending_approvals: Mutex::new(HashMap::new()),
         cancelled_requests: Mutex::new(std::collections::HashSet::new()),
         approval_timeout: nook_core::tool_approval::APPROVAL_TIMEOUT,
-        providers: std::sync::Arc::new(nook_core::providers::ProviderRegistry::empty()),
+        providers: nook_core::providers::ProviderHandle::new(
+            nook_core::providers::ProviderRegistry::empty(),
+        ),
         running_tools: tokio::sync::Mutex::new(std::collections::HashMap::new()),
         policy: test_policy(),
     });

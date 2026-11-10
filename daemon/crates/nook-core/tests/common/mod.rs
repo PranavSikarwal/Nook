@@ -66,6 +66,39 @@ impl Harness {
         pool: Option<sqlx::PgPool>,
     ) -> Self {
         let registry = ProviderRegistry::new(providers).unwrap();
+        Self::assemble(
+            policy,
+            registry,
+            approval_timeout,
+            pool,
+            Config::default(),
+            PathBuf::from("/tmp/nook-unused-config.toml"),
+        )
+        .await
+    }
+
+    /// Starts from a config and builds the tools from it, as the Daemon does.
+    pub async fn with_config(config: Config, config_path: PathBuf) -> Self {
+        let registry = nook_core::providers::build_registry(&config.tools).await;
+        Self::assemble(
+            repo_policy(),
+            registry,
+            APPROVAL_TIMEOUT,
+            None,
+            config,
+            config_path,
+        )
+        .await
+    }
+
+    async fn assemble(
+        policy: Arc<PolicyAssets>,
+        registry: ProviderRegistry,
+        approval_timeout: Duration,
+        pool: Option<sqlx::PgPool>,
+        config: Config,
+        config_path: PathBuf,
+    ) -> Self {
         let supervisor = WorkerSupervisor::with_tools(
             &Config::default(),
             None,
@@ -75,8 +108,8 @@ impl Harness {
         .await
         .unwrap();
         let state = Arc::new(AppState {
-            config: RwLock::new(Config::default()),
-            config_path: PathBuf::from("/tmp/nook-unused-config.toml"),
+            config: RwLock::new(config),
+            config_path,
             pool: nook_core::server::DbPool::new(pool),
             supervisor: Mutex::new(Some(supervisor)),
             preserve_worker_on_settings_update: false,
@@ -84,7 +117,7 @@ impl Harness {
             pending_approvals: Mutex::new(HashMap::new()),
             cancelled_requests: Mutex::new(HashSet::new()),
             approval_timeout,
-            providers: Arc::new(registry),
+            providers: nook_core::providers::ProviderHandle::new(registry),
             running_tools: Mutex::new(HashMap::new()),
             policy,
         });

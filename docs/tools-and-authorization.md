@@ -124,6 +124,34 @@ Each file tool, and the command tool, lists the allowed folders and their access
 in its description. The model has no other way to learn the path, so a prompt
 such as "write a file in my files folder" works without a path.
 
+### Change the folders in Settings
+
+Settings, Folders lists the allowed folders. "Add folder..." opens the system
+folder picker. A new folder starts as read only. Each row has an access switch
+(read only, or read and write) and a remove button. On macOS the application
+menu has "Allowed Folders..." (and "Settings...", Cmd+,) that opens this tab.
+Windows and Linux keep the Settings gear.
+
+A change takes effect at once and does not need a restart:
+
+1. The Daemon writes the list to `config.toml` and keeps the comments and the
+   other settings.
+2. The Daemon builds the file tools and the command tool again. MCP servers keep
+   running.
+3. The Daemon sends the Worker a new tool catalog, so the model sees the new
+   folders in the tool descriptions. A call that already runs finishes with the
+   folders it started with.
+4. The Daemon denies each waiting approval whose call is no longer valid, and it
+   drops the chat grants for a file path inside a removed folder.
+
+The Daemon refuses a folder that is your home folder or contains it (this
+includes `/`), a folder that contains the Nook app folder or sits inside it,
+a folder that overlaps one in the list, and a path that is not an absolute,
+existing folder. The list holds at most 16 folders. A folder that was deleted
+stays in the list with a reason, and Nook skips it until you remove it or it
+comes back. File and command tools offer no "Always allow" action, so a new
+folder never inherits a permanent grant.
+
 ## Command tool
 
 `run_command` runs one command in the sandbox. It exists only when the terminal

@@ -4,7 +4,7 @@ use crate::policy_assets::approval_action_scope;
 use crate::protocol::{
     AuthorizationDecision, DaemonMessage, DaemonWorkerRequest, ErrorCode, ErrorInfo, ToolStatus,
 };
-use crate::providers::{truncate_output, CallContext};
+use crate::providers::{roots::OUTSIDE_ROOTS, truncate_output, CallContext, ProviderError};
 use crate::server::{
     claim_pending_approval, forward_unless_cancelled, AppState, PendingApprovalEntry,
 };
@@ -287,6 +287,46 @@ pub async fn expire_pending_approval(
     }
 }
 
+fn stale_reason(error: &ProviderError) -> &'static str {
+    match error {
+        ProviderError::Rejected(reason) => reason,
+        _ => OUTSIDE_ROOTS,
+    }
+}
+
+/// Denies each waiting approval whose call the current tools no longer accept,
+/// for example a write in a folder that the user just removed.
+pub async fn deny_stale_approvals(state: &Arc<AppState>) {
+    let registry = state.providers.current();
+    let stale: Vec<(String, PendingApprovalEntry, &'static str)> = {
+        let mut approvals = state.pending_approvals.lock().await;
+        let stale_calls: Vec<(String, &'static str)> = approvals
+            .iter()
+            .filter_map(|(call_id, entry)| {
+                if entry.execution.is_none() || entry.decision_in_flight {
+                    return None;
+                }
+                let error = registry
+                    .facts(&entry.request.tool_name, &entry.request.arguments)
+                    .err()?;
+                Some((call_id.clone(), stale_reason(&error)))
+            })
+            .collect();
+        stale_calls
+            .into_iter()
+            .filter_map(|(call_id, reason)| {
+                approvals
+                    .remove(&call_id)
+                    .map(|entry| (call_id, entry, reason))
+            })
+            .collect()
+    };
+    for (call_id, entry, reason) in stale {
+        let delivery = delivery_for(&call_id, &entry);
+        deliver_logged(state, &delivery, deny(reason)).await;
+    }
+}
+
 pub async fn handle_authorize_tool(
     state: &Arc<AppState>,
     ctx: &AuthorizeContext,
@@ -322,7 +362,7 @@ pub async fn handle_authorize_tool(
     }
     let mut request = match AuthorizationRequest::normalize_with(
         &state.policy.catalog,
-        Some(&state.providers),
+        Some(&state.providers.current()),
         ctx.chat_id,
         &call.call_id,
         &call.tool_name,

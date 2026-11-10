@@ -23,24 +23,24 @@ fn test_panel_daemon_examples() {
     let lines: Vec<&str> = content.lines().filter(|l| !l.trim().is_empty()).collect();
     assert_eq!(
         lines.len(),
-        29,
-        "Expected 29 examples in panel-daemon.ndjson"
+        34,
+        "Expected 34 examples in panel-daemon.ndjson"
     );
 
-    // Lines 0..13 are ClientRequests
-    for (i, line) in lines[..13].iter().enumerate() {
+    // Lines 0..17 are ClientRequests
+    for (i, line) in lines[..17].iter().enumerate() {
         let msg: ClientMessage = serde_json::from_str(line)
             .unwrap_or_else(|e| panic!("Line {i} failed to parse as ClientMessage: {e}\n{line}"));
         let round_trip = serde_json::to_string(&msg).unwrap();
         let _: ClientMessage = serde_json::from_str(&round_trip).unwrap();
     }
 
-    // Lines 13..29 are DaemonReplies
-    for (i, line) in lines[13..].iter().enumerate() {
+    // Lines 17..34 are DaemonReplies
+    for (i, line) in lines[17..].iter().enumerate() {
         let msg: DaemonMessage = serde_json::from_str(line).unwrap_or_else(|e| {
             panic!(
                 "Line {} failed to parse as DaemonMessage: {e}\n{line}",
-                i + 13
+                i + 17
             )
         });
         let round_trip = serde_json::to_string(&msg).unwrap();

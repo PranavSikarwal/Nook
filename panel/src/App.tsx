@@ -23,6 +23,7 @@ import {
   setSettings,
   setWindowSize,
   startDrag,
+  subscribeToOpenSettings,
 } from './lib/daemon'
 import type {
   ApprovalRequest,
@@ -33,6 +34,7 @@ import type {
   MessageStatus,
   SettingsInfo,
   SettingsPayload,
+  SettingsTab,
 } from './lib/types'
 
 type ActivePanel = 'none' | 'history' | 'settings'
@@ -109,6 +111,7 @@ export default function App() {
   const [shortcuts, setShortcuts] = useState<ShortcutMap>(loadShortcuts)
   const [activeApproval, setActiveApproval] = useState<ApprovalRequest | null>(null)
   const [isDaemonReady, setIsDaemonReady] = useState(false)
+  const [settingsRequest, setSettingsRequest] = useState<{ tab: SettingsTab; nonce: number }>()
 
   const activeRequestIdRef = useRef<string | null>(null)
   const activeSendRef = useRef<{ chatId: string; localMsgId: string; requestId?: string } | null>(null)
@@ -218,6 +221,25 @@ export default function App() {
   useEffect(() => {
     void getSettings().then(setSettingsInfo).catch(() => {})
     void listChats().then(setChats).catch(() => {})
+  }, [])
+
+  // The application menu opens Settings on a tab
+  useEffect(() => {
+    let unlisten: (() => void) | undefined
+    let isCancelled = false
+    void subscribeToOpenSettings((tab) => {
+      setSettingsRequest({ tab, nonce: Date.now() })
+      setActivePanel('settings')
+    })
+      .then((stop) => {
+        if (isCancelled) stop()
+        else unlisten = stop
+      })
+      .catch(() => {})
+    return () => {
+      isCancelled = true
+      unlisten?.()
+    }
   }, [])
 
   const handleApprovalDecide = useCallback(
@@ -660,6 +682,7 @@ export default function App() {
               onSave={handleSaveSettings}
               onClose={() => setActivePanel('none')}
               onShortcutsChanged={setShortcuts}
+              requestedTab={settingsRequest}
             />
           </div>
         )}

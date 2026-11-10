@@ -6,8 +6,11 @@ import type {
   ChatTranscript,
   DaemonEvent,
   Permissions,
+  RootAccess,
+  RootInfo,
   SettingsInfo,
   SettingsPayload,
+  SettingsTab,
   ToolSource,
 } from './types'
 
@@ -278,6 +281,51 @@ const previewToolSources: ToolSource[] = [
 export async function getToolSources(): Promise<ToolSource[]> {
   if (isBrowserMock) return structuredClone(previewToolSources)
   return await invoke<ToolSource[]>('get_tool_sources')
+}
+
+let previewRoots: RootInfo[] = [
+  { path: '/Users/preview/NookFiles', access: 'read_write', usable: true },
+]
+
+export async function getRoots(): Promise<RootInfo[]> {
+  if (isBrowserMock) return structuredClone(previewRoots)
+  return await invoke<RootInfo[]>('get_roots')
+}
+
+export async function addRoot(path: string, access: RootAccess): Promise<RootInfo[]> {
+  if (isBrowserMock) {
+    previewRoots = [...previewRoots, { path, access, usable: true }]
+    return structuredClone(previewRoots)
+  }
+  return await invoke<RootInfo[]>('add_root', { path, access })
+}
+
+export async function setRootAccess(path: string, access: RootAccess): Promise<RootInfo[]> {
+  if (isBrowserMock) {
+    previewRoots = previewRoots.map((root) => (root.path === path ? { ...root, access } : root))
+    return structuredClone(previewRoots)
+  }
+  return await invoke<RootInfo[]>('set_root_access', { path, access })
+}
+
+export async function removeRoot(path: string): Promise<RootInfo[]> {
+  if (isBrowserMock) {
+    previewRoots = previewRoots.filter((root) => root.path !== path)
+    return structuredClone(previewRoots)
+  }
+  return await invoke<RootInfo[]>('remove_root', { path })
+}
+
+/** Opens the system folder picker. Returns null when the user cancels. */
+export async function pickFolder(): Promise<string | null> {
+  if (isBrowserMock) return '/Users/preview/Desktop'
+  return await invoke<string | null>('pick_folder')
+}
+
+export function subscribeToOpenSettings(callback: (tab: SettingsTab) => void): Promise<UnlistenFn> {
+  return listen<SettingsTab>('open_settings', (event) => {
+    callback(event.payload)
+  })
 }
 
 export async function getPermissions(): Promise<Permissions> {

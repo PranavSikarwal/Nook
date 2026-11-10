@@ -82,7 +82,7 @@ def test_panel_daemon_examples_valid() -> None:
     examples = load_ndjson(EXAMPLES_DIR / "panel-daemon.ndjson")
     validator = Draft7Validator(schema, format_checker=format_checker)
 
-    assert len(examples) == 29, f"Expected 29 example lines, found {len(examples)}"
+    assert len(examples) == 34, f"Expected 34 example lines, found {len(examples)}"
 
     for idx, obj in enumerate(examples, 1):
         errors = list(validator.iter_errors(obj))
@@ -257,6 +257,27 @@ def test_daemon_worker_all_types_covered() -> None:
             "type": "list_tool_sources",
             "id": "11111111-1111-1111-1111-111111111111",
             "extra": 1,
+        },
+        {
+            "type": "add_root",
+            "id": "11111111-1111-1111-1111-111111111111",
+            "path": "/Users/me/Desktop",
+            "access": "write",  # only read or read_write
+        },
+        {
+            "type": "add_root",
+            "id": "11111111-1111-1111-1111-111111111111",
+            "path": "",  # a path is never empty
+            "access": "read",
+        },
+        {
+            "type": "remove_root",
+            "id": "11111111-1111-1111-1111-111111111111",
+        },
+        {
+            "type": "roots",
+            "id": "11111111-1111-1111-1111-111111111111",
+            "roots": [{"path": "/a", "access": "read"}],  # usable is required
         },
         {
             "type": "permissions",

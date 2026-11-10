@@ -95,6 +95,29 @@ list. The shared `before` hook in `panel/e2e/wdio.conf.mjs` waits until the Pane
 enables its input, because the Panel keeps its input disabled until its own
 Daemon check passes.
 
+`folders_tests.rs` (14 tests) runs the Settings, Folders requests against the real tools. It
+checks that an added folder works at once and reaches `config.toml`, that the
+tool descriptions and the Worker catalog follow a change (also an empty one), that
+a read-only change and a removal refuse new calls, and that a waiting approval in
+a removed folder is denied while one in another folder stays. It also verifies that
+chat grants inside a folder deleted from disk are dropped
+(`chat_grants_inside_a_folder_deleted_from_disk_are_dropped`), that changing a folder
+to read-only denies a waiting write with its specific reason
+(`a_read_only_change_denies_a_waiting_write_with_its_reason`), and that removing the
+last folder denies a waiting write as outside the allowed folders
+(`removing_the_last_folder_denies_a_waiting_write_as_outside`). One test covers that
+chat grants inside a folder that becomes read only are dropped
+(`a_read_only_change_drops_the_chat_grants_inside_the_folder`). `folders.rs` holds
+unit tests for the path checks. `socket_ownership_tests.rs` sets its folder mode
+itself because `Server::bind` changes the process-wide umask for a moment.
+`panel/e2e/specs/folders.spec.mjs` (6 tests, part of the 10 specs and 43 tests of the
+native suite on Linux) opens the tab through the `open_settings` event that the macOS
+menu sends, adds a folder (the test build reads it from `NOOK_E2E_PICK_FOLDER`), and
+writes there through the approval flow. It also tests that adding a duplicate folder
+shows the reason and keeps the list, and that a folder deleted from disk is marked with
+a note while still listed. WebDriver cannot click the macOS menu or the system folder
+picker. Check the menu by hand.
+
 `panel/e2e/specs/links.spec.mjs` clicks a link in a reply. It checks that the Panel
 window stays put, that the link reaches the `open_external_link` command, and that
 a `javascript:` or `file:` address is not a link. The test build never starts a

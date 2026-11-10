@@ -120,13 +120,29 @@ tools it offers), and an optional `reason` of at most 200 characters. `state` is
 MCP server exited, and the next call starts it again). A source that is not
 configured does not appear. Settings, Tools shows the list.
 
+## Allowed folders
+
+The Panel manages the folders that the file and command tools may use with four
+requests. Each answers with `roots`, the full list.
+
+- `list_roots` has no arguments.
+- `add_root` has `path` and `access` (`read` or `read_write`).
+- `set_root_access` has `path` (as listed) and `access`.
+- `remove_root` has `path` (as listed).
+
+Each entry of `roots` has `path`, `access`, `usable`, and a `reason` when
+`usable` is false (the folder was deleted, moved, or is not absolute). The
+Daemon answers a refused request with an `error` of code `invalid_request` and
+a plain message. Settings, Folders shows the list.
+
 ## Tools that the Daemon runs
 
 The Daemon runs tools that can touch the local machine. These tools reach the
 Worker through a catalog, and the Worker asks the Daemon to run each call.
 
-- `tool_catalog` goes from Daemon to Worker once, right after the Worker reports
-  `ready`. It lists each tool with `id`, `name` (the name the model sees),
+- `tool_catalog` goes from Daemon to Worker right after the Worker reports
+  `ready`. It goes again each time the allowed folders change, also with an
+  empty list, and the Worker replaces its Daemon tools with the new list. It lists each tool with `id`, `name` (the name the model sees),
   `description`, and `input_schema` (a JSON Schema of type `object`). The
   Daemon sends no catalog when it has no such tool.
 - `execute_tool` goes from Worker to Daemon. It has the same fields as

@@ -74,8 +74,11 @@ describe('native command tool runs in the Daemon sandbox', () => {
     await send(`E2E_COMMAND:touch ${outside}`)
     await (await waitForApproval()).$('button=Allow once').click()
     const reply = await waitForLatestComplete('exit code:')
-    if ((await reply.getText()).includes('exit code: 0')) {
-      throw new Error('A command wrote outside the allowed folder.')
+    // Linux gives the command a private /tmp, so the command exits 0 and the host stays untouched.
+    if (process.platform === 'darwin') {
+      if ((await reply.getText()).includes('exit code: 0')) {
+        throw new Error('A command wrote outside the allowed folder.')
+      }
     }
     if (existsSync(outside)) throw new Error('A command created a file outside the allowed folder.')
   })
