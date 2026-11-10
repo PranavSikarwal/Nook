@@ -42,6 +42,26 @@ fn check_send_request(text: &str, attachments: &[Attachment]) -> Result<(), Erro
     Ok(())
 }
 
+async fn cleanup_request(state: &AppState, id: Uuid) {
+    let mut open_reqs = state.open_requests.lock().await;
+    open_reqs.remove(&id);
+    let mut cancelled = state.cancelled_requests.lock().await;
+    cancelled.remove(&id);
+    let mut approvals = state.pending_approvals.lock().await;
+    approvals.retain(|_, v| v.client_request_id != id);
+    state.running_tools.lock().await.remove(&id);
+}
+
+async fn fail_request(
+    state: &AppState,
+    id: Uuid,
+    error: ErrorInfo,
+    tx_out: &mpsc::Sender<DaemonMessage>,
+) {
+    cleanup_request(state, id).await;
+    let _ = tx_out.send(DaemonMessage::Error { id, error }).await;
+}
+
 pub(crate) async fn handle_send_message(
     id: Uuid,
     chat_id: Uuid,
@@ -56,89 +76,64 @@ pub(crate) async fn handle_send_message(
         open_reqs.insert(id, worker_req_id);
     }
 
-    // Helper macro/closure to clean up on early exit
-    let cleanup = |st: &Arc<AppState>| {
-        let st_clone = st.clone();
-        async move {
-            let mut open_reqs = st_clone.open_requests.lock().await;
-            open_reqs.remove(&id);
-            let mut cancelled = st_clone.cancelled_requests.lock().await;
-            cancelled.remove(&id);
-            let mut approvals = st_clone.pending_approvals.lock().await;
-            approvals.retain(|_, v| v.client_request_id != id);
-            st_clone.running_tools.lock().await.remove(&id);
-        }
-    };
-
     if let Err(error) = check_send_request(&text, &attachments) {
-        cleanup(&state).await;
-        let _ = tx_out.send(DaemonMessage::Error { id, error }).await;
+        fail_request(&state, id, error, &tx_out).await;
         return;
     }
 
     let pool = match state.pool.get() {
         Some(p) => p,
         None => {
-            cleanup(&state).await;
-            let _ = tx_out
-                .send(DaemonMessage::Error {
-                    id,
-                    error: ErrorInfo {
-                        code: ErrorCode::DatabaseUnavailable,
-                        message: "Database connection not available".to_string(),
-                        retryable: true,
-                    },
-                })
-                .await;
+            fail_request(&state, id, crate::server::database_unavailable(), &tx_out).await;
             return;
         }
     };
 
     let user_msg_id = Uuid::new_v4();
     if let Err(e) = db::ensure_chat(&pool, chat_id, "New Chat").await {
-        cleanup(&state).await;
-        let _ = tx_out
-            .send(DaemonMessage::Error {
-                id,
-                error: ErrorInfo {
-                    code: ErrorCode::DatabaseUnavailable,
-                    message: e.to_string(),
-                    retryable: true,
-                },
-            })
-            .await;
+        fail_request(
+            &state,
+            id,
+            ErrorInfo {
+                code: ErrorCode::DatabaseUnavailable,
+                message: e.to_string(),
+                retryable: true,
+            },
+            &tx_out,
+        )
+        .await;
         return;
     }
 
     if let Err(e) = db::save_user_message(&pool, user_msg_id, chat_id, &text, &attachments).await {
-        cleanup(&state).await;
-        let _ = tx_out
-            .send(DaemonMessage::Error {
-                id,
-                error: ErrorInfo {
-                    code: ErrorCode::DatabaseUnavailable,
-                    message: e.to_string(),
-                    retryable: true,
-                },
-            })
-            .await;
+        fail_request(
+            &state,
+            id,
+            ErrorInfo {
+                code: ErrorCode::DatabaseUnavailable,
+                message: e.to_string(),
+                retryable: true,
+            },
+            &tx_out,
+        )
+        .await;
         return;
     }
 
     let supervisor = match state.supervisor.lock().await.clone() {
         Some(s) => s,
         None => {
-            cleanup(&state).await;
-            let _ = tx_out
-                .send(DaemonMessage::Error {
-                    id,
-                    error: ErrorInfo {
-                        code: ErrorCode::WorkerCrashed,
-                        message: "Worker supervisor not running".to_string(),
-                        retryable: true,
-                    },
-                })
-                .await;
+            fail_request(
+                &state,
+                id,
+                ErrorInfo {
+                    code: ErrorCode::WorkerCrashed,
+                    message: "Worker supervisor not running".to_string(),
+                    retryable: true,
+                },
+                &tx_out,
+            )
+            .await;
             return;
         }
     };
@@ -150,7 +145,7 @@ pub(crate) async fn handle_send_message(
     };
 
     if was_cancelled {
-        cleanup(&state).await;
+        cleanup_request(&state, id).await;
         let asst_message_id = Uuid::new_v4();
         let _ = db::save_assistant_message(
             &pool,
@@ -183,17 +178,17 @@ pub(crate) async fn handle_send_message(
     {
         Ok(rx) => rx,
         Err(e) => {
-            cleanup(&state).await;
-            let _ = tx_out
-                .send(DaemonMessage::Error {
-                    id,
-                    error: ErrorInfo {
-                        code: ErrorCode::WorkerCrashed,
-                        message: e.to_string(),
-                        retryable: true,
-                    },
-                })
-                .await;
+            fail_request(
+                &state,
+                id,
+                ErrorInfo {
+                    code: ErrorCode::WorkerCrashed,
+                    message: e.to_string(),
+                    retryable: true,
+                },
+                &tx_out,
+            )
+            .await;
             return;
         }
     };
@@ -365,15 +360,7 @@ pub(crate) async fn handle_send_message(
         }
     }
 
-    {
-        let mut open_reqs = state.open_requests.lock().await;
-        open_reqs.remove(&id);
-        let mut cancelled = state.cancelled_requests.lock().await;
-        cancelled.remove(&id);
-        let mut approvals = state.pending_approvals.lock().await;
-        approvals.retain(|_, v| v.client_request_id != id);
-        state.running_tools.lock().await.remove(&id);
-    }
+    cleanup_request(&state, id).await;
 }
 
 pub async fn forward_unless_cancelled(
@@ -486,4 +473,70 @@ async fn request_title(
             title: fallback,
         })
         .await;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::protocol::{Attachment, AttachmentKind, ErrorCode};
+
+    fn make_attachment(name: &str, mime: &str, kind: AttachmentKind) -> Attachment {
+        Attachment {
+            id: Uuid::new_v4(),
+            kind,
+            name: name.to_string(),
+            mime: mime.to_string(),
+            size_bytes: 1024,
+            path: format!("/tmp/{name}"),
+        }
+    }
+
+    #[test]
+    fn check_send_request_rejects_empty_text_and_no_attachments() {
+        let err = check_send_request("", &[]).unwrap_err();
+        assert_eq!(err.code, ErrorCode::InvalidRequest);
+        assert_eq!(
+            err.message,
+            "Message text and attachments cannot both be empty"
+        );
+
+        let err_spaces = check_send_request("   \t\n ", &[]).unwrap_err();
+        assert_eq!(err_spaces.code, ErrorCode::InvalidRequest);
+        assert_eq!(
+            err_spaces.message,
+            "Message text and attachments cannot both be empty"
+        );
+    }
+
+    #[test]
+    fn check_send_request_rejects_exceeding_attachments_limit() {
+        let atts: Vec<_> = (0..6)
+            .map(|i| make_attachment(&format!("file{i}.txt"), "text/plain", AttachmentKind::Text))
+            .collect();
+        let err = check_send_request("hello", &atts).unwrap_err();
+        assert_eq!(err.code, ErrorCode::AttachmentInvalid);
+        assert_eq!(
+            err.message,
+            "Attachments count exceeds maximum limit of 5"
+        );
+    }
+
+    #[test]
+    fn check_send_request_rejects_invalid_attachment() {
+        let invalid = make_attachment("test.exe", "application/x-msdownload", AttachmentKind::Image);
+        let expected_msg = validate_attachment(&invalid).unwrap_err();
+        let err = check_send_request("hello", &[invalid]).unwrap_err();
+        assert_eq!(err.code, ErrorCode::AttachmentInvalid);
+        assert_eq!(err.message, expected_msg);
+    }
+
+    #[test]
+    fn check_send_request_empty_check_wins_over_count_check() {
+        let err = check_send_request("", &[]).unwrap_err();
+        assert_eq!(err.code, ErrorCode::InvalidRequest);
+        assert_eq!(
+            err.message,
+            "Message text and attachments cannot both be empty"
+        );
+    }
 }

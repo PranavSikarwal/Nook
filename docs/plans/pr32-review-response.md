@@ -50,11 +50,11 @@
 
 ### Task 3: `message_stream.rs` (findings 1, 2, 6)
 
-- [ ] Write the tests first, in a `#[cfg(test)] mod tests` in `message_stream.rs`: `check_send_request` returns `InvalidRequest` for empty text and no attachments; returns `AttachmentInvalid` with `Attachments count exceeds maximum limit of 5` for 6 attachments; returns the `validate_attachment` message for an invalid attachment; the empty check wins over the count check. Build `Attachment` values like the existing tests in the crate do (search `tests/` and `validate_attachment` for a helper). Run them: they pass, because they pin existing behavior.
-- [ ] Replace the `cleanup` closure with `async fn cleanup_request(state: &AppState, id: Uuid)` holding the same five lines.
-- [ ] Add `async fn fail_request(state: &AppState, id: Uuid, error: ErrorInfo, tx_out: &mpsc::Sender<DaemonMessage>)` that calls `cleanup_request` and then sends `DaemonMessage::Error { id, error }`. Use it in every early exit of `handle_send_message` that does "clean up, then send an error": the `check_send_request` failure, the pool, `ensure_chat`, `save_user_message`, supervisor, and `send_request` branches. Use `database_unavailable()` from `server.rs` for the pool branch.
-- [ ] Keep the order of the cleanup and the send. Keep every message text.
-- [ ] Run `timeout 280 rtk cargo clippy --all-targets -- -D warnings` and `timeout 280 rtk cargo test -p nook-core` in `daemon/`. All pass. Run `timeout 280 rtk cargo clippy -- -W clippy::cognitive_complexity` and report the number for `handle_send_message` (it was 48).
+- [x] Write the tests first, in a `#[cfg(test)] mod tests` in `message_stream.rs`: `check_send_request` returns `InvalidRequest` for empty text and no attachments; returns `AttachmentInvalid` with `Attachments count exceeds maximum limit of 5` for 6 attachments; returns the `validate_attachment` message for an invalid attachment; the empty check wins over the count check. Build `Attachment` values like the existing tests in the crate do (search `tests/` and `validate_attachment` for a helper). Run them: they pass, because they pin existing behavior.
+- [x] Replace the `cleanup` closure with `async fn cleanup_request(state: &AppState, id: Uuid)` holding the same five lines.
+- [x] Add `async fn fail_request(state: &AppState, id: Uuid, error: ErrorInfo, tx_out: &mpsc::Sender<DaemonMessage>)` that calls `cleanup_request` and then sends `DaemonMessage::Error { id, error }`. Use it in every early exit of `handle_send_message` that does "clean up, then send an error": the `check_send_request` failure, the pool, `ensure_chat`, `save_user_message`, supervisor, and `send_request` branches. Use `database_unavailable()` from `server.rs` for the pool branch.
+- [x] Keep the order of the cleanup and the send. Keep every message text.
+- [x] Run `timeout 280 rtk cargo clippy --all-targets -- -D warnings` and `timeout 280 rtk cargo test -p nook-core` in `daemon/`. All pass. Run `timeout 280 rtk cargo clippy -- -W clippy::cognitive_complexity` and report the number for `handle_send_message` (it was 48).
 - [ ] Commit: `refactor(daemon): fail a send request in one function and test its checks`
 
 ### Task 4: `panel/src-tauri/src/lib.rs` (findings 2, 4, 5)
