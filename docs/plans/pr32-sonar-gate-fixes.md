@@ -60,7 +60,7 @@ Eight functions report "Cognitive Complexity above 30" (`server.rs:415`, `lib.rs
 
 **Files:** this file only.
 
-- [ ] Tick every box above. Commit: `docs: tick the PR 32 SonarCloud gate plan`
+- [x] Tick every box above. Commit: `docs: tick the PR 32 SonarCloud gate plan`
 
 ## Verification (done by the reviewer, not by the implementer)
 
