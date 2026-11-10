@@ -224,38 +224,48 @@ impl Config {
     }
 
     pub fn load_env_file() {
-        let candidates = [
-            PathBuf::from(".env"),
-            PathBuf::from("../.env"),
-            PathBuf::from("../../.env"),
-        ];
-        for p in candidates {
-            if p.exists() {
-                if let Ok(content) = std::fs::read_to_string(&p) {
-                    for line in content.lines() {
-                        let trimmed = line.trim();
-                        if trimmed.is_empty() || trimmed.starts_with('#') {
-                            continue;
-                        }
-                        if let Some((k, v)) = trimmed.split_once('=') {
-                            let k = k.trim();
-                            let mut v = v.trim();
-                            if (v.starts_with('"') && v.ends_with('"'))
-                                || (v.starts_with('\'') && v.ends_with('\''))
-                            {
-                                v = &v[1..v.len() - 1];
-                            }
-                            if std::env::var_os(k).is_none() {
-                                std::env::set_var(k, v);
-                            }
-                        }
-                    }
+        let Some(path) = first_env_file() else {
+            return;
+        };
+        let Ok(content) = std::fs::read_to_string(&path) else {
+            return;
+        };
+        for line in content.lines() {
+            if let Some((k, v)) = parse_env_line(line) {
+                if std::env::var_os(k).is_none() {
+                    std::env::set_var(k, v);
                 }
-                break;
             }
         }
     }
+}
 
+fn first_env_file() -> Option<PathBuf> {
+    let candidates = [
+        PathBuf::from(".env"),
+        PathBuf::from("../.env"),
+        PathBuf::from("../../.env"),
+    ];
+    candidates.into_iter().find(|p| p.exists())
+}
+
+fn parse_env_line(line: &str) -> Option<(&str, &str)> {
+    let trimmed = line.trim();
+    if trimmed.is_empty() || trimmed.starts_with('#') {
+        return None;
+    }
+    let (k, v) = trimmed.split_once('=')?;
+    let k = k.trim();
+    let mut v = v.trim();
+    if v.len() >= 2
+        && ((v.starts_with('"') && v.ends_with('"')) || (v.starts_with('\'') && v.ends_with('\'')))
+    {
+        v = &v[1..v.len() - 1];
+    }
+    Some((k, v))
+}
+
+impl Config {
     /// Reads the file and nothing else: no `.env`, no environment overrides, no
     /// file creation. Returns `None` when the file is missing or not valid.
     pub fn read_only(path: &Path) -> Option<Self> {
@@ -673,5 +683,41 @@ timeout_seconds = 20
         let text = "base_url = \"u\"\nmodel = \"m\"\n[tools.filesystem]\nroots = [{ path = \"/a\", access = \"admin\" }]\n";
 
         assert!(toml::from_str::<Config>(text).is_err());
+    }
+
+    #[test]
+    fn parse_env_line_reads_plain_key_value() {
+        assert_eq!(parse_env_line("KEY=value"), Some(("KEY", "value")));
+    }
+
+    #[test]
+    fn parse_env_line_strips_double_quotes() {
+        assert_eq!(parse_env_line("KEY=\"value\""), Some(("KEY", "value")));
+    }
+
+    #[test]
+    fn parse_env_line_strips_single_quotes() {
+        assert_eq!(parse_env_line("KEY='value'"), Some(("KEY", "value")));
+    }
+
+    #[test]
+    fn parse_env_line_trims_spaces_around_equals() {
+        assert_eq!(parse_env_line("  KEY  =  value  "), Some(("KEY", "value")));
+    }
+
+    #[test]
+    fn parse_env_line_ignores_comments() {
+        assert_eq!(parse_env_line("# this is a comment"), None);
+    }
+
+    #[test]
+    fn parse_env_line_ignores_empty_lines() {
+        assert_eq!(parse_env_line(""), None);
+        assert_eq!(parse_env_line("   "), None);
+    }
+
+    #[test]
+    fn parse_env_line_rejects_line_without_equals() {
+        assert_eq!(parse_env_line("NO_EQUALS_HERE"), None);
     }
 }

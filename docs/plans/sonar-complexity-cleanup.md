@@ -46,12 +46,12 @@ Clippy has a lint that counts complexity with a different method than Sonar. Use
 
 Split the nested loops into three steps.
 
-- [ ] Write the failing tests first, in the `tests` module of `config.rs`. Test `parse_env_line` (below): a plain `KEY=value` line, a double-quoted value, a single-quoted value, a line with spaces around `=`, a comment line, an empty line, and a line with no `=`. Run them and see them fail because the function does not exist.
-- [ ] Add `fn parse_env_line(line: &str) -> Option<(&str, &str)>`. It trims the line, returns `None` for an empty line, a `#` comment, or a line without `=`, and removes one pair of matching quotes around the value.
-- [ ] Add `fn first_env_file() -> Option<PathBuf>` that returns the first existing path of `.env`, `../.env`, `../../.env`.
-- [ ] Rewrite `load_env_file` as: find the file, read it, and for each parsed line set the variable only when it is not set yet.
-- [ ] Run `rtk cargo test -p nook-core config` in `daemon/`. All pass, and the existing config tests still pass.
-- [ ] Commit: `refactor(daemon): split the env file loader into small steps`
+- [x] Write the failing tests first, in the `tests` module of `config.rs`. Test `parse_env_line` (below): a plain `KEY=value` line, a double-quoted value, a single-quoted value, a line with spaces around `=`, a comment line, an empty line, and a line with no `=`. Run them and see them fail because the function does not exist.
+- [x] Add `fn parse_env_line(line: &str) -> Option<(&str, &str)>`. It trims the line, returns `None` for an empty line, a `#` comment, or a line without `=`, and removes one pair of matching quotes around the value.
+- [x] Add `fn first_env_file() -> Option<PathBuf>` that returns the first existing path of `.env`, `../.env`, `../../.env`.
+- [x] Rewrite `load_env_file` as: find the file, read it, and for each parsed line set the variable only when it is not set yet.
+- [x] Run `rtk cargo test -p nook-core config` in `daemon/`. All pass, and the existing config tests still pass.
+- [x] Commit: `refactor(daemon): split the env file loader into small steps`
 
 ### Task 2: `find_worker_directory`
 
