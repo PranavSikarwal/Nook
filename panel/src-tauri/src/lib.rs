@@ -240,7 +240,7 @@ pub async fn wait_for_daemon_ready(socket_path: &Path, timeout: std::time::Durat
 }
 
 #[cfg(any(unix, windows))]
-async fn running_child_is_ready(state: &DaemonState, socket_path: &Path) -> Option<bool> {
+async fn child_is_running(state: &DaemonState, socket_path: &Path) -> bool {
     let mut proc_guard = state.spawned_process.lock().await;
     if let Some(child) = proc_guard.as_mut() {
         match child.try_wait() {
@@ -248,10 +248,10 @@ async fn running_child_is_ready(state: &DaemonState, socket_path: &Path) -> Opti
                 drop(proc_guard);
                 if wait_for_daemon_ready(socket_path, std::time::Duration::from_millis(1500)).await
                 {
-                    return Some(true);
+                    return true;
                 }
                 eprintln!("Existing nookd child is running but not responding on socket yet.");
-                return Some(false);
+                return true;
             }
             Ok(Some(status)) => {
                 eprintln!("Previous nookd child process exited ({status}). Reaping.");
@@ -263,7 +263,7 @@ async fn running_child_is_ready(state: &DaemonState, socket_path: &Path) -> Opti
             }
         }
     }
-    None
+    false
 }
 
 #[cfg(any(unix, windows))]
@@ -329,7 +329,8 @@ pub async fn ensure_daemon_started(state: &DaemonState) {
 
         let socket_path = Config::default_socket_path();
         #[cfg(unix)]
-        let daemon_is_ready = socket_path.exists() && connect_local_daemon().await.is_ok();
+        let daemon_is_ready = tokio::fs::try_exists(&socket_path).await.unwrap_or(false)
+            && connect_local_daemon().await.is_ok();
         #[cfg(windows)]
         let daemon_is_ready = connect_local_daemon().await.is_ok();
         if daemon_is_ready {
@@ -337,7 +338,7 @@ pub async fn ensure_daemon_started(state: &DaemonState) {
         }
 
         // Check if an existing spawned process is still running
-        if running_child_is_ready(state, &socket_path).await.is_some() {
+        if child_is_running(state, &socket_path).await {
             return;
         }
 
@@ -600,7 +601,7 @@ async fn store_attachment(att: AttachmentInput, att_dir: &Path) -> Result<Attach
     let size_bytes: i64;
     if let Some(ref path_str) = att.file_path {
         let src = Path::new(path_str);
-        if !src.exists() {
+        if !tokio::fs::try_exists(src).await.unwrap_or(false) {
             return Err(format!("File does not exist: {path_str}"));
         }
         let meta = tokio::fs::metadata(src).await.map_err(|e| e.to_string())?;
@@ -1382,5 +1383,76 @@ mod daemon_log_tests {
         let log = std::fs::read_to_string(dir.path().join("daemon.log")).unwrap();
         assert_eq!(log, "connect ***@localhost failed\nsecond\n");
         assert!(!log.contains(SECRET));
+    }
+}
+
+#[cfg(test)]
+mod attachment_tests {
+    use super::*;
+    use base64::Engine;
+    use nook_core::protocol::AttachmentKind;
+
+    #[test]
+    fn attachment_kind_parses_supported_types_and_rejects_unsupported() {
+        assert_eq!(attachment_kind("image/png"), Ok(AttachmentKind::Image));
+        assert_eq!(
+            attachment_kind("image/bmp"),
+            Err("Unsupported image format: image/bmp".to_string())
+        );
+        assert_eq!(attachment_kind("application/pdf"), Ok(AttachmentKind::Pdf));
+        assert_eq!(attachment_kind("text/plain"), Ok(AttachmentKind::Text));
+        assert_eq!(
+            attachment_kind("application/zip"),
+            Err("Unsupported attachment MIME type: application/zip".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn store_attachment_requires_file_path_or_data_base64() {
+        let dir = tempfile::tempdir().unwrap();
+        let att = AttachmentInput {
+            name: "test.txt".to_string(),
+            mime: "text/plain".to_string(),
+            data_base64: None,
+            file_path: None,
+        };
+        let err = store_attachment(att, dir.path()).await.unwrap_err();
+        assert_eq!(
+            err,
+            "Attachment must provide either file_path or data_base64"
+        );
+    }
+
+    #[tokio::test]
+    async fn store_attachment_rejects_base64_exceeding_10mb() {
+        let dir = tempfile::tempdir().unwrap();
+        let large_bytes = vec![0u8; 10 * 1024 * 1024 + 1];
+        let large_b64 = base64::engine::general_purpose::STANDARD.encode(&large_bytes);
+        let att = AttachmentInput {
+            name: "big.txt".to_string(),
+            mime: "text/plain".to_string(),
+            data_base64: Some(large_b64),
+            file_path: None,
+        };
+        let err = store_attachment(att, dir.path()).await.unwrap_err();
+        assert_eq!(err, "Attachment exceeds 10MB limit: big.txt");
+    }
+
+    #[tokio::test]
+    async fn store_attachment_writes_small_base64_payload() {
+        let dir = tempfile::tempdir().unwrap();
+        let payload = b"hello world";
+        let payload_b64 = base64::engine::general_purpose::STANDARD.encode(payload);
+        let att = AttachmentInput {
+            name: "sample.txt".to_string(),
+            mime: "text/plain".to_string(),
+            data_base64: Some(payload_b64),
+            file_path: None,
+        };
+        let result = store_attachment(att, dir.path()).await.unwrap();
+        assert_eq!(result.size_bytes, payload.len() as i64);
+        assert_eq!(result.kind, AttachmentKind::Text);
+        let written = std::fs::read(&result.path).unwrap();
+        assert_eq!(written, payload);
     }
 }
