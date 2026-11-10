@@ -10,7 +10,6 @@ plan identifies its scope, dependencies, verification work, and open decisions.
 - [PR 32 SonarCloud gate fixes](pr32-sonar-gate-fixes.md)
 - [Cognitive Complexity cleanup](sonar-complexity-cleanup.md)
 - [PR 32 review response](pr32-review-response.md)
-- [v0.1.5 release version alignment](v0.1.5-release-version-alignment.md)
 - [Tool-platform closeout and next phase](tool-platform-closeout-and-next-phase.md)
 - [Tool platform open gaps](tool-platform-open-gaps.md)
 - [App integrations: Notes and Google Docs](app-integrations.md)
