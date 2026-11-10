@@ -30,6 +30,7 @@
 | 6 | No test shows the error banner or the note for a folder that left the disk. | `folders.spec.mjs` | 4 |
 | 7 | The acceptance boxes in the spec are not ticked, and the changelog has no entry. | documents | 5 |
 | 9 | `terminal-tool.spec.mjs` fails on Linux with "A command wrote outside the allowed folder". The Linux sandbox mounts a private `tmpfs` on `/tmp` (`sandbox.rs`), so `touch /tmp/...` exits 0 inside the sandbox and leaves the host untouched. The host stays safe. The spec's exit-code check holds only on macOS, where Seatbelt denies the write. Found by the native run. | `terminal-tool.spec.mjs` | 7 |
+| 10 | SonarCloud lists 5 new issues on the PR (check-run annotations): four `Replace this closure with a reference to the into_inner method` (`providers/mod.rs:289`, `providers/mod.rs:297`, `supervisor.rs:216`, `supervisor.rs:225`) and one `Use <details>, <fieldset>, <optgroup>, or <address> instead of the "group" role` (`FoldersTab.tsx:99`). | four closures, one element | 8 |
 | 8 | `socket_ownership_tests` fail on Linux at random: `Server::bind` sets the process-wide umask to `0o177` for a moment, and a parallel test that creates its folder then gets a folder with mode `0600` and no search bit. Found by the baseline run. | `socket_ownership_tests.rs` | 6 |
 
 ## Review focus
@@ -257,6 +258,19 @@ The boundary is the host file, and the spec already checks it with `existsSync(o
 - [x] **Step 2: Edit the spec as described above.** Change nothing else in the file.
 - [x] **Step 3: Run only this spec.** From `panel/`, with the environment loaded: `env -u NOOK_API_KEY xvfb-run -a rtk npm run test:e2e:deterministic -- --spec e2e/specs/terminal-tool.spec.mjs`. If the runner rejects `--spec`, run the whole suite instead. Expected: the four tests of the spec pass.
 - [x] **Step 4: Commit.** `git add panel/e2e/specs/terminal-tool.spec.mjs docs/plans/allowed-folders-hardening.md` and `git commit -m "test(e2e): check the host file, not the exit code, for a write outside the folder on Linux"`. Do not add `folders.spec.mjs` to this commit.
+
+### Task 8: Close the five SonarCloud issues
+
+**Files:**
+- Modify: `daemon/crates/nook-core/src/providers/mod.rs`, `daemon/crates/nook-core/src/supervisor.rs`, `panel/src/components/FoldersTab.tsx`
+
+No new test is possible for a lint rule. The existing tests are the safety net. Change nothing else in these files.
+
+- [ ] **Step 1: Replace the four closures.** In each of the four places `.unwrap_or_else(|error| error.into_inner())` becomes `.unwrap_or_else(PoisonError::into_inner)`. Add `use std::sync::PoisonError;` to each file, next to the existing `use std::sync::Arc;` (write it as `use std::sync::{Arc, PoisonError};`).
+- [ ] **Step 2: Replace the `role="group"` span in `FoldersTab.tsx` (line 99).** Use `<fieldset className="flex min-w-0 rounded-md border border-white/10 overflow-hidden">` with a first child `<legend className="sr-only">Access for {root.path}</legend>`. Remove the `role` and the `aria-label` attributes. Keep the buttons inside it as they are.
+- [ ] **Step 3: Run the Daemon checks from `daemon/`.** `rtk cargo fmt --check`, `rtk cargo clippy --workspace --all-targets -- -D warnings`, `rtk cargo test -p nook-core --test folders_tests --test supervisor_tests`. Expected: no output from fmt, no warning from clippy, all tests pass.
+- [ ] **Step 4: Run the Panel checks from `panel/`.** `rtk npm run lint`, `rtk npm run test:unit`, `rtk npm run build`. Expected: all pass. Do NOT run the native suite. The orchestrator runs it.
+- [ ] **Step 5: Commit.** `git add` the three files and this plan, then `git commit -m "fix: close the SonarCloud issues in the folders change"`.
 
 ## Final report
 
