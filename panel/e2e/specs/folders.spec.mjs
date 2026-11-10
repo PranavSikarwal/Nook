@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, realpathSync } from 'node:fs'
+import { existsSync, readFileSync, realpathSync, renameSync } from 'node:fs'
 import path from 'node:path'
 
 describe('native Settings: allowed folders', () => {
@@ -81,6 +81,37 @@ describe('native Settings: allowed folders', () => {
     await card.$('button=Allow once').click()
     await waitForLatestComplete('Tool ok: Wrote 2 bytes')
     if (readFileSync(target, 'utf8') !== 'hi') throw new Error('The file has the wrong content.')
+  })
+
+  it('shows the reason and keeps the list when the same folder is added again', async () => {
+    await openFoldersFromMenu()
+    const before = (await $$('[data-testid="folder-row"]')).length
+    await $('[data-testid="folders-add"]').click()
+    const banner = await $('[data-testid="folders-error"]')
+    await banner.waitForDisplayed({ timeout: 10_000 })
+    if (!(await banner.getText()).includes('overlaps a folder that is already in the list')) {
+      throw new Error(`Unexpected error text: ${await banner.getText()}`)
+    }
+    if ((await $$('[data-testid="folder-row"]')).length !== before) {
+      throw new Error('A refused folder changed the list.')
+    }
+    await closeSettings()
+  })
+
+  it('marks a folder that left the disk and still lists it', async () => {
+    const moved = `${listedExtra}-moved`
+    renameSync(listedExtra, moved)
+    try {
+      await openFoldersFromMenu()
+      const reason = await row(listedExtra).$('[data-testid="folder-reason"]')
+      await reason.waitForDisplayed({ timeout: 10_000 })
+      if (!(await reason.getText()).includes('The folder does not exist')) {
+        throw new Error(`Unexpected reason: ${await reason.getText()}`)
+      }
+      await closeSettings()
+    } finally {
+      renameSync(moved, listedExtra)
+    }
   })
 
   it('refuses a path again after the folder is removed', async () => {

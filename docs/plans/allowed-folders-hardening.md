@@ -175,7 +175,7 @@ async fn removing_the_last_folder_denies_a_waiting_write_as_outside() {
 - Modify: `panel/src/components/FoldersTab.tsx`
 - Test: `panel/e2e/specs/folders.spec.mjs`
 
-- [ ] **Step 1: Add two tests to `folders.spec.mjs`.** Put them between "lets the user write after the access changes to read and write" and "refuses a path again after the folder is removed". Add `renameSync` to the `node:fs` import.
+- [x] **Step 1: Add two tests to `folders.spec.mjs`.** Put them between "lets the user write after the access changes to read and write" and "refuses a path again after the folder is removed". Add `renameSync` to the `node:fs` import.
 
 ```js
   it('shows the reason and keeps the list when the same folder is added again', async () => {
@@ -210,11 +210,13 @@ async fn removing_the_last_folder_denies_a_waiting_write_as_outside() {
   })
 ```
 
-- [ ] **Step 2: Run the native suite.** From the repository root: `set -a && . ./.env && set +a && cd panel && env -u NOOK_API_KEY xvfb-run -a rtk npm run test:e2e:deterministic`. The run builds the app and takes several minutes. Expected: both new tests pass, because they pin behavior that exists. If one fails, stop and report the output. Do not change the test to make it pass.
-- [ ] **Step 3: Make `handleAdd` use `change`.** Change `change` to accept `() => Promise<RootInfo[] | null>` and to set the list only when the result is not `null`. `handleAdd` becomes one call to `change` that returns `null` when `pickFolder()` returns no path. A cancelled pick then leaves the list and the banner as they were (`setError(null)` runs only after a result that is not `null`). The file keeps one `try`/`catch`/`finally`.
-- [ ] **Step 4: Run the Panel checks from `panel/`.** `rtk npm run lint`, `rtk npm run test:unit`, `rtk npm run build`. Expected: zero warnings, all pass.
-- [ ] **Step 5: Run the native suite again as in step 2.** Expected: every spec passes, with the same count as step 2.
-- [ ] **Step 6: Commit.** `git commit -m "refactor(panel): use one busy path in the Folders tab and test the error and the missing-folder note"`.
+- [x] **Step 2: Run the native suite.** From the repository root: `set -a && . ./.env && set +a && cd panel && env -u NOOK_API_KEY xvfb-run -a rtk npm run test:e2e:deterministic`. The run builds the app and takes several minutes. Expected: both new tests pass, because they pin behavior that exists. If one fails, stop and report the output. Do not change the test to make it pass.
+- [x] **Step 3: Make `handleAdd` use `change`.** Change `change` to accept `() => Promise<RootInfo[] | null>` and to set the list only when the result is not `null`. `handleAdd` becomes one call to `change` that returns `null` when `pickFolder()` returns no path. A cancelled pick then leaves the list and the banner as they were (`setError(null)` runs only after a result that is not `null`). The file keeps one `try`/`catch`/`finally`.
+- [x] **Step 4: Run the Panel checks from `panel/`.** `rtk npm run lint`, `rtk npm run test:unit`, `rtk npm run build`. Expected: zero warnings, all pass.
+- [x] **Step 5: Run the native suite again as in step 2.** Expected: every spec passes, with the same count as step 2.
+- [x] **Step 6: Commit.** `git commit -m "refactor(panel): use one busy path in the Folders tab and test the error and the missing-folder note"`.
+
+A cancelled picker leaves the list unchanged by code (change() ignores null). No native test, because the test build cannot cancel the picker.
 
 ### Task 5: Documents
 

@@ -31,11 +31,14 @@ export function FoldersTab() {
     }
   }, [])
 
-  const change = async (action: () => Promise<RootInfo[]>) => {
+  const change = async (action: () => Promise<RootInfo[] | null>) => {
     setBusy(true)
     try {
-      setRoots(await action())
-      setError(null)
+      const next = await action()
+      if (next !== null) {
+        setRoots(next)
+        setError(null)
+      }
     } catch (err) {
       setError(messageOf(err))
     } finally {
@@ -43,18 +46,11 @@ export function FoldersTab() {
     }
   }
 
-  const handleAdd = async () => {
-    setBusy(true)
-    try {
+  const handleAdd = () =>
+    change(async () => {
       const path = await pickFolder()
-      if (path) setRoots(await addRoot(path, 'read'))
-      setError(null)
-    } catch (err) {
-      setError(messageOf(err))
-    } finally {
-      setBusy(false)
-    }
-  }
+      return path ? await addRoot(path, 'read') : null
+    })
 
   return (
     <div data-testid="folders-tab" className="flex-1 p-4 space-y-3 overflow-y-auto text-xs">
