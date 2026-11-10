@@ -4,6 +4,10 @@ This file records user-visible changes for each Nook release.
 
 ## Unreleased
 
+### Added
+
+- Manage the folders that the file and command tools can use in Settings, Folders. A change applies at once.
+
 ## v0.1.4 - 2026-10-11
 
 ### Changed

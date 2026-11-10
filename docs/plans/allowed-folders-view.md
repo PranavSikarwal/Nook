@@ -49,12 +49,12 @@ The folders that the file and command tools may use are set by hand in `config.t
 
 ## How we will know it works
 
-- [ ] Rust tests: add, change, and remove a folder; each refused path (`/`, home, a file, a missing path, a relative path, the app folder, an overlap, the 17th folder); `config.toml` keeps comments and the 0600 mode after a change; the tool descriptions list the new folders.
-- [ ] A Rust test: a pending approval is denied after its folder is removed.
-- [ ] A Rust test: the Worker receives a new `tool_catalog` after a change, also an empty one.
-- [ ] A Rust test: a chat grant inside a removed folder is gone.
-- [ ] Contract tests and examples for the five messages.
-- [ ] A Worker test: an empty `tool_catalog` leaves the agent with no remote tools.
-- [ ] Panel unit tests for the Folders tab.
-- [ ] A wdio test: add a folder in the Folders tab, then write a file there through the deterministic flow.
-- [ ] Manual: the menu shows both items, and "Allowed Folders..." opens the tab.
+- [x] Rust tests: add, change, and remove a folder; each refused path (`/`, home, a file, a missing path, a relative path, the app folder, an overlap, the 17th folder); `config.toml` keeps comments and the 0600 mode after a change; the tool descriptions list the new folders. (`daemon/crates/nook-core/tests/folders_tests.rs`)
+- [x] A Rust test: a pending approval is denied after its folder is removed. (`removing_the_last_folder_denies_a_waiting_write_as_outside` in `daemon/crates/nook-core/tests/folders_tests.rs`)
+- [x] A Rust test: the Worker receives a new `tool_catalog` after a change, also an empty one. (`worker_catalog_follows_added_and_removed_folders` in `daemon/crates/nook-core/tests/folders_tests.rs`)
+- [x] A Rust test: a chat grant inside a removed folder is gone. (`chat_grants_inside_a_removed_folder_are_dropped` and `chat_grants_inside_a_folder_deleted_from_disk_are_dropped` in `daemon/crates/nook-core/tests/folders_tests.rs`)
+- [x] Contract tests and examples for the five messages. (`tests/contracts/test_examples.py`)
+- [x] A Worker test: an empty `tool_catalog` leaves the agent with no remote tools. (`worker/tests/test_remote_tools.py`)
+- [x] Native tests for the Folders tab (`panel/e2e/specs/folders.spec.mjs`). (6 tests in `panel/e2e/specs/folders.spec.mjs`)
+- [x] A wdio test: add a folder in the Folders tab, then write a file there through the deterministic flow. (`panel/e2e/specs/folders.spec.mjs`)
+- [ ] Manual: the menu shows both items, and "Allowed Folders..." opens the tab. (needs a Mac)

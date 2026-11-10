@@ -223,11 +223,11 @@ A cancelled picker leaves the list unchanged by code (change() ignores null). No
 **Files:**
 - Modify: `docs/plans/allowed-folders-view.md`, `docs/testing.md`, `docs/plans/README.md`, `CHANGELOG.md`
 
-- [ ] **Step 1: Tick the acceptance boxes in `docs/plans/allowed-folders-view.md`.** Tick a box only when a test that passed in this work proves it, and name that test after the line. Reword "Panel unit tests for the Folders tab" to "Native tests for the Folders tab (`panel/e2e/specs/folders.spec.mjs`)", because the Panel has no component test runner and this plan adds no dependency. Leave "Manual: the menu shows both items" open, with the note "needs a Mac".
-- [ ] **Step 2: Extend the `folders_tests.rs` paragraph in `docs/testing.md`** with the three new Rust tests and the two new native tests, in the same plain style.
-- [ ] **Step 3: List `allowed-folders-view.md` and this file under "Active plans" in `docs/plans/README.md`.**
-- [ ] **Step 4: Add under `## Unreleased` in `CHANGELOG.md`:** a `### Added` heading with the line "Manage the folders that the file and command tools can use in Settings, Folders. A change applies at once."
-- [ ] **Step 5: Commit.** `git commit -m "docs: record the allowed folders checks and the changelog entry"`.
+- [x] **Step 1: Tick the acceptance boxes in `docs/plans/allowed-folders-view.md`.** Tick a box only when a test that passed in this work proves it, and name that test after the line. Reword "Panel unit tests for the Folders tab" to "Native tests for the Folders tab (`panel/e2e/specs/folders.spec.mjs`)", because the Panel has no component test runner and this plan adds no dependency. Leave "Manual: the menu shows both items" open, with the note "needs a Mac".
+- [x] **Step 2: Extend the `folders_tests.rs` paragraph in `docs/testing.md`** with the three new Rust tests and the two new native tests, in the same plain style.
+- [x] **Step 3: List `allowed-folders-view.md` and this file under "Active plans" in `docs/plans/README.md`.**
+- [x] **Step 4: Add under `## Unreleased` in `CHANGELOG.md`:** a `### Added` heading with the line "Manage the folders that the file and command tools can use in Settings, Folders. A change applies at once."
+- [x] **Step 5: Commit.** `git commit -m "docs: record the allowed folders checks and the changelog entry"`.
 
 ### Task 6: Make the socket tests independent of the umask
 
