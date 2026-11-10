@@ -2,15 +2,17 @@
 
 **Goal:** Run every CI, native gate and package job on Node.js 24 (LTS, codename Krypton) instead of Node.js 22 (maintenance, end of life 2027-04-30).
 
-**Why 24 and not 26:** Node.js 26 became LTS on 2026-10-28, two weeks ago. Node.js 24 has been LTS since 2025-10 and has support until 2028-04. `panel/package.json` already uses `@types/node` `^24`, so the types match. A later pull request can move to 26.
+**Why 24 and not 26:** Node.js 26 became LTS on 2026-10-28, two weeks ago. Node.js 24 is in Maintenance LTS since 2026-10-20, with support until 2028-04. We pick it as the smallest step. `panel/package.json` already uses `@types/node` `^24`, so the types match. A later pull request can move to 26.
 
-**Architecture:** No code change. Only the `node-version` input of `actions/setup-node` changes. The Panel dependencies stay as they are. `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24` in `package.yml` concerns the runtime of the GitHub actions themselves. It is a separate setting, and it stays.
+**Architecture:** No code change. Only the `node-version` input of `actions/setup-node` changes. The Panel dependencies stay as they are. `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24` in `package.yml` sets the runtime of the GitHub actions themselves. It is separate from `node-version`, and it is now redundant, because runners use Node 24 for actions by default since 2026-06-16. It stays only to keep this pull request small. Remove it in a later pull request.
+
+**Rollback:** revert the commit, or set `node-version` back to `22`. No lockfile or code change is involved.
 
 ## Global constraints
 
 - Work on the branch `chore/node-24` (already checked out, from `origin/main`). Commit locally.
 - Change only the files a task lists. Add no dependency. Do not change `panel/package.json` or `panel/package-lock.json`.
-- Commit messages use `<type>(<scope>): <subject>` and contain no co-author or generator line.
+- Commit messages use `<type>: <subject>` or `<type>(<scope>): <subject>` and contain no co-author or generator line.
 - Do not start any command in the background. Run each check in the foreground with a time limit.
 - Do not run a build or `npm ci`: CI is the test for this change.
 
@@ -31,6 +33,6 @@
 ## Verification (done by the reviewer, not by the implementer)
 
 1. CI (`Code Quality and Tests`: `npm ci`, lint, `test:unit`, build) passes on Node 24.
-2. The Native Tauri E2E Gate passes on Node 24 (WebdriverIO on macOS).
-3. Package and Release passes on all three platforms.
+2. Run the Native Tauri E2E Gate with `scripts/gh workflow run native-e2e-gate.yml --ref chore/node-24 -f pr_number=36`. A dispatch uses the workflow file of the ref it runs on, so `--ref chore/node-24` is required. The log says `node: v24.x` and the gate passes.
+3. Run Package and Release with `scripts/gh workflow run package.yml --ref chore/node-24`. It passes on all three platforms and its log says `node: v24.x`.
 4. The Node version line in each job log says `v24.x`.
