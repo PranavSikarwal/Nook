@@ -26,7 +26,7 @@ Tick the task's box in the same commit. Commit locally. Do not push.
     each with one line that says what goes there.
   - Commit: `docs(tasks): add the task folder template`.
 
-- [ ] **2. Pointers for each harness.** Edit `AGENTS.md` and `CLAUDE.md`.
+- [x] **2. Pointers for each harness.** Edit `AGENTS.md` and `CLAUDE.md`.
   - `AGENTS.md`: add a section `## Work standard` right after the first
     paragraph: "Every change follows `.agents/rules/sdlc-work-standard.md`.
     Read it before any work. It points to `task-records.md`,
