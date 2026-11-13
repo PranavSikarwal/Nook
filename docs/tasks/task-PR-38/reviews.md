@@ -168,5 +168,11 @@ left the spec and this record out. The next commit adds them.
 
 ## Round 7 (spec)
 
-- Reviewer: T3 reviewer (spec review).
-- Inputs pending.
+- Head: `f1ec3a6`
+- Reviewer: T3 reviewer. Verdict APPROVE. P0: 0, P1: 0, P2: 0, P3: 0.
+- SonarCloud: gate passed.
+- Checks: all four passed. The CI gate check passed.
+- Threads: `false 0`.
+- Gaps closed by recommendation since round 6: none.
+- Result: the round exit check passed. Stage 3 is done. The owner approved the
+  spec at gate 1.

@@ -1,8 +1,8 @@
 # Spec: SDLC Work Standard
 
 ```
-Stage: 3 spec review
-Gate 1: pending
+Stage: 6 implement
+Gate 1: approved by owner on 2026-11-13: "approve"
 Gate 2: pending
 ```
 

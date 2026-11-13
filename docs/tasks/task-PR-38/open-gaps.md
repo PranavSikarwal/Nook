@@ -12,10 +12,10 @@ Each entry records one question and its decision. The format is in
 - Recommendation: (a), as the owner asked. The number links the folder to its
   pull request. Stage 1 opens the pull request with an empty commit first, so
   the number exists before the folder.
-- Decision:
-- Decided by:
-- Date:
-- Status: open
+- Decision: the recommendation.
+- Decided by: owner ("approve", at gate 1, for every open gap with its recommendation)
+- Date: 2026-11-13
+- Status: decided by owner
 
 ## G2. Rule loading for Antigravity
 
@@ -26,10 +26,10 @@ Each entry records one question and its decision. The format is in
   `.agent/rules/`.
 - Recommendation: (a). Check it in one live Antigravity run during the
   implementation, and record the result here.
-- Decision:
-- Decided by:
-- Date:
-- Status: open
+- Decision: the recommendation.
+- Decided by: owner ("approve", at gate 1, for every open gap with its recommendation)
+- Date: 2026-11-13
+- Status: decided by owner
 
 ## G3. Small changes
 
@@ -39,10 +39,10 @@ Each entry records one question and its decision. The format is in
   section: no behavior change in `daemon/`, `worker/`, `panel/`, `contracts/`
   or `policy/`, the owner calls it small, stages 1 and 5 to 9 still run.
 - Recommendation: (b).
-- Decision:
-- Decided by:
-- Date:
-- Status: open
+- Decision: the recommendation.
+- Decided by: owner ("approve", at gate 1, for every open gap with its recommendation)
+- Date: 2026-11-13
+- Status: decided by owner
 
 ## G4. Existing plans and designs
 
@@ -52,10 +52,10 @@ Each entry records one question and its decision. The format is in
   folders. (b) move all of them into task folders now.
 - Recommendation: (a). `CHECKLIST.md` and `AGENTS.md` link to them, and a move
   breaks the links and the history of ticked boxes.
-- Decision:
-- Decided by:
-- Date:
-- Status: open
+- Decision: the recommendation.
+- Decided by: owner ("approve", at gate 1, for every open gap with its recommendation)
+- Date: 2026-11-13
+- Status: decided by owner
 
 ## G5. Global rules versus repository rules
 
@@ -68,10 +68,10 @@ Each entry records one question and its decision. The format is in
 - Recommendation: (a). Other projects still need the T3 rules. Add the ban on
   AI attribution in pull request text and reviews to `CONTRIBUTING.md`, because
   today it covers commits only.
-- Decision:
-- Decided by:
-- Date:
-- Status: open
+- Decision: the recommendation.
+- Decided by: owner ("approve", at gate 1, for every open gap with its recommendation)
+- Date: 2026-11-13
+- Status: decided by owner
 
 ## G6. Enforce the task folder in CI
 
@@ -82,10 +82,10 @@ Each entry records one question and its decision. The format is in
 - Recommendation: (b), changed after review round 1. `Code Quality and Tests` is
   not a required check, so a failure does not block a merge. Look at it again
   after two tasks use the folder.
-- Decision:
-- Decided by:
-- Date:
-- Status: open
+- Decision: the recommendation.
+- Decided by: owner ("approve", at gate 1, for every open gap with its recommendation)
+- Date: 2026-11-13
+- Status: decided by owner
 
 ## G7. The reviewer thread id
 
@@ -95,10 +95,10 @@ Each entry records one question and its decision. The format is in
   write the id into the rule.
 - Recommendation: (a). The id belongs to one machine. The rule asks the owner
   when the search finds no thread or several.
-- Decision:
-- Decided by:
-- Date:
-- Status: open
+- Decision: the recommendation.
+- Decided by: owner ("approve", at gate 1, for every open gap with its recommendation)
+- Date: 2026-11-13
+- Status: decided by owner
 
 ## G8. Release in the same pull request as a fix
 
@@ -110,10 +110,10 @@ Each entry records one question and its decision. The format is in
 - Recommendation: (a) when the owner asks for the release together with the
   work, else (b). A round fix after the release task changes no version file,
   and its changelog line goes under the new version (rule stage 5).
-- Decision:
-- Decided by:
-- Date:
-- Status: open
+- Decision: the recommendation.
+- Decided by: owner ("approve", at gate 1, for every open gap with its recommendation)
+- Date: 2026-11-13
+- Status: decided by owner
 
 ## G9. Who may close a gap during implementation
 
@@ -128,10 +128,10 @@ Each entry records one question and its decision. The format is in
   asked, and a gap that touches safety waits for the owner. Each round in
   `reviews.md` also lists the gaps closed since the last round, so the owner
   can read them early.
-- Decision:
-- Decided by:
-- Date:
-- Status: open
+- Decision: the recommendation.
+- Decided by: owner ("approve", at gate 1, for every open gap with its recommendation)
+- Date: 2026-11-13
+- Status: decided by owner
 
 ## G10. Which reviewer reviews what
 
