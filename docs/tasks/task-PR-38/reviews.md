@@ -244,7 +244,9 @@ printed nothing.
 | `gh pr checks` exit code (`review-standard.md`) | PR 34 and PR 38 | Prints exit 0 for both, although PR 34 reports one check. This is why the CI gate check counts four `pass` lines. |
 | Task folder only (`sdlc-work-standard.md` stage 8 step 6) | `git diff --name-only 1cb3660 HEAD` outside the task folder | Lists rule files, as it must when other paths changed. |
 | Package run list (`sdlc-work-standard.md` stage 9) | `run list --workflow package.yml --branch main` | Prints run 43430991494 and `3f843da`. |
-| Tag baseline (`delegation-standard.md` boundary check) | `git ls-remote --tags origin` | Lists the 9 tag refs, equal before and after each task. |
+| Boundary check (`delegation-standard.md`): `git rev-parse origin/<branch>`, `git ls-remote --tags origin`, `pr view --json state,isDraft,comments,reviews`, `run list --branch`, `git diff --name-only <task-base> HEAD` | after each child task of this PR | Passed after every task. It does not see a missing edit, which the diff read found once (retro event 8). |
+| Stage 6 exit (`sdlc-work-standard.md`): plan check, `git status --porcelain`, CI gate check | repo root at the head | Plan check prints `0`, `git status --porcelain` prints nothing (the untracked schema file is outside the task), CI gate check as the table row. |
+| Stage 9 exit (`sdlc-work-standard.md`): `run watch --exit-status`, `release view v<version>` | `run watch --help`, `release view v0.1.6 --json assets` | `--exit-status` exists. The release lists 11 assets. |
 | State-changing commands (`pr create`, `pr ready`, `pr merge`, `pr comment`, `workflow run`, `run rerun`, `release create`, `git push`) | not run: changes state | Run for real during this task as steps, not as tests. |
 
 ## Round 3 (code)
@@ -297,6 +299,22 @@ it did. The orchestrator's diff read confirmed it. Boundary check passed.
 
 ## Round 5 (code)
 
+- Head: `36e6cda`
+- Reviewer: T3 reviewer. Verdict COMMENT. P0: 0, P1: 0, P2: 1, P3: 1. C11 to C13
+  fixed, C12 fixed, C10 partly fixed.
+- SonarCloud: gate passed.
+- Checks: all four passed.
+- Gaps closed by recommendation since round 4: none.
+- Stop and ask: the same finding (the commands table) stayed open after two fix
+  passes, so the orchestrator asked the owner (G19).
+
+| # | Finding | Action | Where |
+| --- | --- | --- | --- |
+| C10 | The table lacks 7 check commands, and the definition leaves out the per-task boundary check. | fix (owner chose option 1, G19) | Plan task 24 changes the rule to one row for each named check. The table has rows for the boundary check, the stage 6 exit and the stage 9 exit. |
+| C14 | The SHA cannot be in its own commit, the central docs and `docs/adr/` are not excluded, `git diff --shortstat` misses staged changes. | fix | Plan task 25. |
+
+## Round 6 (code)
+
 - Head: the commit that adds this heading.
-- Reviewer: T3 reviewer (code review), follow-up of round 4.
+- Reviewer: T3 reviewer (code review), follow-up of round 5.
 - Inputs pending.

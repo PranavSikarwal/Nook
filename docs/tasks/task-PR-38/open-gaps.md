@@ -284,3 +284,17 @@ Each entry records one question and its decision. The format is in
 - Decided by: owner ("Follow recommendations")
 - Date: 2026-11-13
 - Status: decided by owner
+
+## G19. Code round 5 findings C10 and C14
+
+- Stage: 7 review rounds (code round 5)
+- Question: C10 stayed open after two fix passes, so the rule asked the owner.
+- Options: (a) option 1: one row for each named check, a row lists its commands,
+  the definition adds "task" and "merge". (b) option 2: drop the table
+  requirement and keep only a sentence in the round record.
+- Recommendation: (a), and C14 as the reviewer recommends.
+- Decision: (a). C14 accepted: the SHA goes in after the fix commit exists, the
+  central docs and `docs/adr/` join the exclusion, `git diff --shortstat HEAD`.
+- Decided by: owner ("1 and yes")
+- Date: 2026-11-13
+- Status: decided by owner

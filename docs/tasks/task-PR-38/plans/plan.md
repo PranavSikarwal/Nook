@@ -241,3 +241,40 @@ lists the file the task names.
   in the `Where` cell, and names the fix in the commit message. A planned task
   goes to a child."
   Commit: `docs(rules): keep binding documents out of the small-fix bound`.
+
+## Round 5 (code review findings C10 and C14)
+
+The owner chose option 1 for C10 and accepted C14 (gap G19). The table rows and
+the records are orchestrator edits in the task folder. Each task below is one
+commit by the implementer. Check after each commit:
+`git diff --check origin/main HEAD` prints nothing, and `git diff --stat HEAD~1 HEAD`
+lists every file the task names.
+
+- [ ] **24. C10: one row for each named check.**
+  `.agents/rules/sdlc-work-standard.md` and `docs/tasks/_template/reviews.md`.
+  - Stage 2 "Exit" becomes: "Exit: every template section has content, every gap
+    has options and a recommendation, and `reviews.md` has a `## Commands run`
+    section with one row for each named check that the task adds to a rule or a
+    document. A row lists the commands of its check. A check decides whether a
+    task, a stage, a round or a merge passes, or it uses a filter, a regex or
+    `jq`. Run a read-only check on the pull request of the task or on a merged
+    one, with `/usr/bin/grep` where it uses grep. For a check that changes state,
+    run its `--help` or write `not run: changes state`."
+  - Stage 6, the paragraph that starts "Add a row to `## Commands run`" becomes:
+    "Add a row to `## Commands run` in `reviews.md` for each named check that the
+    task added to a rule or a document, as stage 2 says."
+  - Template `reviews.md`: the line under `## Commands run` becomes "One row for
+    each named check that the task adds to a rule or a document. A row lists the
+    commands of its check."
+  - Commit: `docs(rules): require one command row for each named check`.
+- [ ] **25. C14: three limits of a small fix.**
+  `.agents/rules/delegation-standard.md`, "T3 Code" item 5.
+  - `git diff --shortstat` becomes `git diff --shortstat HEAD`.
+  - The exclusion list adds "none of the central docs named in stage 2 of the
+    SDLC Work Standard, nothing under `docs/adr/`," after the four named
+    documents.
+  - The record sentence becomes: "It writes a row of the current round in
+    `reviews.md` after the fix commit exists, with the Action `fix (small)` and
+    the commit SHA in the `Where` cell, and names the fix in the commit message."
+  - Rewrap item 5 at about 80 characters. Keep every other sentence.
+  - Commit: `docs(rules): close three gaps in the small-fix bound`.
