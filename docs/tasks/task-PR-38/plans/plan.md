@@ -118,3 +118,29 @@ prints nothing once task 10 is done (before it, it reports only the C3 line).
   brief names the plan path ..." inside list item 2. Move it after the list as
   its own paragraph. Commit: `docs(rules): set the brief sentence outside the model list`.
 - [x] **14. Retro (orchestrator).** Write `retro.md`, as stage 8 step 1 says.
+
+## Round 2 (retro proposals)
+
+The owner accepted retro proposals P1, P2 and P4 at gate 2 (gap G16). Each task
+is one commit by the implementer. Check after each commit:
+`git diff --check origin/main HEAD` prints nothing.
+
+- [ ] **15. P1: the rule files are the spec.** `.agents/rules/sdlc-work-standard.md`,
+  stage 2 "Spec": add this paragraph after the first paragraph (before "Exit"):
+  "When the task changes rules or documents, those files are the spec. Write them
+  in this stage, and keep `specs/design.md` to the why and the list of file
+  changes." Commit: `docs(rules): make the rule files the spec of a rule task`.
+- [ ] **16. P2: run every command before review.** `.agents/rules/sdlc-work-standard.md`.
+  Stage 2 "Exit" becomes: "Exit: every template section has content, every gap
+  has options and a recommendation, and `reviews.md` holds the result of each
+  command that the task adds to a rule or a document, run with `/usr/bin/grep`
+  and on a real pull request." In stage 6, item 2 of "After each task" ends with
+  this added sentence: "Run each command that the task added to a rule or a
+  document, as stage 2 says." Commit: `docs(rules): run each new command before review`.
+- [ ] **17. P4: small fixes need no child.** `.agents/rules/delegation-standard.md`,
+  "T3 Code" 4 "Take over": add a new item 5 after it: "5. **Small fixes.** A
+  fix that touches one or two files and a few lines, and changes no behavior in
+  `daemon/`, `worker/`, `panel/`, `contracts/` or `policy/`, needs no child. The
+  orchestrator makes it, runs the same checks, and commits it, even when the plan
+  does not list it. A planned task goes to a child." Commit:
+  `docs(rules): let the orchestrator make small fixes`.

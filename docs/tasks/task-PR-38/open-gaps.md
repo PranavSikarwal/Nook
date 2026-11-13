@@ -243,3 +243,17 @@ Each entry records one question and its decision. The format is in
 - Decided by: owner ("works do all these changes")
 - Date: 2026-11-13
 - Status: decided by owner
+
+## G16. Retro proposals: apply now or later
+
+- Stage: 8 gate 2
+- Question: which retro proposals of PR 38 become rules, and when?
+- Options: (a) apply the accepted ones in this pull request, with one more
+  review round. (b) merge first, apply them in a later small task.
+- Recommendation: (a), so the first merged rules hold no known defect.
+- Decision: (a). P1, P2 and P4 accepted. P3, P5 and P6 rejected. P7 was already
+  applied through G13. The P1 wording says "spec" only. The P4 wording lets the
+  orchestrator make small fixes without a plan entry or a mark.
+- Decided by: owner ("works do these changes then run a review and follow up")
+- Date: 2026-11-13
+- Status: decided by owner

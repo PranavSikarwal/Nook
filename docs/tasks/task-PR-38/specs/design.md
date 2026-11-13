@@ -1,7 +1,7 @@
 # Spec: SDLC Work Standard
 
 ```
-Stage: 8 gate 2
+Stage: 6 implement (retro proposals, round 2)
 Gate 1: approved by owner on 2026-11-13: "approve"
 Gate 2: pending
 ```
