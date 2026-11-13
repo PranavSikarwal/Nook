@@ -167,7 +167,7 @@ task below is one commit by the implementer. Check after each commit:
     line "One row for each command that the task adds to a rule or a document."
     and the table header `| Command | Run | Result |` with its separator row.
   - Commit: `docs(rules): make the commands-run rule safe to follow`.
-- [ ] **19. C6: small fixes and the other rules.**
+- [x] **19. C6: small fixes and the other rules.**
   - `AGENTS.md` "Done" 3: append the sentence "A small fix is the exception:
     `.agents/rules/delegation-standard.md` \"T3 Code\" 5 says when." (use plain
     quotes around T3 Code in the file, no backslashes).

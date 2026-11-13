@@ -111,7 +111,9 @@ that its result belongs to the head.
 5. **Fix.** In a spec round, edit the spec, the rules and `open-gaps.md` in one
    commit for the pass. In a code round, append the `fix` items to
    `plans/plan.md` under `## Round N`, one task per commit, and implement them as
-   stage 6 of the SDLC Work Standard says.
+   stage 6 of the SDLC Work Standard says. A small fix (see
+   `.agents/rules/delegation-standard.md` "T3 Code" 5) needs no plan task. Write
+   it as a row of the round with the Action `fix (small)`.
 6. **Push.** The next round starts on the new head.
 
 Repeat rounds until the round exit check passes. Each round fixes every open
