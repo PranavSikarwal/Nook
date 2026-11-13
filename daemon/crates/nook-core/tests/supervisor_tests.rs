@@ -11,6 +11,21 @@ fn fake_worker_script() -> PathBuf {
 }
 
 #[tokio::test]
+async fn shutdown_can_be_called_twice() {
+    let config = Config::default();
+    let command = vec![
+        "python3".to_string(),
+        fake_worker_script().to_string_lossy().to_string(),
+    ];
+    let supervisor = WorkerSupervisor::new(&config, None, Some(command))
+        .await
+        .expect("fake Worker should start");
+
+    supervisor.shutdown().await;
+    supervisor.shutdown().await;
+}
+
+#[tokio::test]
 async fn test_supervisor_routes_events() {
     let script = fake_worker_script();
     let config = Config::default();

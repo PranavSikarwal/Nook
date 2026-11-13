@@ -35,6 +35,7 @@ struct Inner {
 pub struct WorkerSupervisor {
     inner: Arc<Mutex<Inner>>,
     tools: Arc<std::sync::Mutex<Arc<Vec<ToolDescriptor>>>>,
+    shutdown_complete: tokio::sync::watch::Receiver<bool>,
 }
 
 fn is_worker_project(dir: &Path) -> bool {
@@ -296,19 +297,23 @@ impl WorkerSupervisor {
             shutdown_tx,
         }));
 
+        let (shutdown_complete_tx, shutdown_complete) = tokio::sync::watch::channel(false);
         let supervisor = Self {
             inner,
             tools: Arc::new(std::sync::Mutex::new(Arc::new(tools))),
+            shutdown_complete,
         };
 
         // Start initial process and wait for ready
         let (first_ready_tx, first_ready_rx) = tokio::sync::oneshot::channel();
         let sup_clone = supervisor.clone();
+        let shutdown_complete = shutdown_complete_tx;
 
         tokio::spawn(async move {
             sup_clone
                 .supervisor_loop(command_args, env_vars, Some(first_ready_tx), shutdown_rx)
                 .await;
+            let _ = shutdown_complete.send(true);
         });
 
         match tokio::time::timeout(Duration::from_secs(60), first_ready_rx).await {
@@ -671,6 +676,15 @@ impl WorkerSupervisor {
 
         if let Some(ref stdin) = stdin_tx {
             let _ = stdin.send(payload).await;
+        }
+        if tokio::time::timeout(
+            Duration::from_secs(5),
+            self.shutdown_complete.clone().wait_for(|done| *done),
+        )
+        .await
+        .is_err()
+        {
+            warn!("Timed out waiting for the Worker supervisor to stop");
         }
     }
 }

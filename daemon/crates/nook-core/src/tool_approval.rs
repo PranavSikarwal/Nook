@@ -255,6 +255,22 @@ pub async fn abort_running_tools(state: &AppState, client_request_id: Uuid) {
     }
 }
 
+pub async fn abort_all_running_tools(state: &AppState) {
+    let handles = {
+        let mut running = state.running_tools.lock().await;
+        running
+            .drain()
+            .flat_map(|(_, calls)| calls.into_iter().map(|(_, handle)| handle))
+            .collect::<Vec<_>>()
+    };
+    for handle in &handles {
+        handle.abort();
+    }
+    while handles.iter().any(|handle| !handle.is_finished()) {
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
 fn delivery_for(call_id: &str, entry: &PendingApprovalEntry) -> Delivery {
     Delivery {
         worker_request_id: entry.worker_request_id,

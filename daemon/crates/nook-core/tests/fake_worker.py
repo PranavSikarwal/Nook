@@ -1,5 +1,11 @@
 import json
+import os
 import sys
+import time
+
+if os.environ.get("FAKE_WORKER_PID_FILE"):
+    with open(os.environ["FAKE_WORKER_PID_FILE"], "w") as pid_file:
+        pid_file.write(str(os.getpid()))
 
 # Print ready
 sys.stdout.write(json.dumps({"type": "ready", "version": "0.1.0"}) + "\n")
@@ -27,7 +33,8 @@ for line in sys.stdin:
     req_id = req.get("request_id")
 
     if req_type == "shutdown":
-        sys.exit(0)
+        if os.environ.get("FAKE_WORKER_IGNORE_EOF") != "1":
+            sys.exit(0)
     elif req_type == "run" and req.get("text", "").startswith("authorize:"):
         msg_id = "44444444-4444-4444-4444-444444444444"
         call_id, tool_name, arguments = req["text"][len("authorize:") :].split("|", 2)
@@ -226,3 +233,7 @@ for line in sys.stdin:
         sys.stdout.flush()
     elif req_type == "crash":
         sys.exit(1)
+
+if os.environ.get("FAKE_WORKER_IGNORE_EOF") == "1":
+    while True:
+        time.sleep(60)

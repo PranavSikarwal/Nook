@@ -43,6 +43,15 @@ impl Drop for TestDaemon {
 }
 
 fn spawn_daemon(label: &str, pipe_stderr: bool, rust_log: Option<&str>) -> TestDaemon {
+    spawn_daemon_with_worker_mode(label, pipe_stderr, rust_log, false)
+}
+
+fn spawn_daemon_with_worker_mode(
+    label: &str,
+    pipe_stderr: bool,
+    rust_log: Option<&str>,
+    ignore_eof: bool,
+) -> TestDaemon {
     let app_dir = scratch_dir(label);
     let socket_path = app_dir.join("daemon.sock");
     let config_path = app_dir.join("config.toml");
@@ -64,6 +73,10 @@ fn spawn_daemon(label: &str, pipe_stderr: bool, rust_log: Option<&str>) -> TestD
         .env("NOOK_DATABASE_URL", &db_url)
         .stdin(Stdio::null())
         .stdout(Stdio::null());
+    if ignore_eof {
+        cmd.env("FAKE_WORKER_IGNORE_EOF", "1")
+            .env("FAKE_WORKER_PID_FILE", app_dir.join("worker.pid"));
+    }
 
     if let Some(log) = rust_log {
         cmd.env("RUST_LOG", log);
@@ -184,45 +197,33 @@ fn the_daemon_exits_on_sigint() {
 }
 
 #[test]
-fn the_daemon_stops_its_worker_on_sigterm() {
-    let daemon = spawn_daemon("w-stop", false, None);
-    let daemon_pid = daemon.child.id();
-
-    let output = Command::new("pgrep")
-        .args(["-P", &daemon_pid.to_string()])
-        .output()
-        .expect("pgrep failed to execute");
-    let worker_pids: Vec<u32> = String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .filter_map(|l| l.trim().parse::<u32>().ok())
-        .collect();
-    assert!(
-        !worker_pids.is_empty(),
-        "expected worker process to be running under nookd"
-    );
-
-    send_signal(daemon_pid, "-TERM");
-    assert_exits_within_5s_and_socket_removed(daemon);
-
+fn the_daemon_kills_a_worker_that_ignores_stdin_close() {
+    let daemon = spawn_daemon_with_worker_mode("w-ignores-eof", false, None, true);
+    let pid_path = daemon.app_dir.join("worker.pid");
     let start = Instant::now();
-    let timeout = Duration::from_secs(5);
-    let mut all_gone = false;
-    while start.elapsed() < timeout {
-        let any_running = worker_pids.iter().any(|&pid| {
-            Command::new("kill")
-                .args(["-0", &pid.to_string()])
-                .stderr(Stdio::null())
-                .status()
-                .map(|s| s.success())
-                .unwrap_or(false)
-        });
-        if !any_running {
-            all_gone = true;
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(50));
+    while !pid_path.exists() && start.elapsed() < Duration::from_secs(5) {
+        std::thread::sleep(Duration::from_millis(10));
     }
-    assert!(all_gone, "Worker process was not stopped within 5 seconds");
+    let worker_pid: u32 = std::fs::read_to_string(pid_path)
+        .expect("worker pid should be recorded")
+        .trim()
+        .parse()
+        .expect("worker pid should be numeric");
+    send_signal(daemon.child.id(), "-TERM");
+    assert_exits_within_5s_and_socket_removed(daemon);
+    let start = Instant::now();
+    while start.elapsed() < Duration::from_secs(1) {
+        if !Command::new("kill")
+            .args(["-0", &worker_pid.to_string()])
+            .stderr(Stdio::null())
+            .status()
+            .is_ok_and(|status| status.success())
+        {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    panic!("Worker process {worker_pid} stayed alive after nookd exited");
 }
 
 #[test]
