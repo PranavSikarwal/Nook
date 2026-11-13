@@ -23,24 +23,23 @@ its open gaps, the gaps closed during the work, and the final pull request.
 
 ## The rules
 
-The two rule files are the spec of this task. Review them.
+The four rule files are the spec of this task. Review them.
 
-1. `.agents/rules/sdlc-work-standard.md` defines the roles, the task folder,
-   the nine stages with their exit checks, the open gaps format, the implementer
-   rules, the T3 Code rules, push, resume, and small changes. It is always
+1. `.agents/rules/sdlc-work-standard.md`: the roles, the CI gates, the nine
+   stages with their exit checks, push, resume and small changes. It is always
    loaded.
-2. `.agents/rules/review-standard.md` defines a review round: which reviewer to
-   use (the T3 reviewer or the GitHub Actions reviewer in `reviewers.yml`), the
-   verdict line, how to ask each reviewer, how to read the inputs, the exit
-   check, and what to do when an input fails. The SDLC Work Standard points to
-   it before stages 3 and 7, so it loads only when a review runs.
-3. `.agents/rules/delegation-standard.md` defines the implementer rules, the T3
-   Code rules and the boundary check after each task. The SDLC Work Standard
-   points to it before stage 6.
+2. `.agents/rules/task-records.md`: the task folder, the state block, the open
+   gaps format and the retro, with its exit check.
+3. `.agents/rules/review-standard.md`: which reviewer to use (the T3 reviewer or
+   the GitHub Actions reviewer in `reviewers.yml`), the verdict line, how to ask
+   each reviewer, how to read the inputs, when rounds stop to ask the owner, the
+   round exit check, and what to do when an input fails.
+4. `.agents/rules/delegation-standard.md`: the implementer rules, the T3 Code
+   rules and the boundary check after each task.
 
-The SDLC rule also makes every CI check a gate, and ends each task with a retro
-(`retro.md`) that proposes changes to these rules. Each file stays under 12,000
-characters, the limit that Antigravity sets for one rule file.
+The SDLC file points to the other three before the stage that needs each one.
+Each file stays under 12,000 characters, the limit that Antigravity sets for one
+rule file.
 
 ## Where the rule lives
 
@@ -49,8 +48,8 @@ in its own way:
 
 | Harness | What it loads | How it reaches the rule |
 | --- | --- | --- |
-| Antigravity | `AGENTS.md`, `GEMINI.md`, `.agents/rules/*.md` | Loads the files directly. The SDLC file sets `trigger: always_on`. The review and delegation files set `trigger: model_decision`, so the agent loads each one when its description fits. |
-| Claude Code | `CLAUDE.md` with `@` imports, `.claude/rules/` | `CLAUDE.md` imports `@.agents/rules/sdlc-work-standard.md`. The review and delegation files are read through the pointers in the SDLC file. |
+| Antigravity | `AGENTS.md`, `GEMINI.md`, `.agents/rules/*.md` | Loads the files directly. The SDLC file sets `trigger: always_on`. The other three files set `trigger: model_decision`, so the agent loads each one when its description fits. |
+| Claude Code | `CLAUDE.md` with `@` imports, `.claude/rules/` | `CLAUDE.md` imports `@.agents/rules/sdlc-work-standard.md`. The other three files are read through the pointers in the SDLC file. |
 | Codex | `AGENTS.md` only, no imports | `AGENTS.md` starts with a pointer that tells the agent to read the rule before any work. Every implementer brief also names the rule. |
 
 Cursor reads `AGENTS.md` and `.cursor/rules/`. Nook does not use Cursor, so it
@@ -75,6 +74,7 @@ pointers.
 | `CONTRIBUTING.md` "Branches and commits" | Do not add author-attribution trailers or generator notices to commits. | No AI attribution in a commit, a pull request title or body, a comment or a review. |
 | `CONTRIBUTING.md` "Pull requests" | Update `docs/plan.md` and `CHECKLIST.md` when the change completes or adds an active task. | Follow `.agents/rules/sdlc-work-standard.md`. Update `docs/plan.md` and `CHECKLIST.md` only for work that started before PR 38. |
 | `CONTRIBUTING.md` | Keep completed plans in `docs/archive/plans/`. | Task folders stay in `docs/tasks/` after the merge. Completed plans from `docs/plans/` still move to `docs/archive/plans/`. |
+| `docs/testing.md` | No check for a change that touches only Markdown. | Adds `git diff --check` as the check for a Markdown-only change. |
 | `docs/plans/README.md` | Lists active plans. | Adds: new work uses task folders under `docs/tasks/`. |
 
 `CHECKLIST.md` and `docs/plan.md` keep their content. This pull request merges
@@ -89,8 +89,11 @@ rules on `main`.
 3. Check in a live Antigravity run that the rule loads (gap G2), and record the
    result.
 
+This pull request applies every row of the "Rule changes" table.
+
 Not in scope: moving the existing plans and designs (gap G4), a CI check for the
-task folder (gap G6), and product code.
+task folder (gap G6), the `reviewers.yml` fixes (gap G11), the rule changes that
+the retro of this task proposes, and product code.
 
 ## This task is the first one
 
@@ -100,9 +103,8 @@ request number from GitHub first. Later tasks follow stage 1 as written.
 
 ## Risks
 
-1. The SDLC rule is always loaded, so it costs context on every turn. The review
-   rule loads only for a review. If the SDLC rule proves too long, the
-   implementer and T3 sections move to their own files.
+1. The SDLC rule is always loaded, so it costs context on every turn. The other
+   three files load only when their stage needs them.
 2. Rules in two places drift. The global `~/.claude/CLAUDE.md` keeps rules for
    all projects. Gap G5 decides what moves.
 3. Two gates slow small fixes. The "Small change" section skips the spec and

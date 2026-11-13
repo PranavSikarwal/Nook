@@ -102,5 +102,34 @@ round 2.
 
 ## Round 4 (spec)
 
+- Head: `80dcded`
+- Reviewer: T3 reviewer. Verdict REQUEST_CHANGES. P0: 0, P1: 1, P2: 4, P3: 8.
+  Round 3 findings fixed, except 27 (see 38) and 5. Deferral of 32 to 34 (G11)
+  accepted.
+- SonarCloud: gate passed.
+- Checks: all four passed.
+- Gaps closed by recommendation since round 3: none.
+
+| # | Finding | Action | Where |
+| --- | --- | --- | --- |
+| 38 | The CI gate check fails with GNU grep (`\t` in `-E`). | fix | Review rule "Read the inputs" 2: `[[:space:]]+` and `sort -u`. Tested with `/usr/bin/grep`: PR 32 and PR 38 pass, PR 34 fails. |
+| 39 | The unlimited loop has no stop-and-ask trigger. | fix | Review rule "Run a round": four stop-and-ask triggers, a status line every 5 rounds, and `ask owner` for a fix outside the plan. Rounds still have no limit. |
+| 40 | The SDLC file is 19 characters under the limit. | fix | Task folder, open gaps and retro moved to `.agents/rules/task-records.md`. The SDLC file is now 9,850 characters. |
+| 41 | The retro has no exit command and no home. | fix | Task records "Retro": exact headings, `Owner: accepted/rejected` lines, an exit check, accepted proposals as deferred gaps. |
+| 42 | The spec is stale. | fix | Spec "The rules" lists four files, risk 1 updated, "This pull request applies every row". |
+| 5 | The boundary check misses merges, comments, reviews, runs. | fix | Delegation rule "Boundary check": `pr view` and `run list` baselines. |
+| 43 | The exit check has no reading command. | fix | Review rule "Round exit check" 1 (tested on PR 37: `true`) and 2 (unresolved threads). |
+| 44 | The T3 request lacks the no-attribution rule. | fix | Review rule "Ask the T3 reviewer" 2. |
+| 45 | Placeholder and derived verdict. | fix | Review rule: read after the run completes; a derived 0-finding verdict counts. |
+| 46 | The fork ban has no check. | fix | Review rule "Ask the GitHub Actions reviewer" 2: `isCrossRepository`. |
+| 47 | Task folder contradiction and boundary diff base. | fix | SDLC "Roles" allows the plan checkbox; boundary check uses `task-base`. |
+| 48 | `git diff --check` is not in `docs/testing.md`. | fix | New row in the spec's "Rule changes" table. |
+| 49 | G11 has no home or start condition. | fix | G11 decision: the first task after the merge, before the Actions reviewer runs again. |
+
+The commit `6b91f7a` holds only the rule changes of this pass. A script error
+left the spec and this record out. The next commit adds them.
+
+## Round 5 (spec)
+
 - Reviewer: T3 reviewer (spec review).
 - Inputs pending.
