@@ -35,13 +35,13 @@
 
 Write one test for each scenario. Each test starts the real `nookd` binary (`env!("CARGO_BIN_EXE_nookd")`) with a temporary socket path, a temporary config and the fake Worker (see `socket_ownership_tests.rs` and `supervisor_tests.rs` for how they set this up), waits until the socket accepts a connection, sends SIGTERM with `libc::kill` or `nix` if the crate already depends on it (else `Command::new("kill")`), and then asserts that the process exits within 5 seconds and that the socket file is gone.
 
-- [ ] `the_daemon_exits_on_sigterm_with_no_client`
-- [ ] `the_daemon_exits_on_sigterm_with_an_idle_client_connected`
-- [ ] `the_daemon_exits_on_sigterm_when_stderr_has_no_reader`: spawn with `Stdio::piped()` for stderr, then drop the read end before the signal.
-- [ ] `the_daemon_exits_on_sigterm_when_the_stderr_pipe_is_full`: spawn with `Stdio::piped()` for stderr, never read it, and write enough log lines first to fill the 64 KB pipe (set `RUST_LOG=trace` and connect and disconnect clients in a loop, or ask the Daemon for the setting that raises log volume).
-- [ ] `the_daemon_exits_on_sigint`
-- [ ] Run each test alone: `cd daemon && timeout 540 rtk cargo test -p nookd --test signal_shutdown_tests <name>`. Write the result of each (pass, fail, hang) into the section "Repro results" at the end of this file. A test that hangs must be killed by its own 5 second assertion, not by the harness.
-- [ ] Commit: `test(daemon): reproduce a Daemon that ignores SIGTERM`. A failing test is expected and allowed in this commit. Mark each failing test with `#[ignore = "fails until Task 2"]` only after the results are written down, and remove the `ignore` in Task 2.
+- [x] `the_daemon_exits_on_sigterm_with_no_client`
+- [x] `the_daemon_exits_on_sigterm_with_an_idle_client_connected`
+- [x] `the_daemon_exits_on_sigterm_when_stderr_has_no_reader`: spawn with `Stdio::piped()` for stderr, then drop the read end before the signal.
+- [x] `the_daemon_exits_on_sigterm_when_the_stderr_pipe_is_full`: spawn with `Stdio::piped()` for stderr, never read it, and write enough log lines first to fill the 64 KB pipe (set `RUST_LOG=trace` and connect and disconnect clients in a loop, or ask the Daemon for the setting that raises log volume).
+- [x] `the_daemon_exits_on_sigint`
+- [x] Run each test alone: `cd daemon && timeout 540 rtk cargo test -p nookd --test signal_shutdown_tests <name>`. Write the result of each (pass, fail, hang) into the section "Repro results" at the end of this file. A test that hangs must be killed by its own 5 second assertion, not by the harness.
+- [x] Commit: `test(daemon): reproduce a Daemon that ignores SIGTERM`. A failing test is expected and allowed in this commit. Mark each failing test with `#[ignore = "fails until Task 2"]` only after the results are written down, and remove the `ignore` in Task 2.
 
 If every scenario passes, write that in "Repro results", commit what you have, and stop. Report to the planner. Do not start Task 2.
 
@@ -84,4 +84,10 @@ Do each sub-step only for a scenario that failed in Task 1, except the first one
 
 ## Repro results
 
-(Filled in by Task 1.)
+| Scenario | Result | Notes |
+|---|---|---|
+| `the_daemon_exits_on_sigterm_with_no_client` | pass | Exited immediately and removed socket file |
+| `the_daemon_exits_on_sigterm_with_an_idle_client_connected` | pass | Exited immediately and removed socket file |
+| `the_daemon_exits_on_sigterm_when_stderr_has_no_reader` | hang | Daemon hung on logging to broken stderr; killed after 5s by assertion |
+| `the_daemon_exits_on_sigterm_when_the_stderr_pipe_is_full` | hang | Daemon hung on logging to full 64 KB stderr pipe; killed after 5s by assertion |
+| `the_daemon_exits_on_sigint` | pass | Exited immediately and removed socket file |
