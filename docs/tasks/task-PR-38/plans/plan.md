@@ -267,7 +267,7 @@ lists every file the task names.
     each named check that the task adds to a rule or a document. A row lists the
     commands of its check."
   - Commit: `docs(rules): require one command row for each named check`.
-- [ ] **25. C14: three limits of a small fix.**
+- [x] **25. C14: three limits of a small fix.**
   `.agents/rules/delegation-standard.md`, "T3 Code" item 5.
   - `git diff --shortstat` becomes `git diff --shortstat HEAD`.
   - The exclusion list adds "none of the central docs named in stage 2 of the
