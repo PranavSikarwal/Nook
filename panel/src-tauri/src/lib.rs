@@ -380,13 +380,52 @@ pub async fn ensure_daemon_started(state: &DaemonState) {
     }
 }
 
-pub fn stop_spawned_daemon(state: &DaemonState) {
+pub fn stop_spawned_daemon(
+    state: &DaemonState,
+    grace: std::time::Duration,
+) -> Option<std::process::ExitStatus> {
     let mut guard = match state.spawned_process.try_lock() {
         Ok(guard) => guard,
         Err(_) => state.spawned_process.blocking_lock(),
     };
     if let Some(mut child) = guard.take() {
-        let _ = child.start_kill();
+        #[cfg(unix)]
+        {
+            if let Some(pid) = child.id() {
+                unsafe {
+                    libc::kill(pid as libc::pid_t, libc::SIGTERM);
+                }
+            }
+            let start = std::time::Instant::now();
+            while start.elapsed() < grace {
+                if let Ok(Some(status)) = child.try_wait() {
+                    return Some(status);
+                }
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            let _ = child.start_kill();
+            for _ in 0..40 {
+                if let Ok(Some(status)) = child.try_wait() {
+                    return Some(status);
+                }
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            None
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = grace;
+            let _ = child.start_kill();
+            for _ in 0..40 {
+                if let Ok(Some(status)) = child.try_wait() {
+                    return Some(status);
+                }
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            None
+        }
+    } else {
+        None
     }
 }
 
@@ -1213,7 +1252,10 @@ pub fn run() {
                 });
             }
             if let tauri::RunEvent::Exit = event {
-                stop_spawned_daemon(&app.state::<DaemonState>());
+                stop_spawned_daemon(
+                    &app.state::<DaemonState>(),
+                    std::time::Duration::from_secs(2),
+                );
             }
         });
 }
@@ -1336,7 +1378,7 @@ mod tests {
         let pid = child.id().expect("child has pid");
         *state.spawned_process.lock().await = Some(child);
 
-        stop_spawned_daemon(&state);
+        stop_spawned_daemon(&state, std::time::Duration::from_secs(2));
 
         assert!(state.spawned_process.lock().await.is_none());
 
@@ -1360,8 +1402,45 @@ mod tests {
     #[tokio::test]
     async fn quitting_the_panel_with_no_started_daemon_does_nothing() {
         let state = DaemonState::default();
-        stop_spawned_daemon(&state);
+        stop_spawned_daemon(&state, std::time::Duration::from_secs(2));
         assert!(state.spawned_process.lock().await.is_none());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn quitting_the_panel_stops_a_daemon_that_handles_sigterm() {
+        let state = DaemonState::default();
+        let child = tokio::process::Command::new("sh")
+            .args(["-c", "trap 'exit 0' TERM; sleep 60 & wait"])
+            .spawn()
+            .unwrap();
+        *state.spawned_process.lock().await = Some(child);
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        let status = stop_spawned_daemon(&state, std::time::Duration::from_millis(500));
+        assert!(state.spawned_process.lock().await.is_none());
+        assert!(status.is_some(), "expected exit status");
+        assert_eq!(status.unwrap().code(), Some(0));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn quitting_the_panel_kills_a_daemon_that_ignores_sigterm() {
+        use std::os::unix::process::ExitStatusExt;
+        let state = DaemonState::default();
+        let child = tokio::process::Command::new("sh")
+            .args(["-c", "trap '' TERM; sleep 60 & wait"])
+            .spawn()
+            .unwrap();
+        *state.spawned_process.lock().await = Some(child);
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        let status = stop_spawned_daemon(&state, std::time::Duration::from_millis(200));
+        assert!(state.spawned_process.lock().await.is_none());
+        assert!(status.is_some(), "expected exit status");
+        let s = status.unwrap();
+        assert_ne!(s.code(), Some(0));
+        assert_eq!(s.signal(), Some(9));
     }
 }
 
