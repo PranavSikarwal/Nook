@@ -191,6 +191,22 @@ pub fn windows_pipe_name() -> std::io::Result<String> {
     ))
 }
 
+#[cfg(unix)]
+pub fn remove_socket_if_owned(socket_path: &Path, expected_inode: u64) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    if let Ok(meta) = std::fs::metadata(socket_path) {
+        if meta.ino() == expected_inode {
+            return std::fs::remove_file(socket_path).is_ok();
+        }
+    }
+    false
+}
+
+#[cfg(not(unix))]
+pub fn remove_socket_if_owned(_socket_path: &Path, _expected_inode: u64) -> bool {
+    false
+}
+
 impl Server {
     pub async fn bind(
         socket_path: &Path,
@@ -248,6 +264,11 @@ impl Server {
         &self.socket_path
     }
 
+    #[cfg(unix)]
+    pub fn socket_inode(&self) -> u64 {
+        self.socket_inode
+    }
+
     pub async fn run(mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         #[cfg(unix)]
         {
@@ -271,12 +292,7 @@ impl Server {
                 }
             }
 
-            let still_ours = tokio::fs::metadata(&self.socket_path)
-                .await
-                .is_ok_and(|meta| std::os::unix::fs::MetadataExt::ino(&meta) == self.socket_inode);
-            if still_ours {
-                let _ = tokio::fs::remove_file(&self.socket_path).await;
-            }
+            remove_socket_if_owned(&self.socket_path, self.socket_inode);
 
             Ok(())
         }

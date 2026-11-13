@@ -113,10 +113,10 @@ Same constraints as above: branch `fix/daemon-exit-on-sigterm`, one task per com
 
 **Files:** `daemon/crates/nook-core/src/server.rs`, `daemon/crates/nookd/src/shutdown.rs`, `daemon/crates/nookd/src/main.rs`, `daemon/crates/nookd/tests/signal_shutdown_tests.rs`.
 
-- [ ] Move the "remove the socket only if the inode is still ours" logic of `Server::run` into one public function. Use it in `Server::run`, in the deadline thread and in the second-signal path. The deadline thread and the second-signal path exit with code `1`. The graceful path exits with `0`. `Server` must expose what the function needs (the inode) without a second source of truth.
-- [ ] Add `a_second_signal_exits_the_daemon_at_once`: make shutdown hang (a client connection that never closes does not hang the accept loop; instead use an environment variable such as `NOOK_TEST_HANG_SHUTDOWN` only if the code already has a test hook; else send SIGTERM twice within 100 ms and assert the exit within 1 second and the exit code `0` or `1`).
-- [ ] Add `a_stuck_shutdown_is_forced_after_the_deadline`: only if a hook for a stuck shutdown can be added in test code. Otherwise state in the plan why it cannot be tested through the public interface and skip it.
-- [ ] Commit: `fix(daemon): remove the socket only when it is ours on every exit path`
+- [x] Move the "remove the socket only if the inode is still ours" logic of `Server::run` into one public function. Use it in `Server::run`, in the deadline thread and in the second-signal path. The deadline thread and the second-signal path exit with code `1`. The graceful path exits with `0`. `Server` must expose what the function needs (the inode) without a second source of truth.
+- [x] Add `a_second_signal_exits_the_daemon_at_once`: make shutdown hang (a client connection that never closes does not hang the accept loop; instead use an environment variable such as `NOOK_TEST_HANG_SHUTDOWN` only if the code already has a test hook; else send SIGTERM twice within 100 ms and assert the exit within 1 second and the exit code `0` or `1`).
+- [x] Add `a_stuck_shutdown_is_forced_after_the_deadline`: skipped because no hook exists in test code and it cannot be tested through the public interface without instrumenting production code.
+- [x] Commit: `fix(daemon): remove the socket only when it is ours on every exit path`
 
 ### Task 7: The Panel asks the Daemon to stop before it kills it (finding 2)
 

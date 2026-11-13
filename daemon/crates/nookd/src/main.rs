@@ -129,6 +129,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     let server = Server::bind(&socket_path, shutdown_rx, state.clone()).await?;
 
+    #[cfg(unix)]
+    let socket_inode = server.socket_inode();
     let shutdown_tx_clone = shutdown_tx.clone();
     let socket_path_clone = socket_path.clone();
     tokio::spawn(async move {
@@ -139,7 +141,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             loop {
                 tokio::select! {
                     _ = tokio::signal::ctrl_c() => {
-                        shutdown::handle_signal("Ctrl+C (SIGINT)", &shutdown_tx_clone, &socket_path_clone);
+                        shutdown::handle_signal("Ctrl+C (SIGINT)", &shutdown_tx_clone, &socket_path_clone, socket_inode);
                     }
                     _ = async {
                         if let Some(ref mut sig) = sigterm {
@@ -148,7 +150,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                             std::future::pending().await
                         }
                     } => {
-                        shutdown::handle_signal("SIGTERM", &shutdown_tx_clone, &socket_path_clone);
+                        shutdown::handle_signal("SIGTERM", &shutdown_tx_clone, &socket_path_clone, socket_inode);
                     }
                 }
             }

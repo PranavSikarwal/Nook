@@ -224,3 +224,41 @@ fn the_daemon_stops_its_worker_on_sigterm() {
     }
     assert!(all_gone, "Worker process was not stopped within 5 seconds");
 }
+
+#[test]
+fn a_second_signal_exits_the_daemon_at_once() {
+    let daemon = spawn_daemon("sec-sig", false, None);
+    let daemon_pid = daemon.child.id();
+
+    send_signal(daemon_pid, "-TERM");
+    std::thread::sleep(Duration::from_millis(10));
+    send_signal(daemon_pid, "-TERM");
+
+    let start = Instant::now();
+    let timeout = Duration::from_secs(1);
+    let mut exited = false;
+    let mut exit_code = None;
+
+    let mut daemon = daemon;
+    while start.elapsed() < timeout {
+        if let Ok(Some(status)) = daemon.child.try_wait() {
+            exited = true;
+            exit_code = status.code();
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+
+    assert!(
+        exited,
+        "nookd did not exit within 1 second of second signal"
+    );
+    assert!(
+        exit_code == Some(0) || exit_code == Some(1),
+        "expected exit code 0 or 1, got {exit_code:?}"
+    );
+    assert!(
+        !daemon.socket_path.exists(),
+        "socket file was not removed after shutdown"
+    );
+}
