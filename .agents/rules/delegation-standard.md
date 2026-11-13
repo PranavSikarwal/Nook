@@ -37,7 +37,10 @@ The orchestrator delegates and waits with the T3 Code tools.
    implementer with `delegate_task`: provider `codex`, model `gpt-6-luna`,
    `reasoningEffort: high`, `runtimeMode: full-access`, `isolation: shared`,
    unless the owner names another model. The brief names the plan path, the task
-   numbers, a time box, and "Implementer rules" in this file.
+   numbers, a time box, and "Implementer rules" in this file. Its first line tells
+   the child to read `.agents/rules/sdlc-work-standard.md` and
+   `.agents/rules/delegation-standard.md` before any work, for every provider:
+   an Antigravity child started through T3 loads no workspace rule.
 2. **Wait.** Wait for a child with `t3_thread_wait` (`untilDelegatedWorkSettled:
    true`, timeout 15 to 30 minutes). Wait for a background command with
    `t3_background_wait`. Use a shell loop only for external state that T3 cannot

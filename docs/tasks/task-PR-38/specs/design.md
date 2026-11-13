@@ -48,7 +48,7 @@ in its own way:
 
 | Harness | What it loads | How it reaches the rule |
 | --- | --- | --- |
-| Antigravity | `AGENTS.md`, `GEMINI.md`, `.agents/rules/*.md` | Loads the files directly. The SDLC file sets `trigger: always_on`. The other three files set `trigger: model_decision`, so the agent loads each one when its description fits. |
+| Antigravity | In its own app: `AGENTS.md`, `GEMINI.md`, `.agents/rules/*.md`. Through T3: no workspace rule (gap G13). | In its own app, it loads the files directly. Through T3, the delegate brief tells it to read the rules first. The SDLC file sets `trigger: always_on`. The other three files set `trigger: model_decision`, so the agent loads each one when its description fits. |
 | Claude Code | `CLAUDE.md` with `@` imports, `.claude/rules/` | `CLAUDE.md` imports `@.agents/rules/sdlc-work-standard.md`. The other three files are read through the pointers in the SDLC file. |
 | Codex | `AGENTS.md` only, no imports | `AGENTS.md` starts with a pointer that tells the agent to read the rule before any work. Every implementer brief also names the rule. |
 

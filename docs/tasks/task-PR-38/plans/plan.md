@@ -78,3 +78,7 @@ Tick the task's box in the same commit. Commit locally. Do not push.
 
 - [x] **6. Blank line in `docs/testing.md` (orchestrator).** Task 3 put the
   new heading right after the last paragraph. Add the blank line.
+
+- [x] **7. Brief line for every provider (orchestrator, gap G13).** Edit
+  `.agents/rules/delegation-standard.md` "T3 Code" 1 and the Antigravity row in
+  the spec.

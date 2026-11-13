@@ -212,7 +212,7 @@ Each entry records one question and its decision. The format is in
 - Recommendation: (a). It costs one sentence, works for every provider, and
   does not depend on what each bridge loads. (b) adds a file that the T3 run
   ignored too.
-- Decision:
-- Decided by:
-- Date:
-- Status: open
+- Decision: (a).
+- Decided by: owner ("1")
+- Date: 2026-11-13
+- Status: decided by owner
