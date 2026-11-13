@@ -59,14 +59,19 @@ Before you start an implementer, save the state:
 git fetch origin
 git rev-parse origin/<branch> > <scratch>/before-sha
 git ls-remote --tags origin > <scratch>/before-tags
+scripts/gh pr view <number> --json state,comments,reviews > <scratch>/before-pr
+scripts/gh run list --branch <branch> --json databaseId > <scratch>/before-runs
 ```
 
+Before each task, save the local commit: `git rev-parse HEAD > <scratch>/task-base`.
 After each task, run `git fetch origin` and make sure that:
 
 1. `git rev-parse origin/<branch>` still equals `before-sha`.
 2. `git ls-remote --tags origin` still equals `before-tags`.
-3. `git diff --name-only <before-sha> HEAD` lists only the files the task names.
+3. The `pr view` and `run list` output still equals `before-pr` and
+   `before-runs`.
+4. `git diff --name-only <task-base> HEAD` lists only the files the task names.
 
-These three checks catch a push, a tag and a change outside the task. The other
-bans in "Implementer rules" (`scripts/gh`, merges, workflow runs, review
-threads, `.env`) rest on the instruction alone.
+These checks catch a push, a tag, a merge, a comment, a review, a workflow run
+and a change outside the task. The bans on `scripts/gh` and `.env` themselves
+rest on the instruction alone.

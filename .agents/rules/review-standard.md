@@ -51,8 +51,8 @@ the only verdict. Put the line format into every review request.
 1. Find the thread "Review Pull Requests" with `t3_thread_search`. If the search
    finds no thread or several, ask the owner.
 2. Send the request with `t3_thread_send`: the pull request URL, the head SHA,
-   "spec review" or "code review", round 1 or "follow-up of round N", and the
-   verdict line format.
+   "spec review" or "code review", round 1 or "follow-up of round N", the
+   verdict line format, and "no AI attribution in the review".
 3. Wait with `t3_thread_wait`. The reviewer's run ends before its subagent posts
    the review, so then read the reviews on the pull request (see "Read the
    inputs").
@@ -66,15 +66,20 @@ comment from the owner's account. Post the comment with `scripts/gh`:
    Each later round starts with `/feedback-on-resolution high`, which checks
    whether the fixes resolved the earlier findings. The second line is the
    instruction "Start the review with the line:" and the verdict line format.
-2. Post it: `scripts/gh pr comment <number> --body-file <file>`.
+2. Make sure that the pull request is not from a fork:
+   `scripts/gh pr view <number> --json isCrossRepository -q .isCrossRepository`
+   prints `false`. Then post it:
+   `scripts/gh pr comment <number> --body-file <file>`.
 3. `/code-review` runs the lighter review. Use it only when the owner asks.
 
 The job posts a "Review in progress" comment as `github-actions[bot]`. When
 the model returns inline comments, the job posts a `COMMENT` review. When it
 returns none, it edits the "Review in progress" comment or posts a plain
 comment instead, with no `commit_id`. Read the result as "Read the inputs" 1
-says. Push nothing while the job runs, so that its result belongs to the head.
-Its run log is the "Manual PR reviewers" workflow run.
+says, after the "Manual PR reviewers" run for your comment completes
+(`scripts/gh run list --workflow reviewers.yml --limit 1 --json status,conclusion`).
+Until then the comment is a placeholder. Push nothing while the job runs, so
+that its result belongs to the head.
 
 ## Run a round
 
@@ -91,9 +96,11 @@ Its run log is the "Manual PR reviewers" workflow run.
    an input is missing.
 4. **Record.** Write the head SHA and every finding into the round: each reviewer
    finding, each SonarCloud issue, hotspot or gate condition, and each failed
-   job. Give each one action: `fix`, `ask owner` (the orchestrator thinks the
-   finding is wrong or out of scope, so it becomes an `open` gap), or `deferred`
-   (only after the owner decided that gap). A failed check and a failed
+   job. Give each one action: `fix`, `ask owner`, or `deferred` (only after the
+   owner decided that gap). A finding is `ask owner`, as an `open` gap, when the
+   orchestrator thinks it is wrong, or when its fix changes the spec,
+   `contracts/`, `policy/`, a public interface, authorization, the sandbox or a
+   dependency. A failed check and a failed
    SonarCloud gate are always `fix`, because every CI check is a gate. List the
    gaps closed by recommendation since the last round, so the owner can read
    them early.
@@ -105,8 +112,17 @@ Its run log is the "Manual PR reviewers" workflow run.
 
 Repeat rounds until the round exit check passes. Each round fixes every open
 finding in one pass, pushes, and runs every gate again: the reviewer's
-follow-up review, SonarCloud and all four CI checks. Rounds have no limit. A
-round stops only to wait for the owner on an `ask owner` finding.
+follow-up review, SonarCloud and all four CI checks. Rounds have no limit.
+
+Stop and ask the owner when:
+
+1. A finding is `ask owner`.
+2. The same finding is still open after two fix passes.
+3. The count of open P0 to P2 findings did not fall for two rounds in a row.
+4. Both reviewers failed (see "When an input fails to arrive").
+
+Every 5 rounds, send the owner a status line (round, open counts by severity)
+and continue.
 
 ## Read the inputs
 
@@ -123,7 +139,7 @@ round stops only to wait for the owner on an `ask owner` finding.
    every other review and comment.
 2. **Checks.** The **CI gate check** passes only when all four checks report
    `pass` on the head:
-   `[ "$(scripts/gh pr checks <number> | cut -f1,2 | grep -c -E '^(Code Quality and Tests|Windows named-pipe IPC|SonarCloud Code Analysis|Native Tauri E2E Gate)\tpass$')" = 4 ]`.
+   `[ "$(scripts/gh pr checks <number> | cut -f1,2 | sort -u | grep -c -E '^(Code Quality and Tests|Windows named-pipe IPC|SonarCloud Code Analysis|Native Tauri E2E Gate)[[:space:]]+pass$')" = 4 ]`.
    The exit code of `scripts/gh pr checks` alone is not enough: it is 0 also
    when a check is missing. Use the exit code only to see that a check is
    pending (8) or failed (1).
@@ -137,10 +153,20 @@ round stops only to wait for the owner on an `ask owner` finding.
 
 A round passes when all of these hold on the current head:
 
-1. The review that counts says `Verdict: APPROVE`.
+1. The review that counts starts with `Verdict: APPROVE`. For the T3 reviewer
+   this prints `true`:
+   `scripts/gh api --paginate repos/PranavSikarwal/Nook/pulls/<number>/reviews --jq '[.[]|select(.user.login=="PranavSikarwal" and .commit_id=="<head>")]|last|(.body//"")|split("\n")[0]|startswith("Verdict: APPROVE")'`.
+   For the GitHub Actions reviewer, a verdict derived with 0 open P0 to P3
+   findings counts as `APPROVE`.
 2. Every finding from every round is fixed, or the owner decided it in
-   `open-gaps.md`.
+   `open-gaps.md`, and no review thread of the reviewer is unresolved:
+   `scripts/gh api graphql -f query='query{repository(owner:"PranavSikarwal",name:"Nook"){pullRequest(number:<number>){reviewThreads(first:100){nodes{isResolved}}}}}' --jq '[.data.repository.pullRequest.reviewThreads.nodes[]|select(.isResolved|not)]|length'`
+   prints `0`.
 3. The CI gate check passes.
+
+The orchestrator and the T3 reviewer both post as the owner, so the login
+alone cannot tell them apart. The orchestrator posts no review with a verdict
+line.
 
 ## When an input fails to arrive
 
