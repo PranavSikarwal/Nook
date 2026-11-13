@@ -220,3 +220,26 @@ Fix pass for round 1 (code): plan tasks 8 to 12 by `gpt-6-luna` (`f5d00d3`,
 - Gaps closed by recommendation since round 1: none.
 - Result: the round exit check passed on `1cb3660`. Stage 7 is done. The reviewed
   head is `1cb3660`.
+
+Fix pass for the retro proposals: plan tasks 15 to 17 by `gpt-6-luna` (`700234b`,
+`b16004f`, `3e3cbc6`). Boundary check passed. `git diff --check origin/main HEAD`
+printed nothing.
+
+## Commands run (retro proposal P2, applied to this task)
+
+| Command (rule file) | Run | Result |
+| --- | --- | --- |
+| CI gate check (`review-standard.md` "Read the inputs" 2) | `/usr/bin/grep`, PR 32, 34, 38 | PR 32 and 38 pass, PR 34 fails (missing checks). |
+| Verdict check (`review-standard.md` "Round exit check" 1) | PR 37 and PR 38 | `true` on PR 37's approved head and on each APPROVE head of PR 38. |
+| Thread count (`review-standard.md` "Round exit check" 2) | PR 38 | Prints `false` and the count of unresolved threads. |
+| Reviewer run list (`review-standard.md`) | PR 38 | Prints nothing when every run is skipped. |
+| Plan check (`sdlc-work-standard.md` stage 6 exit) | repo root, this plan | Prints `0`. |
+| Retro exit check (`task-records.md`) | this retro | Passes after the `Owner:` line fix. |
+| Markdown check (`docs/testing.md`) | `git diff --check origin/main HEAD` | Prints nothing. |
+| Resume query (`sdlc-work-standard.md`) | PR 36 and 37 branches | Lists the merged pull request with `--state all`. |
+
+## Round 3 (code)
+
+- Head: the commit that adds this heading.
+- Reviewer: T3 reviewer (code review), follow-up of round 2.
+- Inputs pending.
