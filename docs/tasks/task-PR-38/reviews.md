@@ -203,3 +203,14 @@ left the spec and this record out. The next commit adds them.
 | C3 | Blank line at the end of `task-records.md`. | fix | Plan task 10. |
 | C4 | The round heading does not follow `## Round N (spec|code)`. | fix | Plan task 11, and this heading. |
 | G14 | Implementer model order. | fix | Plan task 12. |
+
+Fix pass for round 1 (code): plan tasks 8 to 12 by `gpt-6-luna` (`f5d00d3`,
+`73e9f63`, `216b894`, `2fc288e`, `c3ded12`), task 13 by the orchestrator
+(`3befbe1`: the child put a sentence inside list item 2). Boundary check passed.
+`git diff --check origin/main HEAD` printed nothing.
+
+## Round 2 (code)
+
+- Head: `3befbe1`
+- Reviewer: T3 reviewer (code review).
+- Inputs pending.
