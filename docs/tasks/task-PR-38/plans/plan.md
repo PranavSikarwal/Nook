@@ -152,7 +152,7 @@ C9 and the retro stage number are orchestrator edits in the task folder. Each
 task below is one commit by the implementer. Check after each commit:
 `git diff --check origin/main HEAD` prints nothing.
 
-- [ ] **18. C5: a workable "commands run" rule.**
+- [x] **18. C5: a workable "commands run" rule.**
   `.agents/rules/sdlc-work-standard.md` and `docs/tasks/_template/reviews.md`.
   - Stage 2 "Exit" becomes: "Exit: every template section has content, every gap
     has options and a recommendation, and `reviews.md` has a `## Commands run`

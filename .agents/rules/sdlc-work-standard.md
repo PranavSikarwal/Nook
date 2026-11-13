@@ -70,13 +70,15 @@ that the owner must decide into `open-gaps.md`, with options and a
 recommendation.
 
 When the task changes rules or documents, those files are the spec. Write them
-in this stage, and keep `specs/design.md` to the why and the list of file
-changes.
+in this stage. In `specs/design.md`, the sections `Design` and `Rule changes`
+list the files and point to them, and the other sections stay as they are.
 
 Exit: every template section has content, every gap has options and a
-recommendation, and `reviews.md` holds the result of each command that the task
-adds to a rule or a document, run with `/usr/bin/grep` and on a real pull
-request.
+recommendation, and `reviews.md` has a `## Commands run` section with one row
+for each command that the task adds to a rule or a document. Run a read-only
+command on the pull request of the task or on a merged one, with `/usr/bin/grep`
+where the command uses grep. For a command that changes state, run its `--help`
+or write `not run: changes state`.
 
 ### 3. Spec review
 

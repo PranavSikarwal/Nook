@@ -10,3 +10,10 @@
 
 | # | Finding | Action | Where |
 | --- | --- | --- | --- |
+
+## Commands run
+
+One row for each command that the task adds to a rule or a document.
+
+| Command | Run | Result |
+| --- | --- | --- |
