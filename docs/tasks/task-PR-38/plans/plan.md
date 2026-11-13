@@ -97,7 +97,7 @@ prints nothing once task 10 is done (before it, it reports only the C3 line).
   the sentence becomes "A change that touches only Markdown runs
   `git diff --check origin/main HEAD` after the commit. It must print nothing."
   Commit: `docs(testing): check Markdown changes against main after the commit`.
-- [ ] **10. C3: blank line at the end.** `.agents/rules/task-records.md`: the
+- [x] **10. C3: blank line at the end.** `.agents/rules/task-records.md`: the
   file ends with one line break, not two.
   Commit: `docs(rules): remove the blank line at the end of task-records`.
 - [ ] **11. C4: round heading in the template.** `docs/tasks/_template/reviews.md`:

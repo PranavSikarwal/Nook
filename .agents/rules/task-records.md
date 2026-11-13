@@ -85,4 +85,3 @@ f=docs/tasks/task-PR-<number>/retro.md
 ```
 
 Each proposal is a `### ` heading under `## Proposals`.
-
