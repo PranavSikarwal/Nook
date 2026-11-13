@@ -75,11 +75,12 @@ list the files and point to them, and the other sections stay as they are.
 
 Exit: every template section has content, every gap has options and a
 recommendation, and `reviews.md` has a `## Commands run` section with one row
-for each check command that the task adds to a rule or a document. A check
-command decides whether a stage or a round passes, or it uses a filter, a regex
-or `jq`. Run a read-only check command on the pull request of the task or on a
-merged one, with `/usr/bin/grep` where it uses grep. For a check command that
-changes state, run its `--help` or write `not run: changes state`.
+for each named check that the task adds to a rule or a document. A row lists
+the commands of its check. A check decides whether a task, a stage, a round or
+a merge passes, or it uses a filter, a regex or `jq`. Run a read-only check on
+the pull request of the task or on a merged one, with `/usr/bin/grep` where it
+uses grep. For a check that changes state, run its `--help` or write
+`not run: changes state`.
 
 ### 3. Spec review
 
@@ -124,7 +125,7 @@ branch at a time. After each task:
 2. Read the diff, and run the checks from `docs/testing.md` for each changed
    component. A task passes when its checks pass with zero warnings.
 
-Add a row to `## Commands run` in `reviews.md` for each check command that the
+Add a row to `## Commands run` in `reviews.md` for each named check that the
 task added to a rule or a document, as stage 2 says.
 
 When an implementer reports a gap, decide it:

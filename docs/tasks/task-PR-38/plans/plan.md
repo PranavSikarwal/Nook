@@ -250,7 +250,7 @@ commit by the implementer. Check after each commit:
 `git diff --check origin/main HEAD` prints nothing, and `git diff --stat HEAD~1 HEAD`
 lists every file the task names.
 
-- [ ] **24. C10: one row for each named check.**
+- [x] **24. C10: one row for each named check.**
   `.agents/rules/sdlc-work-standard.md` and `docs/tasks/_template/reviews.md`.
   - Stage 2 "Exit" becomes: "Exit: every template section has content, every gap
     has options and a recommendation, and `reviews.md` has a `## Commands run`
