@@ -114,3 +114,6 @@ prints nothing once task 10 is done (before it, it reports only the C3 line).
   `gpt-6-luna` is unavailable or its child was cancelled as stalled. Keep the
   sentences after it.
   Commit: `docs(rules): add gemini-3.8-flash as the second implementer model`.
+- [x] **13. Layout of task 12 (orchestrator).** The child put the sentence "The
+  brief names the plan path ..." inside list item 2. Move it after the list as
+  its own paragraph. Commit: `docs(rules): set the brief sentence outside the model list`.
