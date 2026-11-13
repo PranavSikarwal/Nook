@@ -69,11 +69,8 @@ pub fn handle_signal(
         socket_inode,
     );
 
+    info!("Received {signal_name}, shutting down daemon");
     let _ = shutdown_tx.send(());
-
-    tokio::task::spawn_blocking(move || {
-        info!("Received {signal_name}, shutting down daemon");
-    });
 }
 
 /// Warning: `exit` calls `std::process::exit`, which ends the process immediately without running destructors.

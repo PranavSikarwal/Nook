@@ -8,7 +8,7 @@ This file records user-visible changes for each Nook release.
 
 ### Fixed
 
-- Shut down the Daemon within 5 seconds of receiving SIGTERM or SIGINT, and stop the Daemon that the Panel started when the Panel quits.
+- On macOS and Linux, shut down the Daemon within 5 seconds of receiving SIGTERM or SIGINT, and stop the Daemon that the Panel started when the Panel quits.
 
 ## v0.1.5 - 2026-11-10
 

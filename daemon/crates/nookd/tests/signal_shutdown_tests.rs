@@ -54,8 +54,8 @@ fn spawn_daemon(label: &str, pipe_stderr: bool, rust_log: Option<&str>) -> TestD
     );
     std::fs::write(&config_path, config_content).unwrap();
 
-    let db_url = std::env::var("NOOK_DATABASE_URL")
-        .unwrap_or_else(|_| "postgresql://azureuser:nook@127.0.0.1:5432/nook".to_string());
+    let db_url =
+        std::env::var("NOOK_DATABASE_URL").unwrap_or_else(|_| "postgresql:///nook".to_string());
 
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_nookd"));
     cmd.env("NOOK_APP_DIR", &app_dir)
