@@ -3,6 +3,8 @@
 This directory contains approved work that has not yet been completed. Each
 plan identifies its scope, dependencies, verification work, and open decisions.
 
+New work uses a task folder under `docs/tasks/`, as `.agents/rules/sdlc-work-standard.md` says. The plans below started before PR 38.
+
 ## Active plans
 
 - [Allowed folders view](allowed-folders-view.md)

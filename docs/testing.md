@@ -183,3 +183,6 @@ steps passed on macOS, Ubuntu, and Windows in package workflow run 38966546745. 
 address guards. The next tool platform must test
 sandbox boundaries before it exposes terminal, filesystem, browser, or
 native-system access.
+## Documentation checks
+
+A change that touches only Markdown runs `git diff --check`. It must print nothing.

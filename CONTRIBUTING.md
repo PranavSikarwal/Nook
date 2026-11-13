@@ -14,7 +14,7 @@ Use conventional commit messages:
 <type>(<scope>): <subject>
 ```
 
-Do not add author-attribution trailers or generator notices to commits.
+Do not add AI attribution to a commit, a pull request title or body, a comment or a review.
 
 ## Development checks
 
@@ -38,13 +38,13 @@ Update current documentation in the same change as a behavior change. Keep
 consistent with the implementation.
 
 Do not edit accepted ADRs to change history. Create a new ADR when an accepted
-decision changes. Keep completed plans in `docs/archive/plans/`.
+decision changes. Task folders stay in `docs/tasks/` after the merge. Completed plans from `docs/plans/` still move to `docs/archive/plans/`.
 
 ## Pull requests
 
-A pull request states the behavior change and the checks that were run. Update
-`docs/plan.md` and `CHECKLIST.md` when the change completes or adds an active
-task.
+A pull request states the behavior change and the checks that were run. Follow
+`.agents/rules/sdlc-work-standard.md`. Update `docs/plan.md` and `CHECKLIST.md`
+only for work that started before PR 38.
 
 Run GitHub commands through `scripts/gh`. Do not run `gh auth switch`.
 

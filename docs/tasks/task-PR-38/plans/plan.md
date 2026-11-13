@@ -46,7 +46,7 @@ Tick the task's box in the same commit. Commit locally. Do not push.
     `@AGENTS.md`.
   - Commit: `docs(rules): point every harness to the SDLC Work Standard`.
 
-- [ ] **3. Contributing, issue tracker, testing and plans index.** Edit
+- [x] **3. Contributing, issue tracker, testing and plans index.** Edit
   `CONTRIBUTING.md`, `docs/agents/issue-tracker.md`, `docs/testing.md` and
   `docs/plans/README.md`.
   - `CONTRIBUTING.md` "Branches and commits": replace "Do not add

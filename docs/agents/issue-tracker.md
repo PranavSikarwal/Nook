@@ -4,6 +4,8 @@ Issues and specs for this repo live as markdown files in `.scratch/`.
 
 ## Conventions
 
+A task that becomes a pull request moves its spec into `docs/tasks/task-PR-<number>/specs/design.md`.
+
 - One feature per directory: `.scratch/<feature-slug>/`
 - The spec is `.scratch/<feature-slug>/spec.md`
 - Implementation issues are one file per ticket at `.scratch/<feature-slug>/issues/<NN>-<slug>.md`, numbered from `01`, never a single combined tickets file
