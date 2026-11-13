@@ -135,7 +135,7 @@ and wait until the CI gate check passes. When a check fails, read
 its log, fix the cause as a new plan task through this stage, push, and run the
 CI gate again. A flaky job gets one rerun, as the review rule says.
 
-Exit: `grep -c -- '- \[ \]' plans/plan.md` prints 0, `git status --porcelain`
+Exit: `grep -c -E '^- \[ \]' docs/tasks/task-PR-<number>/plans/plan.md` prints 0, `git status --porcelain`
 prints nothing, and the CI gate check passes on the pushed head.
 
 ### 7. Review rounds

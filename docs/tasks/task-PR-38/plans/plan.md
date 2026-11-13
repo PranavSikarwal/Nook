@@ -89,7 +89,7 @@ Code round 1 findings C1 to C4 and gap G14. Each task is one commit by the
 implementer. Check after each commit: `git diff --check origin/main HEAD`
 prints nothing once task 10 is done (before it, it reports only the C3 line).
 
-- [ ] **8. C1: stage 6 exit check.** `.agents/rules/sdlc-work-standard.md`,
+- [x] **8. C1: stage 6 exit check.** `.agents/rules/sdlc-work-standard.md`,
   stage 6 "Exit": replace ``grep -c -- '- \[ \]' plans/plan.md`` with
   ``grep -c -E '^- \[ \]' docs/tasks/task-PR-<number>/plans/plan.md``.
   Commit: `docs(rules): count only real open tasks in the stage 6 exit check`.
