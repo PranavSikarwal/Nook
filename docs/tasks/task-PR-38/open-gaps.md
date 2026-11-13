@@ -30,6 +30,13 @@ Each entry records one question and its decision. The format is in
 - Decided by: owner ("approve", at gate 1, for every open gap with its recommendation)
 - Date: 2026-11-13
 - Status: decided by owner
+- Result (plan task 4, 2026-11-13): an Antigravity child started through T3
+  (`gemini-3.8-flash`) loaded no workspace rule: no `AGENTS.md`, no
+  `GEMINI.md`, nothing under `.agents/rules/`. It answered "no rule in
+  context". The Antigravity docs say the IDE loads `.agents/rules/`, but the T3
+  bridge does not. A Codex child (`gpt-6-luna`) saw the `AGENTS.md` pointer,
+  read `.agents/rules/sdlc-work-standard.md`, and named stage 4 after the spec
+  review correctly. See gap G13.
 
 ## G3. Small changes
 
@@ -191,3 +198,21 @@ Each entry records one question and its decision. The format is in
   up with all gates rerun again and again in same step")
 - Date: 2026-11-13
 - Status: decided by owner
+
+## G13. Antigravity under T3 loads no workspace rule
+
+- Stage: 6 implement (plan task 4)
+- Question: how does an Antigravity child started through T3 get the rules?
+- Options: (a) every delegate brief tells the child to read
+  `.agents/rules/sdlc-work-standard.md` and `.agents/rules/delegation-standard.md`
+  first, for every provider. Add one sentence to the delegation rule "T3 Code" 1
+  and correct the Antigravity row in the spec. (b) also add a `GEMINI.md` that
+  points to the rules, for Antigravity runs outside T3. (c) no change: Codex is
+  the default implementer.
+- Recommendation: (a). It costs one sentence, works for every provider, and
+  does not depend on what each bridge loads. (b) adds a file that the T3 run
+  ignored too.
+- Decision:
+- Decided by:
+- Date:
+- Status: open

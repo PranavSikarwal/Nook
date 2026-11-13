@@ -176,3 +176,10 @@ left the spec and this record out. The next commit adds them.
 - Gaps closed by recommendation since round 6: none.
 - Result: the round exit check passed. Stage 3 is done. The owner approved the
   spec at gate 1.
+
+## Live rule load check (plan task 4)
+
+| Harness | Loaded at start | After the pointer | Answer |
+| --- | --- | --- | --- |
+| Codex `gpt-6-luna` via T3 | `AGENTS.md` with the "Work standard" pointer | Read `.agents/rules/sdlc-work-standard.md` | Stage 4 follows the spec review. Correct. |
+| Antigravity `gemini-3.8-flash` via T3 | No workspace rule, no `AGENTS.md`, no `GEMINI.md` | Not applicable | "no rule in context". Gap G13. |

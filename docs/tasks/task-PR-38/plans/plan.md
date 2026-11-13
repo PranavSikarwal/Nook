@@ -66,7 +66,7 @@ Tick the task's box in the same commit. Commit locally. Do not push.
     says. The plans below started before PR 38."
   - Commit: `docs: apply the SDLC Work Standard to the contributor docs`.
 
-- [ ] **4. Live load check (orchestrator).** Start one Antigravity child and
+- [x] **4. Live load check (orchestrator).** Start one Antigravity child and
   one Codex child. Ask each, without naming a file, which stage of the work
   standard comes after the spec review. Record each answer and whether the
   child read the rule in gap G2 and in `reviews.md`.
