@@ -79,8 +79,9 @@ round 2.
   is fixed before the review starts. Each task ends with a retro on the
   framework.
 - Gaps closed by recommendation since round 2: none.
-- Round limit: this is round 3. It ends with open P2 findings, so the owner
-  decides the next step (gap G12).
+- Round limit: this was round 3 under the old limit of 3. The owner removed
+  the limit (gap G12): rounds repeat until every finding is fixed and the
+  reviewer approves.
 
 | # | Finding | Action | Where |
 | --- | --- | --- | --- |
@@ -98,3 +99,8 @@ round 2.
 | 36 | Stale "Where" column, no round 3 head. | fix | Note under round 1, head above. |
 | 37 | Comment cannot be typed, small change has no design file, no pagination. | fix | Review rule: `--body-file`, spec paragraph for a small change, `--paginate`. |
 | size | The SDLC file nears 12,000 characters. | fix | Implementer and T3 rules moved to `.agents/rules/delegation-standard.md`. |
+
+## Round 4 (spec)
+
+- Reviewer: T3 reviewer (spec review).
+- Inputs pending.

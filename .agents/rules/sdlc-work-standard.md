@@ -96,7 +96,7 @@ recommendation.
 
 Run review rounds on the spec, as `.agents/rules/review-standard.md` says.
 
-Exit: a round exit check passes on the current head.
+Exit: the round exit check passes on the current head.
 
 ### 4. Gate 1: owner approves the spec
 
@@ -164,7 +164,7 @@ prints nothing, and the CI gate check passes on the pushed head.
 Mark the pull request ready (`scripts/gh pr ready <number>`). Run review rounds
 on the code, as `.agents/rules/review-standard.md` says.
 
-Exit: a round exit check passes on the current head. Write that head SHA into
+Exit: the round exit check passes on the current head. Write that head SHA into
 `reviews.md` as the reviewed head.
 
 ### 8. Gate 2: owner approves the pull request

@@ -91,19 +91,22 @@ Its run log is the "Manual PR reviewers" workflow run.
    an input is missing.
 4. **Record.** Write the head SHA and every finding into the round: each reviewer
    finding, each SonarCloud issue, hotspot or gate condition, and each failed
-   job. Give each one action: `fix`, `defer` (a gap with status `deferred`), or
-   `reject` (with the reason). A failed check and a failed SonarCloud gate are
-   always `fix`, because every CI check is a gate. List the gaps closed by recommendation since the
-   last round, so the owner can read them early.
+   job. Give each one action: `fix`, `ask owner` (the orchestrator thinks the
+   finding is wrong or out of scope, so it becomes an `open` gap), or `deferred`
+   (only after the owner decided that gap). A failed check and a failed
+   SonarCloud gate are always `fix`, because every CI check is a gate. List the
+   gaps closed by recommendation since the last round, so the owner can read
+   them early.
 5. **Fix.** In a spec round, edit the spec, the rules and `open-gaps.md` in one
    commit for the pass. In a code round, append the `fix` items to
    `plans/plan.md` under `## Round N`, one task per commit, and implement them as
    stage 6 of the SDLC Work Standard says.
 6. **Push.** The next round starts on the new head.
 
-Run at most 3 rounds in a stage. If round 3 ends with an open P0, P1 or P2
-finding, stop and ask the owner. A round opened because `main` moved counts
-toward the limit.
+Repeat rounds until the round exit check passes. Each round fixes every open
+finding in one pass, pushes, and runs every gate again: the reviewer's
+follow-up review, SonarCloud and all four CI checks. Rounds have no limit. A
+round stops only to wait for the owner on an `ask owner` finding.
 
 ## Read the inputs
 
@@ -134,10 +137,10 @@ toward the limit.
 
 A round passes when all of these hold on the current head:
 
-1. The review that counts says `Verdict: APPROVE`, or counts `P0: 0, P1: 0, P2: 0`.
-2. Every P2 is fixed, or deferred or rejected with a reason in `reviews.md`.
-3. Every deferred finding is a gap in `open-gaps.md`.
-4. The CI gate check passes.
+1. The review that counts says `Verdict: APPROVE`.
+2. Every finding from every round is fixed, or the owner decided it in
+   `open-gaps.md`.
+3. The CI gate check passes.
 
 ## When an input fails to arrive
 

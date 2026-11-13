@@ -164,10 +164,10 @@ Each entry records one question and its decision. The format is in
 - Recommendation: (a). It is workflow code, outside this spec. Until then the
   review rule forbids the Actions reviewer on fork pull requests and reads its
   plain comments.
-- Decision:
-- Decided by:
-- Date:
-- Status: open
+- Decision: (a). It joins the other follow-up fixes.
+- Decided by: owner ("works let's add it to other follow up fixes")
+- Date: 2026-11-13
+- Status: deferred
 
 ## G12. Round 3 ended with open findings
 
@@ -179,7 +179,11 @@ Each entry records one question and its decision. The format is in
 - Recommendation: (a). Four P2 fixes change commands that every later task
   runs (the CI gate check, resume, the reviewer reads), so a reviewer must see
   them once.
-- Decision:
-- Decided by:
-- Date:
-- Status: open
+- Decision: (a), and the rule changes: rounds have no limit. Each round fixes
+  every finding, and all gates run again, until every finding is fixed and the
+  reviewer approves.
+- Decided by: owner ("yes add it to rule that it asks for all review fixes until
+  all of the are fixed! and the PR is approved we keep review fixes and follow
+  up with all gates rerun again and again in same step")
+- Date: 2026-11-13
+- Status: decided by owner
