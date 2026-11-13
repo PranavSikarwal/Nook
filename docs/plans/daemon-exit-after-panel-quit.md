@@ -182,3 +182,15 @@ Decision: one function, `nook_core::shutdown::stop_everything(state: &AppState, 
 ### Task 13: Tick and verify
 
 - [x] Tick the boxes of this section. Run the Daemon and Panel check commands once more. Commit: `docs: tick the round 2 review response`
+
+### Task 14: Kill the Worker when the supervise future is cancelled (found while checking round 2)
+
+**Files:** `daemon/crates/nook-core/src/supervisor.rs`, `daemon/crates/nookd/tests/signal_shutdown_tests.rs`.
+
+**Cause:** `supervisor_loop` selects on `spawn_and_supervise(...)` and on its own `shutdown_rx.recv()`. `spawn_and_supervise` has a second receiver for the same message. When the outer branch wins, the select drops the inner future, and the `Child` inside it drops without a kill, because the command has no `kill_on_drop`. The Worker stays alive. The test `the_daemon_kills_a_worker_that_ignores_stdin_close` failed in 3 of 6 runs and leaked fake Workers (parent PID 919).
+
+- [ ] Test first: make the existing test strict. Run it 10 times in a row with a shell loop of `timeout 120 rtk cargo test -p nookd --test signal_shutdown_tests kills_a_worker`. Write down how many fail. After each run, `pkill -f tests/fake_worker.py` so that leaked Workers do not pile up.
+- [ ] Fix: call `cmd.kill_on_drop(true)` where the supervisor builds the Worker command (next to `cmd.stdin(Stdio::piped())`). Do not change the select structure.
+- [ ] Add a supervisor test in `crates/nook-core/tests/supervisor_tests.rs` that starts a supervisor with the fake Worker in ignore-EOF mode, calls `shutdown()`, and asserts that the Worker process is gone within 1 second. Run it 10 times too.
+- [ ] Run the 10-run loop of the Daemon test again: 10 out of 10 pass. Then fmt, clippy `-D warnings`, `timeout 540 rtk cargo test -p nookd`, `timeout 540 rtk cargo test -p nook-core`.
+- [ ] Commit: `fix(daemon): kill the Worker when the supervisor future is dropped`. Put the failure counts before and after into the commit body.
