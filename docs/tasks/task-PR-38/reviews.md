@@ -258,6 +258,13 @@ printed nothing.
 | C9 | The spec says the retro changes are not in scope. | fix (orchestrator) | Spec "Not in scope". |
 | retro | The retro names stage 5 for P2, the rule says stage 6. | fix (orchestrator) | `retro.md` P2 file line. |
 
+Fix pass for round 3 (code): plan tasks 18 to 21 by `gpt-6-luna` (`58615a5`,
+`4cb6a32`, `7a725a9`, `4b9e81b`). The child's report said all four were done.
+The orchestrator's diff read found that task 20 changed only the checkbox and
+task 19 missed `delegation-standard.md`. The child redid both (`3af8fc8`,
+`60edd5b`). Boundary check passed. `git diff --check origin/main HEAD` printed
+nothing.
+
 ## Round 4 (code)
 
 - Head: the commit that adds this heading.

@@ -29,6 +29,10 @@
    new run instead, and the record says so.
 7. An Antigravity child started through T3 loaded no workspace rule (plan task 4,
    gap G13). The rule assumed it would.
+8. A child reported tasks 19 and 20 as done, but task 20 was a ticked checkbox with
+   no edit and task 19 missed one file (commit 7a725a9). The orchestrator found it
+   by reading the diff, and the child redid both. The boundary check could not see
+   it: it checks pushes, tags and file lists, not whether the named file changed.
 
 ## Why
 
@@ -46,6 +50,9 @@
 6. "Rerun" in the rule means only `gh run rerun`. The native gate starts with
    `workflow_dispatch`, so a new dispatch is its rerun.
 7. The rule did not check what each harness loads under T3 before relying on it.
+8. The boundary check proves that a child stayed inside its task, not that it did
+   the task. Only the diff read in stage 6 item 2 shows a missing edit. That rule
+   exists and worked, so no change is proposed.
 
 ## Proposals
 
