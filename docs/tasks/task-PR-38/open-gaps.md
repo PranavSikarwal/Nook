@@ -257,3 +257,16 @@ Each entry records one question and its decision. The format is in
 - Decided by: owner ("works do these changes then run a review and follow up")
 - Date: 2026-11-13
 - Status: decided by owner
+
+## G17. Code round 3 findings C5 to C9
+
+- Stage: 7 review rounds (code round 3)
+- Question: C6 and C7 change the small-fix rule that the owner worded. Apply all
+  five fixes?
+- Options: (a) apply C5 to C9 as the reviewer recommends, with a `reviews.md`
+  row (and no plan mark) for a small fix. (b) change them first.
+- Recommendation: (a).
+- Decision: (a).
+- Decided by: owner ("Works do all fixes follow next steps")
+- Date: 2026-11-13
+- Status: decided by owner

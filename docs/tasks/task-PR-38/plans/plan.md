@@ -144,3 +144,60 @@ is one commit by the implementer. Check after each commit:
   orchestrator makes it, runs the same checks, and commits it, even when the plan
   does not list it. A planned task goes to a child." Commit:
   `docs(rules): let the orchestrator make small fixes`.
+
+## Round 3 (code review findings C5 to C9)
+
+The owner accepted all five fixes with the reviewer's recommendations (gap G17).
+C9 and the retro stage number are orchestrator edits in the task folder. Each
+task below is one commit by the implementer. Check after each commit:
+`git diff --check origin/main HEAD` prints nothing.
+
+- [ ] **18. C5: a workable "commands run" rule.**
+  `.agents/rules/sdlc-work-standard.md` and `docs/tasks/_template/reviews.md`.
+  - Stage 2 "Exit" becomes: "Exit: every template section has content, every gap
+    has options and a recommendation, and `reviews.md` has a `## Commands run`
+    section with one row for each command that the task adds to a rule or a
+    document. Run a read-only command on the pull request of the task or on a
+    merged one, with `/usr/bin/grep` where the command uses grep. For a command
+    that changes state, run its `--help` or write `not run: changes state`."
+  - Stage 6, the paragraph under item 2 ("Run each command that the task added
+    ...") becomes: "Add a row to `## Commands run` in `reviews.md` for each
+    command that the task added to a rule or a document, as stage 2 says."
+  - Template `reviews.md`: add at the end a section `## Commands run` with one
+    line "One row for each command that the task adds to a rule or a document."
+    and the table header `| Command | Run | Result |` with its separator row.
+  - Commit: `docs(rules): make the commands-run rule safe to follow`.
+- [ ] **19. C6: small fixes and the other rules.**
+  - `AGENTS.md` "Done" 3: append the sentence "A small fix is the exception:
+    `.agents/rules/delegation-standard.md` \"T3 Code\" 5 says when." (use plain
+    quotes around T3 Code in the file, no backslashes).
+  - `.agents/rules/review-standard.md`, "Run a round" 5: after the existing text
+    of item 5 add: "A small fix (see `.agents/rules/delegation-standard.md`
+    \"T3 Code\" 5) needs no plan task. Write it as a row of the round with the
+    Action `fix (small)`." (plain quotes, no backslashes).
+  - `.agents/rules/delegation-standard.md`, "T3 Code" item 5: after the sentence
+    "The orchestrator makes it, runs the same checks, and commits it, even when
+    the plan does not list it." add: "It writes a row of the current round in
+    `reviews.md` with the Action `fix (small)`, and names the fix in the commit
+    message."
+  - Commit: `docs(rules): let a small fix sit outside the plan with a record`.
+- [ ] **20. C7: bound a small fix.** `.agents/rules/delegation-standard.md`,
+  "T3 Code" item 5: replace the first sentence "A fix that touches one or two
+  files and a few lines, and changes no behavior in `daemon/`, `worker/`,
+  `panel/`, `contracts/` or `policy/`, needs no child." with: "A fix that touches
+  at most 2 files and 20 lines needs no child. It touches nothing under
+  `.agents/rules/`, `.github/` or `scripts/`, no dependency or lock file, and it
+  changes no behavior in `daemon/`, `worker/`, `panel/`, `contracts/` or
+  `policy/`, no public interface, no authorization and no sandbox. Anything
+  else is a plan task or a gap." Keep the sentences after it.
+  Commit: `docs(rules): bound a small fix by files, lines and paths`.
+- [ ] **21. C8: the spec of a rule task.** `.agents/rules/sdlc-work-standard.md`
+  stage 2: the paragraph that starts "When the task changes rules or documents"
+  becomes: "When the task changes rules or documents, those files are the spec.
+  Write them in this stage. In `specs/design.md`, the sections `Design` and
+  `Rule changes` list the files and point to them, and the other sections stay
+  as they are." `.agents/rules/task-records.md`, the task folder tree line for
+  `specs/design.md` becomes: `specs/design.md   the spec: why, what changes,
+  options, risks, rule changes (for a rule task: the files and pointers)`. Keep
+  the column alignment of the other lines.
+  Commit: `docs(rules): say how a rule task fills the spec file`.

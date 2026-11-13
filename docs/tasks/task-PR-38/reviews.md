@@ -240,6 +240,26 @@ printed nothing.
 
 ## Round 3 (code)
 
+- Head: `f900743`
+- Reviewer: T3 reviewer. Verdict COMMENT. P0: 0, P1: 0, P2: 3, P3: 2.
+- SonarCloud: gate passed.
+- Checks: all four passed. The "Live baseline check" job of the native gate
+  failed on `3befbe1` and `1cb3660` and passed on `1803d12` and `f900743`. That
+  job reports the live baseline on `main`. The gate status comes from the
+  deterministic tests, which passed. Recorded as a flake, no fix.
+- Gaps closed by recommendation since round 2: none.
+
+| # | Finding | Action | Where |
+| --- | --- | --- | --- |
+| C5 | The "run every command" rule is not workable. | fix | Plan task 18. |
+| C6 | "Even when the plan does not list it" conflicts with `AGENTS.md` Done 3 and the review rule, and has no record. | fix | Plan task 19. The record is a row in `reviews.md`, no plan mark (owner choice, G17). |
+| C7 | The bound of a small fix is open. | fix | Plan task 20. |
+| C8 | P1 contradicts the rest of stage 2 and the template. | fix | Plan task 21. |
+| C9 | The spec says the retro changes are not in scope. | fix (orchestrator) | Spec "Not in scope". |
+| retro | The retro names stage 5 for P2, the rule says stage 6. | fix (orchestrator) | `retro.md` P2 file line. |
+
+## Round 4 (code)
+
 - Head: the commit that adds this heading.
-- Reviewer: T3 reviewer (code review), follow-up of round 2.
+- Reviewer: T3 reviewer (code review), follow-up of round 3.
 - Inputs pending.

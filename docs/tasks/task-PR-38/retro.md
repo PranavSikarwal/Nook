@@ -61,7 +61,7 @@ Owner: accepted
 
 ### P2. Run every command before review
 
-- File: `.agents/rules/sdlc-work-standard.md`, stage 2 and stage 5 exit checks.
+- File: `.agents/rules/sdlc-work-standard.md`, stage 2 and stage 6 exit checks.
 - New text: add "Run each command that the task adds to a rule or a doc, with
   `/usr/bin/grep` and on a real pull request, and write the result into
   `reviews.md`." to the exit of stage 2 (for a rule task) and stage 6.

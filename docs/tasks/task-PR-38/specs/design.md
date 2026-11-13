@@ -92,8 +92,11 @@ rules on `main`.
 This pull request applies every row of the "Rule changes" table.
 
 Not in scope: moving the existing plans and designs (gap G4), a CI check for the
-task folder (gap G6), the `reviewers.yml` fixes (gap G11), the rule changes that
-the retro of this task proposes, and product code.
+task folder (gap G6), the `reviewers.yml` fixes (gap G11), and product code.
+
+Applied through gap G16: retro proposals P1, P2 and P4 (plan tasks 15 to 17),
+with the code round 3 refinements (plan tasks 18 to 21). P3, P5 and P6 are
+rejected.
 
 ## This task is the first one
 
