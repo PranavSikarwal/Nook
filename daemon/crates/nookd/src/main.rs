@@ -25,9 +25,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         }
     }
 
-    #[cfg(unix)]
-    shutdown::set_stderr_nonblocking();
-
     tracing_subscriber::fmt()
         .with_writer(|| shutdown::SafeStderr)
         .init();

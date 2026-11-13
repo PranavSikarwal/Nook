@@ -57,6 +57,7 @@ Do each sub-step only for a scenario that failed in Task 1, except the first one
 - [x] Remove the `ignore` marks. All five tests pass.
 - [x] Run: `cd daemon && rtk cargo fmt --check`, `timeout 540 rtk cargo clippy --workspace --all-targets -- -D warnings`, and `timeout 540 rtk cargo test -p nookd`. Run `NOOK_REQUIRE_SANDBOX=1 timeout 540 rtk cargo test -p nook-core` as well, one test file at a time if it times out. All pass.
 - [x] Commit: `fix(daemon): exit within 5 seconds of SIGTERM or SIGINT`
+  - [x] Extra commit `fix(daemon): log through a writer thread so a full stderr cannot block`: route SafeStderr writes through a dedicated writer thread via a 1024-element sync_channel without modifying open file description flags.
 
 ### Task 3: Stop the Daemon when the Panel quits
 

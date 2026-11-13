@@ -1,31 +1,30 @@
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::mpsc::{sync_channel, SyncSender};
+use std::sync::OnceLock;
 use std::time::Duration;
 use tokio::sync::broadcast;
 use tracing::info;
 
 static SIGNAL_COUNT: AtomicU32 = AtomicU32::new(0);
+static SENDER: OnceLock<SyncSender<Vec<u8>>> = OnceLock::new();
 
-#[cfg(unix)]
-pub fn set_stderr_nonblocking() {
-    #[cfg(target_os = "linux")]
-    const O_NONBLOCK: std::os::raw::c_int = 0o4000;
-    #[cfg(target_os = "macos")]
-    const O_NONBLOCK: std::os::raw::c_int = 0x0004;
-    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-    const O_NONBLOCK: std::os::raw::c_int = 0o4000;
-
-    unsafe {
-        extern "C" {
-            fn fcntl(fd: std::os::raw::c_int, cmd: std::os::raw::c_int, ...)
-                -> std::os::raw::c_int;
-        }
-        let flags = fcntl(2, 3);
-        if flags >= 0 {
-            let _ = fcntl(2, 4, flags | O_NONBLOCK);
-        }
-    }
+fn get_or_init_sender() -> &'static SyncSender<Vec<u8>> {
+    SENDER.get_or_init(|| {
+        let (tx, rx) = sync_channel::<Vec<u8>>(1024);
+        std::thread::Builder::new()
+            .name("safe-stderr-writer".to_string())
+            .spawn(move || {
+                let mut stderr = std::io::stderr();
+                while let Ok(msg) = rx.recv() {
+                    let _ = stderr.write_all(&msg);
+                    let _ = stderr.flush();
+                }
+            })
+            .expect("failed to spawn safe-stderr-writer thread");
+        tx
+    })
 }
 
 #[derive(Clone, Copy, Default)]
@@ -33,16 +32,12 @@ pub struct SafeStderr;
 
 impl Write for SafeStderr {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        match std::io::stderr().write(buf) {
-            Ok(n) => Ok(n),
-            Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => Ok(buf.len()),
-            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => Ok(buf.len()),
-            Err(e) => Err(e),
-        }
+        let tx = get_or_init_sender();
+        let _ = tx.try_send(buf.to_vec());
+        Ok(buf.len())
     }
 
     fn flush(&mut self) -> std::io::Result<()> {
-        let _ = std::io::stderr().flush();
         Ok(())
     }
 }
