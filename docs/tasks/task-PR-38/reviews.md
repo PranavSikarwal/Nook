@@ -310,11 +310,11 @@ it did. The orchestrator's diff read confirmed it. Boundary check passed.
 
 | # | Finding | Action | Where |
 | --- | --- | --- | --- |
-| C10 | The table lacks 7 check commands, and the definition leaves out the per-task boundary check. | fix (owner chose option 1, G19) | Plan task 24 changes the rule to one row for each named check. The table has rows for the boundary check, the stage 6 exit and the stage 9 exit. |
-| C14 | The SHA cannot be in its own commit, the central docs and `docs/adr/` are not excluded, `git diff --shortstat` misses staged changes. | fix | Plan task 25. |
+| C10 | The table lacks 7 check commands, and the definition leaves out the per-task boundary check. | fix (owner chose option 1, G19) | Plan task 24 (`70dc3d0`) changes the rule to one row for each named check. The table has rows for the boundary check, the stage 6 exit and the stage 9 exit. |
+| C14 | The SHA cannot be in its own commit, the central docs and `docs/adr/` are not excluded, `git diff --shortstat` misses staged changes. | fix | Plan task 25 (`dee6390`). |
 
 ## Round 6 (code)
 
-- Head: the commit that adds this heading.
+- Head: the commit that records the round 5 fix pass (plan tasks 24 and 25).
 - Reviewer: T3 reviewer (code review), follow-up of round 5.
 - Inputs pending.
