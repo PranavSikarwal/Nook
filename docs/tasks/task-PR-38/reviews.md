@@ -34,4 +34,37 @@
 
 ## Round 2 (spec)
 
-Opened. Inputs pending.
+- Head: `77a4c00`
+- Reviewer: T3 reviewer, review on `77a4c00`, verdict REQUEST_CHANGES. P0: 0,
+  P1: 1, P2: 8, P3: 6. Round 1 findings 2, 4, 6, 7, 9, 10, 11, 13, 15, 16 and
+  17 are fixed.
+- SonarCloud: gate passed.
+- Checks: all four passed.
+- Owner input in the same round: the review process moves into its own rule,
+  `.agents/rules/review-standard.md`, with two reviewers (gap G10, decided).
+  The owner confirmed what a round is.
+- Gaps closed by recommendation since round 1: none.
+
+| # | Finding | Action | Where |
+| --- | --- | --- | --- |
+| 18 | The merged head is not the reviewed head, and the native gate does not restart. | fix | SDLC stage 8, steps 2 to 6. |
+| 1 | Three binding texts still say the opposite. | fix | Spec "Rule changes": `AGENTS.md` "Where things are" and "Issue tracker", `docs/agents/issue-tracker.md`, `CONTRIBUTING.md` "Pull requests". The pull request merges only with every change in the table. |
+| 3 | No verdict line format, no rule for whose review counts. | fix | Review rule "Verdict line" and "Read the inputs" 1. |
+| 5 | The implementer ban has no check. | fix | SDLC stage 6 "Check the boundary", and "The brief passes no token". |
+| 12 | The AI attribution ban covers commits only. | fix | SDLC "Roles" last paragraph, and the `CONTRIBUTING.md` row in the spec. |
+| 14 | An agent cannot read the SonarCloud page. | fix | Review rule "Read the inputs" 3 and "When an input fails to arrive" 4 and 5. |
+| 19 | The commands do not return what the rule says. | fix | Review rule "Read the inputs": the reviews REST call and `gh pr checks` exit codes. |
+| 20 | Stage 3 loops but has no limit. | fix | Review rule: at most 3 rounds in a stage. |
+| 21 | No commands for ready, merge, rerun, version, package, release. | fix | SDLC stages 5, 7, 8, 9 and review rule "When an input fails to arrive" 3. |
+| 8 | `Head:` cannot hold its own SHA, stage 9.2, resume before the folder. | fix | State block without `Head:`, stage 9.2 removed, "Resume" starts with `gh pr list --head`. |
+| 22 | The reviewer also uses `scripts/gh`. | fix | Review rule "What the reviewer may do". The SDLC role line names push, merge, tag, workflows and the task folder. |
+| 23 | One 60-minute command cannot remind at 30 minutes. | fix | Review rule "Run a round" 3 and SDLC "T3 Code" 2: commands of at most 30 minutes. |
+| 24 | Missing failure cases. | fix | SDLC "Push", stage 6 crash with uncommitted files, a design over several pull requests in "Task folder", review rule: a round after a conflict counts toward the limit. |
+| 25 | The G8 precedent is wrong. | fix | G8 text, and SDLC stage 5 release task for round fixes after the release task. |
+| 26 | The empty commit has no scope. | fix | `chore(tasks): open task`. |
+| G9 | Rename, and add "touches only the named files". | fix | G9 title and option (a), SDLC stage 6. Each round lists closed gaps. |
+
+## Round 3 (spec)
+
+- Reviewer: T3 reviewer (spec review, required by the review rule).
+- Inputs pending.

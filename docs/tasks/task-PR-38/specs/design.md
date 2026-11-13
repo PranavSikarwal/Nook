@@ -2,7 +2,6 @@
 
 ```
 Stage: 3 spec review
-Head: see the pull request
 Gate 1: pending
 Gate 2: pending
 ```
@@ -22,23 +21,29 @@ Standard, that every agent harness loads. Each pull request then runs the same
 stages, and the owner reviews the same three things each time: the spec with
 its open gaps, the gaps closed during the work, and the final pull request.
 
-## The rule
+## The rules
 
-The rule itself is the spec of this task:
-`.agents/rules/sdlc-work-standard.md`. Review that file. It defines the roles,
-the task folder, the nine stages with their exit checks, the review round, the
-open gaps format, the implementer rules, the T3 Code rules, resume, and small
-changes.
+The two rule files are the spec of this task. Review them.
+
+1. `.agents/rules/sdlc-work-standard.md` defines the roles, the task folder,
+   the nine stages with their exit checks, the open gaps format, the implementer
+   rules, the T3 Code rules, push, resume, and small changes. It is always
+   loaded.
+2. `.agents/rules/review-standard.md` defines a review round: which reviewer to
+   use (the T3 reviewer or the GitHub Actions reviewer in `reviewers.yml`), the
+   verdict line, how to ask each reviewer, how to read the inputs, the exit
+   check, and what to do when an input fails. The SDLC Work Standard points to
+   it before stages 3 and 7, so it loads only when a review runs.
 
 ## Where the rule lives
 
-The rule has one source, `.agents/rules/sdlc-work-standard.md`. Each harness
-reaches it in its own way:
+Each rule has one source in `.agents/rules/`. Each harness reaches the rules
+in its own way:
 
 | Harness | What it loads | How it reaches the rule |
 | --- | --- | --- |
-| Antigravity | `AGENTS.md`, `GEMINI.md`, `.agents/rules/*.md` | Loads the file directly. The frontmatter sets `trigger: always_on`. |
-| Claude Code | `CLAUDE.md` with `@` imports, `.claude/rules/` | `CLAUDE.md` imports `@.agents/rules/sdlc-work-standard.md`. |
+| Antigravity | `AGENTS.md`, `GEMINI.md`, `.agents/rules/*.md` | Loads the files directly. The SDLC file sets `trigger: always_on`. The review file sets `trigger: model_decision`, so the agent loads it when its description fits. |
+| Claude Code | `CLAUDE.md` with `@` imports, `.claude/rules/` | `CLAUDE.md` imports `@.agents/rules/sdlc-work-standard.md`. The review file is read through the pointer in the SDLC file. |
 | Codex | `AGENTS.md` only, no imports | `AGENTS.md` starts with a pointer that tells the agent to read the rule before any work. Every implementer brief also names the rule. |
 
 Cursor reads `AGENTS.md` and `.cursor/rules/`. Nook does not use Cursor, so it
@@ -56,11 +61,18 @@ pointers.
 | `AGENTS.md` "Planning rules" | Always write plans inside `docs/plans/`. | Follow `.agents/rules/sdlc-work-standard.md`. The spec and the plan live in the task folder. |
 | `AGENTS.md` top | none | A pointer: read `.agents/rules/sdlc-work-standard.md` before any work. |
 | `AGENTS.md` "Done" 3 | If the plan is wrong or a change outside it is needed, stop and report. | Unchanged, plus: the rule's stage 6 says when the orchestrator may close a gap by recommendation. |
+| `AGENTS.md` "Where things are" | `docs/plan.md` holds the active work, and `CHECKLIST.md` tracks it. | `docs/plan.md` and `CHECKLIST.md` track the work that started before PR 38. A new task is tracked by its task folder and its pull request. |
+| `AGENTS.md` "Issue tracker" | Issues and specs live as local markdown under `.scratch/`. | Issues live under `.scratch/`. The spec of a task lives in its task folder. |
+| `docs/agents/issue-tracker.md` | The spec is `.scratch/<feature-slug>/spec.md`. | Adds: a task that becomes a pull request moves its spec into `docs/tasks/task-PR-<number>/specs/design.md`. |
 | `CLAUDE.md` | `@AGENTS.md` | `@AGENTS.md` and `@.agents/rules/sdlc-work-standard.md`. |
+| `CONTRIBUTING.md` "Branches and commits" | Do not add author-attribution trailers or generator notices to commits. | No AI attribution in a commit, a pull request title or body, a comment or a review. |
+| `CONTRIBUTING.md` "Pull requests" | Update `docs/plan.md` and `CHECKLIST.md` when the change completes or adds an active task. | Follow `.agents/rules/sdlc-work-standard.md`. Update `docs/plan.md` and `CHECKLIST.md` only for work that started before PR 38. |
 | `CONTRIBUTING.md` | Keep completed plans in `docs/archive/plans/`. | Task folders stay in `docs/tasks/` after the merge. Completed plans from `docs/plans/` still move to `docs/archive/plans/`. |
 | `docs/plans/README.md` | Lists active plans. | Adds: new work uses task folders under `docs/tasks/`. |
 
-`CHECKLIST.md` and `docs/plan.md` link to old plans only. They stay unchanged.
+`CHECKLIST.md` and `docs/plan.md` keep their content. This pull request merges
+only after every change in this table is in it, so no agent reads two opposite
+rules on `main`.
 
 ## Implementation scope
 
@@ -81,9 +93,9 @@ request number from GitHub first. Later tasks follow stage 1 as written.
 
 ## Risks
 
-1. The rule is always loaded, so it costs context on every turn. It is one file
-   of about 300 lines. If it proves too long, the implementer and T3 sections
-   move to their own files.
+1. The SDLC rule is always loaded, so it costs context on every turn. The review
+   rule loads only for a review. If the SDLC rule proves too long, the
+   implementer and T3 sections move to their own files.
 2. Rules in two places drift. The global `~/.claude/CLAUDE.md` keeps rules for
    all projects. Gap G5 decides what moves.
 3. Two gates slow small fixes. The "Small change" section skips the spec and

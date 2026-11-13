@@ -104,27 +104,50 @@ Each entry records one question and its decision. The format is in
 
 - Stage: 3 spec review (round 1, finding 7)
 - Question: may a release share a pull request with a fix or a feature?
-- Options: (a) yes, with the release task as the last plan task (PR 35 and PR
-  37 did this). (b) a release is always its own pull request.
-- Recommendation: (a). The release task holds only the version bump and the
-  changelog, and the package run on `main` checks the result.
+- Options: (a) yes, with the release task as the last plan task. PR 37 did
+  this. PR 35 was a release-only pull request. (b) a release is always its own
+  pull request.
+- Recommendation: (a) when the owner asks for the release together with the
+  work, else (b). A round fix after the release task changes no version file,
+  and its changelog line goes under the new version (rule stage 5).
 - Decision:
 - Decided by:
 - Date:
 - Status: open
 
-## G9. Who writes `open-gaps.md`
+## G9. Who may close a gap during implementation
 
 - Stage: 3 spec review (round 1, finding 2)
 - Question: may an implementer close a gap by recommendation and continue?
 - Options: (a) the implementer stops and reports. The orchestrator closes the
-  gap by recommendation only when it stays inside the plan task and changes no
-  contract, policy, public interface, authorization or sandbox behavior, or
-  dependency. Any other gap goes to the owner. (b) the implementer closes any
+  gap by recommendation only when it touches only the files the plan task
+  names and changes no contract, policy, public interface, authorization or
+  sandbox behavior, or dependency. Any other gap goes to the owner. (b) the implementer closes any
   gap and continues.
 - Recommendation: (a). The owner still reviews every closed gap at gate 2, as
-  asked, and a gap that touches safety waits for the owner.
+  asked, and a gap that touches safety waits for the owner. Each round in
+  `reviews.md` also lists the gaps closed since the last round, so the owner
+  can read them early.
 - Decision:
 - Decided by:
 - Date:
 - Status: open
+
+## G10. Which reviewer reviews what
+
+- Stage: 3 spec review (owner input in round 2)
+- Question: which reviewer runs a round: the T3 reviewer or the GitHub Actions
+  reviewer in `reviewers.yml`?
+- Options: (a) the GitHub Actions reviewer for small changes, and the T3
+  reviewer required for spec reviews, new features, design changes, bug fixes
+  and core changes, with fallbacks. (b) the GitHub Actions reviewer first for
+  everything, and the T3 reviewer only as a fallback.
+- Recommendation: (a).
+- Decision: (a). Core fixes, new features, design changes and bug fixes require
+  the T3 reviewer or another dedicated reviewer agent at least. The review
+  process lives in its own rule file, `.agents/rules/review-standard.md`.
+- Decided by: owner ("yes i agree, but make it clear the core fixes new feature
+  and design changes or the bug fixes requires the t3 reviewer or special
+  reviewer atleast")
+- Date: 2026-11-13
+- Status: decided by owner
