@@ -414,6 +414,7 @@ impl WorkerSupervisor {
             cmd.env_remove("VIRTUAL_ENV");
         }
         cmd.stdin(Stdio::piped());
+        cmd.kill_on_drop(true);
         cmd.stdout(Stdio::piped());
         let worker_log_path = e2e_log_path("worker-stderr.log");
         if worker_log_path.is_some() {
