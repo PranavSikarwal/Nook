@@ -61,8 +61,9 @@ The orchestrator delegates and waits with the T3 Code tools.
 5. **Small fixes.** A fix that touches one or two files and a few lines, and
    changes no behavior in `daemon/`, `worker/`, `panel/`, `contracts/` or
    `policy/`, needs no child. The orchestrator makes it, runs the same checks,
-   and commits it, even when the plan does not list it. A planned task goes to a
-   child.
+   and commits it, even when the plan does not list it. It writes a row of the
+   current round in `reviews.md` with the Action `fix (small)`, and names the
+   fix in the commit message. A planned task goes to a child.
 
 ## Boundary check
 
