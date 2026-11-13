@@ -58,9 +58,11 @@ The orchestrator delegates and waits with the T3 Code tools.
 4. **Take over.** When a child's harness crashes or the child stops early, verify
    what it committed and continue from there. When its commits exist but no
    report arrives, verify the commits and continue.
-5. **Small fixes.** A fix that touches one or two files and a few lines, and
-   changes no behavior in `daemon/`, `worker/`, `panel/`, `contracts/` or
-   `policy/`, needs no child. The orchestrator makes it, runs the same checks,
+5. **Small fixes.** A fix that touches at most 2 files and 20 lines needs no
+   child. It touches nothing under `.agents/rules/`, `.github/` or `scripts/`, no
+   dependency or lock file, and it changes no behavior in `daemon/`, `worker/`,
+   `panel/`, `contracts/` or `policy/`, no public interface, no authorization
+   and no sandbox. Anything else is a plan task or a gap. The orchestrator makes it, runs the same checks,
    and commits it, even when the plan does not list it. It writes a row of the
    current round in `reviews.md` with the Action `fix (small)`, and names the
    fix in the commit message. A planned task goes to a child.
