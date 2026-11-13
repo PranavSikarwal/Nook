@@ -1,89 +1,130 @@
 # Open gaps: PR #38
 
-Each entry records one question and its decision. Status is one of `open`,
-`decided by owner`, `closed by recommendation` or `deferred`.
+Each entry records one question and its decision. The format is in
+`.agents/rules/sdlc-work-standard.md`, "Open gaps".
 
 ## G1. Name and place of the task folder
 
-- Stage: design.
-- Question: where do the task folders live?
-- Options: (a) `docs/tasks/task-PR-<number>/`. (b) `.scratch/task-PR-<number>/`,
-  next to the local issue tracker. (c) `docs/plans/task-PR-<number>/`.
-- Recommendation: (a). The folder is a permanent record of why the code
-  changed, and `docs/` is where the reviewer and SonarCloud already look.
-- Decision: none.
-- Status: open.
+- Stage: 2 spec
+- Question: where do task folders live, and what is their name?
+- Options: (a) `docs/tasks/task-PR-<number>/`. (b) `docs/tasks/<branch-slug>/`.
+  (c) `docs/plans/task-PR-<number>/`.
+- Recommendation: (a), as the owner asked. The number links the folder to its
+  pull request. Stage 1 opens the pull request with an empty commit first, so
+  the number exists before the folder.
+- Decision:
+- Decided by:
+- Date:
+- Status: open
 
 ## G2. Rule loading for Antigravity
 
-- Stage: design.
-- Question: how does Antigravity load the rules?
-- Options: (a) a file in `.agent/rules/` that points to `.agents/rules/`. (b) a
-  symbolic link `.agent/rules -> ../.agents/rules`. (c) rely on `AGENTS.md` only.
-- Recommendation: (a). A symbolic link breaks on a Windows checkout, and the
-  pointer in `AGENTS.md` alone is weaker. The implementer checks in a live
-  Antigravity run that the rule loads, and records the result here.
-- Decision: none.
-- Status: open.
+- Stage: 2 spec
+- Question: does Antigravity load `.agents/rules/sdlc-work-standard.md`?
+- Options: (a) rely on `.agents/rules/` with `trigger: always_on`, the current
+  path in the Antigravity docs. (b) also add a copy in the legacy
+  `.agent/rules/`.
+- Recommendation: (a). Check it in one live Antigravity run during the
+  implementation, and record the result here.
+- Decision:
+- Decided by:
+- Date:
+- Status: open
 
 ## G3. Small changes
 
-- Stage: design.
-- Question: does a small change (a typo, a version bump, a one-line CI fix) need
-  the design stage and gate 1?
-- Options: (a) every pull request runs every stage. (b) a pull request may skip
-  stages 2 to 4 when the owner says "small change" in the request. The task
-  folder then holds only `open-gaps.md` and `reviews.md`.
-- Recommendation: (b). The owner keeps the choice, and the review rounds and
-  gate 2 still run.
-- Decision: none.
-- Status: open.
+- Stage: 2 spec
+- Question: may a small change skip the spec and gate 1?
+- Options: (a) every task runs every stage. (b) the rule's "Small change"
+  section: no behavior change in `daemon/`, `worker/`, `panel/`, `contracts/`
+  or `policy/`, the owner calls it small, stages 1 and 5 to 9 still run.
+- Recommendation: (b).
+- Decision:
+- Decided by:
+- Date:
+- Status: open
 
 ## G4. Existing plans and designs
 
-- Stage: design.
+- Stage: 2 spec
 - Question: what happens to `docs/plans/` and `docs/design/`?
-- Options: (a) leave them. New work uses task folders. A plan in `docs/plans/`
-  moves into a task folder when its work starts. (b) move all of them now.
-- Recommendation: (a). Moving them now mixes a large rename into this pull
-  request. `docs/plans/README.md` gets a note about the new place.
-- Decision: none.
-- Status: open.
+- Options: (a) leave them in place and finish them there. New work uses task
+  folders. (b) move all of them into task folders now.
+- Recommendation: (a). `CHECKLIST.md` and `AGENTS.md` link to them, and a move
+  breaks the links and the history of ticked boxes.
+- Decision:
+- Decided by:
+- Date:
+- Status: open
 
 ## G5. Global rules versus repository rules
 
-- Stage: design.
+- Stage: 2 spec
 - Question: what stays in `~/.claude/CLAUDE.md`?
 - Options: (a) the global file keeps the rules for all projects (writing style,
-  no AI attribution, comments, RTK) and its T3 waiting section. The repository
-  rules repeat the T3 rules for other providers. (b) the T3 section leaves the
-  global file, and the global file points to the repository rules.
-- Recommendation: (a) for now, with the global T3 section cut to a pointer once
-  the repository rules prove themselves in one pull request. Other projects
-  still need the T3 rules.
-- Decision: none.
-- Status: open.
+  no AI attribution, comments, RTK, T3 waiting). The repository rule repeats
+  what Codex and Antigravity need, and points to `CONTRIBUTING.md` and
+  `AGENTS.md` for the commit rules. (b) the T3 section leaves the global file.
+- Recommendation: (a). Other projects still need the T3 rules. Add the ban on
+  AI attribution in pull request text and reviews to `CONTRIBUTING.md`, because
+  today it covers commits only.
+- Decision:
+- Decided by:
+- Date:
+- Status: open
 
 ## G6. Enforce the task folder in CI
 
-- Stage: design.
+- Stage: 2 spec
 - Question: does CI check that a pull request has its task folder?
-- Options: (a) add a small CI step that fails when a pull request to `main` has
-  no `docs/tasks/task-PR-<number>/design.md` (or only `open-gaps.md` and
-  `reviews.md` for a small change). (b) no CI check. The reviewer checks it.
-- Recommendation: (a). A rule that a machine checks does not drift. The step is
-  a short shell script in `scripts/` that `ci.yml` runs.
-- Decision: none.
-- Status: open.
+- Options: (a) a CI step that fails without the folder. (b) no CI check. The
+  orchestrator and the reviewer check the folder.
+- Recommendation: (b), changed after review round 1. `Code Quality and Tests` is
+  not a required check, so a failure does not block a merge. Look at it again
+  after two tasks use the folder.
+- Decision:
+- Decided by:
+- Date:
+- Status: open
 
 ## G7. The reviewer thread id
 
-- Stage: design.
+- Stage: 2 spec
 - Question: does the rule name the T3 thread id of "Review Pull Requests"?
-- Options: (a) name the thread only, and the orchestrator finds it with
-  `t3_thread_search`. (b) write the id
-  `3f89e173-6c3e-4c10-8d4d-c35b33b0b487` into the rule.
-- Recommendation: (a). The id belongs to one machine. The name works on every
-  machine.
-- Decision: none.
-- Status: open.
+- Options: (a) name the thread only, and find it with `t3_thread_search`. (b)
+  write the id into the rule.
+- Recommendation: (a). The id belongs to one machine. The rule asks the owner
+  when the search finds no thread or several.
+- Decision:
+- Decided by:
+- Date:
+- Status: open
+
+## G8. Release in the same pull request as a fix
+
+- Stage: 3 spec review (round 1, finding 7)
+- Question: may a release share a pull request with a fix or a feature?
+- Options: (a) yes, with the release task as the last plan task (PR 35 and PR
+  37 did this). (b) a release is always its own pull request.
+- Recommendation: (a). The release task holds only the version bump and the
+  changelog, and the package run on `main` checks the result.
+- Decision:
+- Decided by:
+- Date:
+- Status: open
+
+## G9. Who writes `open-gaps.md`
+
+- Stage: 3 spec review (round 1, finding 2)
+- Question: may an implementer close a gap by recommendation and continue?
+- Options: (a) the implementer stops and reports. The orchestrator closes the
+  gap by recommendation only when it stays inside the plan task and changes no
+  contract, policy, public interface, authorization or sandbox behavior, or
+  dependency. Any other gap goes to the owner. (b) the implementer closes any
+  gap and continues.
+- Recommendation: (a). The owner still reviews every closed gap at gate 2, as
+  asked, and a gap that touches safety waits for the owner.
+- Decision:
+- Decided by:
+- Date:
+- Status: open
