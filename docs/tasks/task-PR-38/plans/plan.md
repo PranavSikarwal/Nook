@@ -117,3 +117,4 @@ prints nothing once task 10 is done (before it, it reports only the C3 line).
 - [x] **13. Layout of task 12 (orchestrator).** The child put the sentence "The
   brief names the plan path ..." inside list item 2. Move it after the list as
   its own paragraph. Commit: `docs(rules): set the brief sentence outside the model list`.
+- [x] **14. Retro (orchestrator).** Write `retro.md`, as stage 8 step 1 says.
