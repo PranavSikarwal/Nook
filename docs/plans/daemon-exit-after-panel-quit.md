@@ -138,3 +138,47 @@ Same constraints as above: branch `fix/daemon-exit-on-sigterm`, one task per com
 ### Task 9: Tick and verify
 
 - [x] Tick the boxes. Run from `daemon/`: `rtk cargo fmt --check`, `timeout 540 rtk cargo clippy --workspace --all-targets -- -D warnings`, `timeout 540 rtk cargo test -p nookd`, `NOOK_REQUIRE_SANDBOX=1 timeout 540 rtk cargo test -p nook-core`. From `panel/src-tauri/`: `rtk cargo fmt --check`, `timeout 540 rtk cargo clippy -- -D warnings`, `timeout 540 rtk cargo test`. Commit: `docs: tick the review response tasks`
+
+## Review response, round 2 (PR 37)
+
+The follow-up review of `f931767` found one P2 (finding 1) and four P3. This round fixes findings 1, 12, 13, 14 and 15. Findings 5, 6, 7, 9 and 11 stay in a follow-up pull request.
+
+Same constraints as above: branch `fix/daemon-exit-on-sigterm`, one task per commit, foreground commands with `timeout 540`, prefix `rtk`, test first, no push, no background command. Load the environment before a Daemon test: `set -a && . ./.env && set +a` from the repository root. The sandbox tests cannot start bubblewrap on this machine. They skip with a message unless `NOOK_REQUIRE_SANDBOX` is set, so do not set it locally.
+
+### Task 10: Make the cleanup wait (finding 1)
+
+**Files:** `daemon/crates/nook-core/src/supervisor.rs`, `daemon/crates/nook-core/src/providers/mod.rs`, `daemon/crates/nook-core/src/tool_approval.rs`, create `daemon/crates/nook-core/src/shutdown.rs` (and register it in `lib.rs`), `daemon/crates/nookd/src/main.rs`, `daemon/crates/nookd/tests/signal_shutdown_tests.rs`, `daemon/crates/nookd/tests/fake_worker*` or `daemon/crates/nook-core/tests/fake_worker.py` (whichever the signal tests use).
+
+Decision: one function, `nook_core::shutdown::stop_everything(state: &AppState, timeout: Duration)`, does the whole cleanup and waits. `nookd/src/main.rs` calls it and nothing else. The private loop in `main.rs` that aborts tools goes away. This is the one place for this rule (AGENTS.md Design 4).
+
+- [ ] Test first. Add a fake Worker mode that keeps running after its stdin closes (for example an environment variable such as `FAKE_WORKER_IGNORE_EOF=1` that makes the script sleep forever when it reads EOF; read the existing fake Worker first and extend it). Add `the_daemon_kills_a_worker_that_ignores_stdin_close`: start `nookd` with that Worker, send SIGTERM, wait for the Daemon to exit, then assert that the Worker process is gone within 1 second after the Daemon exit. Run it on the current code and see it fail (the Worker stays). Remove or fix the old `the_daemon_stops_its_worker_on_sigterm` only if the new test replaces it.
+- [ ] `WorkerSupervisor::shutdown` returns only after the supervisor task has killed the child and reaped it. Use a `tokio::sync::oneshot` or `Notify` that the supervisor loop signals after `child.kill().await`. If no Worker runs, it returns at once. The other caller (restart on a settings change) must still work: run the supervisor tests.
+- [ ] Reuse `abort_running_tools` from `tool_approval.rs` (make it `pub` if needed) and extend it, or add a sibling, so that the caller can wait: after `abort()`, poll `AbortHandle::is_finished()` every 10 ms until all are finished.
+- [ ] Providers: before `ProviderHandle::replace(ProviderRegistry::empty())`, take `let old = handle.current();` then replace, then wait until `Arc::strong_count(&old) == 1` (polling every 10 ms), then `drop(old)`. The `GroupKill` drop then runs on the calling thread before the function returns.
+- [ ] `stop_everything` runs these three steps in this order inside `tokio::time::timeout(timeout, ...)` and returns whether it finished in time. `main.rs` calls it with 2 seconds and logs a `warn!` when it returns false. Keep `shutdown::exit` and the 5 second thread unchanged.
+- [ ] Run `rtk cargo fmt --check`, `timeout 540 rtk cargo clippy --workspace --all-targets -- -D warnings`, `timeout 540 rtk cargo test -p nookd`, `timeout 540 rtk cargo test -p nook-core`. All pass.
+- [ ] Commit: `fix(daemon): wait for the Worker and tool processes to stop before exiting`
+
+### Task 11: Tests that reach the new code (finding 12) and a stricter ownership check (finding 13)
+
+**Files:** `daemon/crates/nook-core/src/server.rs`, `daemon/crates/nookd/tests/signal_shutdown_tests.rs`, `daemon/crates/nook-core/tests/sandbox_tests.rs`.
+
+- [ ] Test first. In `server.rs` add unit tests for `remove_socket_if_owned`: a socket with the expected identity is removed; a different file at the same path is kept; a path that was re-bound (new socket, new identity) is kept; a missing path does not panic. Run them; the re-bound case must fail only if you can build it with the current inode-only check, otherwise state in the commit body why it cannot.
+- [ ] Store `(dev, ino)` from `tokio::fs::symlink_metadata` at bind time and compare both in `remove_socket_if_owned` (use `std::os::unix::fs::MetadataExt::{dev, ino}`). `Server` keeps one identity value, not two fields. Update every caller (`Server::run`, `nookd/src/shutdown.rs`, `nookd/src/main.rs`).
+- [ ] Delete the test `a_second_signal_exits_the_daemon_at_once`. It does not reach the second-signal path. Write one sentence in the commit body.
+- [ ] In `sandbox_tests.rs` add a test that starts a sandboxed command that spawns a long child, calls the same cleanup path that `stop_everything` uses (drop of the owner), and asserts that the process group is gone. It skips with a message when the sandbox is missing, like the other sandbox tests.
+- [ ] Run fmt, clippy and `timeout 540 rtk cargo test -p nookd` and `-p nook-core`. All pass.
+- [ ] Commit: `test(daemon): cover the socket ownership check and the Worker kill; compare device and inode`
+
+### Task 12: Panel test and code cleanups (findings 14 and 15)
+
+**Files:** `panel/src-tauri/src/lib.rs`.
+
+- [ ] Finding 14: in the two `quitting_the_panel_*` signal tests, start the shell so that it is the only process: `exec sleep 60` after `trap '' TERM` for the ignore test, and for the handler test use `trap 'exit 0' TERM; sleep 60 & wait` only if the script also kills `$!` in the trap (`trap 'kill $!; exit 0' TERM`). After a test run, `pgrep -f "sleep 60"` shows nothing.
+- [ ] Finding 15: add a one-line comment above the `unsafe` block: the PID is safe to signal because `child.id()` is `None` once the child is reaped. Replace the two copied wait loops with one private helper `wait_for_exit(&mut Child, Duration) -> Option<ExitStatus>`.
+- [ ] Run, from `panel/src-tauri/`: `rtk cargo fmt --check`, `timeout 540 rtk cargo clippy -- -D warnings`, `timeout 540 rtk cargo test`. All pass.
+- [ ] Commit: `fix(panel): keep the quit tests from leaking processes`
+
+### Task 13: Tick and verify
+
+- [ ] Tick the boxes of this section. Run the Daemon and Panel check commands once more. Commit: `docs: tick the round 2 review response`
