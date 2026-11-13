@@ -75,3 +75,6 @@ Tick the task's box in the same commit. Commit locally. Do not push.
 - [ ] **5. CI gate (orchestrator).** Push, start the native gate, and run the
   CI gate check from `.agents/rules/review-standard.md`. Fix any failure as a
   new task below.
+
+- [x] **6. Blank line in `docs/testing.md` (orchestrator).** Task 3 put the
+  new heading right after the last paragraph. Add the blank line.
