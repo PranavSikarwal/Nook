@@ -73,8 +73,8 @@ Do each sub-step only for a scenario that failed in Task 1, except the first one
 
 **Files:** `docs/plans/open-items-fixes.md` (row 12), `docs/testing.md` (one sentence that names `signal_shutdown_tests.rs`), `CHANGELOG.md` (under "Unreleased": one line in the "Fixed" list), this file.
 
-- [ ] Row 12 becomes: "Fixed. The Daemon exits within 5 seconds of SIGTERM, and the Panel stops the Daemon that it started when it quits." plus the commit hashes.
-- [ ] Tick every box. Commit: `docs: record the fix for the Daemon that stays alive`
+- [x] Row 12 becomes: "Fixed. The Daemon exits within 5 seconds of SIGTERM, and the Panel stops the Daemon that it started when it quits." plus the commit hashes.
+- [x] Tick every box. Commit: `docs: record the fix for the Daemon that stays alive`
 
 ## Verification (done by the planner, not by the implementer)
 
