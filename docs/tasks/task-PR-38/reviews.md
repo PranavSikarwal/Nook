@@ -290,6 +290,11 @@ nothing.
 | C12 | Task 18's stage 6 edit is missing. | fix | Plan task 22. Retro note updated. |
 | C13 | The spec row for `AGENTS.md` lags, G17 does not name it, the state block says stage 6. | fix (orchestrator) | Spec row, G18, state block `Stage: 7 review rounds`. |
 
+Fix pass for round 4 (code): plan tasks 22 and 23 by `gpt-6-luna` (`d220827`,
+`b8f8431`). The brief required `git diff --stat` to list every named file, and
+it did. The orchestrator's diff read confirmed it. Boundary check passed.
+`git diff --check origin/main HEAD` printed nothing.
+
 ## Round 5 (code)
 
 - Head: the commit that adds this heading.
