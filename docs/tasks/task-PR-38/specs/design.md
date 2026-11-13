@@ -34,6 +34,13 @@ The two rule files are the spec of this task. Review them.
    verdict line, how to ask each reviewer, how to read the inputs, the exit
    check, and what to do when an input fails. The SDLC Work Standard points to
    it before stages 3 and 7, so it loads only when a review runs.
+3. `.agents/rules/delegation-standard.md` defines the implementer rules, the T3
+   Code rules and the boundary check after each task. The SDLC Work Standard
+   points to it before stage 6.
+
+The SDLC rule also makes every CI check a gate, and ends each task with a retro
+(`retro.md`) that proposes changes to these rules. Each file stays under 12,000
+characters, the limit that Antigravity sets for one rule file.
 
 ## Where the rule lives
 
@@ -42,8 +49,8 @@ in its own way:
 
 | Harness | What it loads | How it reaches the rule |
 | --- | --- | --- |
-| Antigravity | `AGENTS.md`, `GEMINI.md`, `.agents/rules/*.md` | Loads the files directly. The SDLC file sets `trigger: always_on`. The review file sets `trigger: model_decision`, so the agent loads it when its description fits. |
-| Claude Code | `CLAUDE.md` with `@` imports, `.claude/rules/` | `CLAUDE.md` imports `@.agents/rules/sdlc-work-standard.md`. The review file is read through the pointer in the SDLC file. |
+| Antigravity | `AGENTS.md`, `GEMINI.md`, `.agents/rules/*.md` | Loads the files directly. The SDLC file sets `trigger: always_on`. The review and delegation files set `trigger: model_decision`, so the agent loads each one when its description fits. |
+| Claude Code | `CLAUDE.md` with `@` imports, `.claude/rules/` | `CLAUDE.md` imports `@.agents/rules/sdlc-work-standard.md`. The review and delegation files are read through the pointers in the SDLC file. |
 | Codex | `AGENTS.md` only, no imports | `AGENTS.md` starts with a pointer that tells the agent to read the rule before any work. Every implementer brief also names the rule. |
 
 Cursor reads `AGENTS.md` and `.cursor/rules/`. Nook does not use Cursor, so it
@@ -77,7 +84,7 @@ rules on `main`.
 ## Implementation scope
 
 1. Add `docs/tasks/_template/` with `specs/design.md`, `plans/plan.md`,
-   `open-gaps.md` and `reviews.md`.
+   `open-gaps.md`, `reviews.md` and `retro.md`.
 2. Make the changes in "Rule changes".
 3. Check in a live Antigravity run that the rule loads (gap G2), and record the
    result.

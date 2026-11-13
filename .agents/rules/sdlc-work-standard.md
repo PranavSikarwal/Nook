@@ -14,7 +14,8 @@ it in the same commit as the work, so that any agent can resume the task from
 the folder and the pull request alone.
 
 Reviews follow `.agents/rules/review-standard.md`. Read it before stage 3 and
-before stage 7.
+before stage 7. Delegation follows `.agents/rules/delegation-standard.md`. Read
+it before stage 6, and put its "Implementer rules" into every implementer brief.
 
 ## Roles
 
@@ -22,14 +23,23 @@ before stage 7.
 | --- | --- | --- |
 | Owner | The human who owns the repository | Decides open gaps, approves gate 1 and gate 2, says "merge". |
 | Orchestrator | The agent the owner talks to | Writes the spec, the plan, `open-gaps.md` and `reviews.md`. Delegates, verifies, pushes, starts workflows, asks the reviewer, merges after the owner says "merge", runs the release. |
-| Implementer | A child agent that the orchestrator starts | Implements the plan tasks in its brief and commits locally. Follows "Implementer rules". |
+| Implementer | A child agent that the orchestrator starts | Implements the plan tasks in its brief and commits locally. Follows "Implementer rules" in the delegation rule. |
 | Reviewer | Chosen by `.agents/rules/review-standard.md` | Reviews the spec and the code, as "What the reviewer may do" in that file says. |
 
 The orchestrator is the only agent that pushes, merges, tags, starts workflows,
 or edits the task folder.
 
-No commit, pull request title or body, comment or review holds AI attribution:
-no `Co-Authored-By` line for an AI and no "Generated with" line.
+Every CI check is a **gate**: `Code Quality and Tests`, `Windows named-pipe
+IPC`, `SonarCloud Code Analysis` and `Native Tauri E2E Gate`. The **CI gate
+check** in `.agents/rules/review-standard.md` ("Read the inputs" 2) passes only
+when all four report `pass` on the head. A failing check blocks the next stage
+until a fix makes it pass. A failing check is always
+fixed. It is never deferred or rejected.
+
+Text posted under the owner's account holds no AI attribution: no
+`Co-Authored-By` line for an AI and no "Generated with" line in a commit, a pull
+request title or body, a comment or a review. The GitHub Actions reviewer posts
+as `github-actions[bot]`, so its status notices are allowed.
 
 ## Task folder
 
@@ -39,6 +49,7 @@ docs/tasks/task-PR-<number>/
   plans/plan.md     one task per commit, each with a checkbox
   open-gaps.md      every gap and decision, from spec to merge
   reviews.md        one entry per review round
+  retro.md          what went wrong in the workflow, why, proposals
 ```
 
 `docs/tasks/_template/` holds an empty copy of each file. The top of
@@ -117,12 +128,11 @@ Exit: every decision in the spec and in `open-gaps.md` maps to a plan task.
 
 ### 6. Implement
 
-Delegate the plan tasks to implementers (see "T3 Code"). One implementer writes
-to the branch at a time. After each task:
+Delegate the plan tasks to implementers, as
+`.agents/rules/delegation-standard.md` says. One implementer writes to the
+branch at a time. After each task:
 
-1. Check the boundary. `git rev-parse origin/<branch>` still equals your last
-   push, `git ls-remote --tags origin` is unchanged, and
-   `git diff --name-only <before> HEAD` lists only the files the task names.
+1. Run the boundary check in `.agents/rules/delegation-standard.md`.
 2. Read the diff, and run the checks from `docs/testing.md` for each changed
    component. A task passes when its checks pass with zero warnings.
 
@@ -140,8 +150,14 @@ When a child crashes with uncommitted files, read `git status` and the diff.
 Commit the files that complete a task, as that task's commit. Restore the rest
 with `git restore <paths>`.
 
-Exit: `grep -c -- '- \[ \]' plans/plan.md` prints 0, every check passes, and
-`git status --porcelain` prints nothing.
+When every task is done, run the **CI gate**: push, start the native gate
+(`scripts/gh workflow run native-e2e-gate.yml --ref <branch> -f pr_number=<number>`),
+and wait until the CI gate check passes. When a check fails, read
+its log, fix the cause as a new plan task through this stage, push, and run the
+CI gate again. A flaky job gets one rerun, as the review rule says.
+
+Exit: `grep -c -- '- \[ \]' plans/plan.md` prints 0, `git status --porcelain`
+prints nothing, and the CI gate check passes on the pushed head.
 
 ### 7. Review rounds
 
@@ -153,29 +169,34 @@ Exit: a round exit check passes on the current head. Write that head SHA into
 
 ### 8. Gate 2: owner approves the pull request
 
-1. Send the owner the pull request, the last verdict, the check results, and
-   every gap with status `closed by recommendation` or `deferred`.
-2. When the owner says "merge", write `Gate 2` with the owner's words into the
-   state block. Commit and push. This push touches only
+1. Write the **retro** in `retro.md` (see "Retro").
+2. Send the owner the pull request, the last verdict, the check results, every
+   gap with status `closed by recommendation` or `deferred`, and the retro.
+3. When the owner says "merge", write `Gate 2` with the owner's words into the
+   state block, and the owner's choice for each retro proposal into
+   `retro.md`. Commit and push. This push touches only
    `docs/tasks/task-PR-<number>/`.
-3. Start the native gate on the new head:
+4. Start the native gate on the new head:
    `scripts/gh workflow run native-e2e-gate.yml --ref <branch> -f pr_number=<number>`.
-4. Wait until `scripts/gh pr checks <number>` exits 0.
-5. Make sure that `git diff --name-only <reviewed head> HEAD` lists only paths
+5. Wait until the CI gate check passes.
+6. Make sure that `git diff --name-only <reviewed head> HEAD` lists only paths
    under `docs/tasks/task-PR-<number>/`. Any other path opens a new round.
-6. Merge: `scripts/gh pr merge <number> --merge`.
+7. Merge: `scripts/gh pr merge <number> --merge`.
 
-Exit: `scripts/gh pr view <number> --json mergedAt,mergeCommit` shows the merge.
+Exit: `scripts/gh pr view <number> --json mergedAt,mergeCommit` shows the merge,
+and `retro.md` holds the owner's choice for each proposal.
 
 ### 9. After the merge
 
 For a release:
 
 1. Start the package run on `main`: `scripts/gh workflow run package.yml --ref main`.
-2. Make sure that the run's `headSha` (`scripts/gh run view <run-id> --json headSha`)
-   equals the merge commit.
-3. Wait until the jobs `Build (macOS)`, `Build (Ubuntu)` and `Build (Windows)`
-   pass.
+2. Find the run:
+   `scripts/gh run list --workflow package.yml --branch main --limit 1 --json databaseId,headSha`.
+   Make sure that its `headSha` equals the merge commit.
+3. Wait with `scripts/gh run watch <run-id> --exit-status` (in the background,
+   it takes longer than 8 minutes). The jobs `Build (macOS)`, `Build (Ubuntu)`
+   and `Build (Windows)` must pass.
 4. Download the artifacts (`scripts/gh run download <run-id>`), and create the
    tag and the release with the assets and the changelog section as notes:
    `scripts/gh release create v<version> --target <merge commit> --title "Nook v<version>" --notes-file <notes> <assets>`.
@@ -203,48 +224,25 @@ Exit: the merge commit is on `main`, and for a release
 Only the orchestrator writes this file. A requirement that the owner changes
 during the task is a new gap. If it changes the spec, the task returns to gate 1.
 
-## Implementer rules
+## Retro
 
-Put this section, or the path to it, into every implementer brief.
+The retro improves this framework, not the product. Write `retro.md` from the
+record: `reviews.md`, `open-gaps.md`, the plan, the T3 thread activity, and the
+owner's corrections during the task. It has three parts:
 
-1. Read the plan and the spec. Implement only the tasks in your brief, in order.
-2. Write the failing test first, as `AGENTS.md` "Tests" says.
-3. Make one commit per task. Stage only the files the task names
-   (`git add <paths>`). Tick the task's box in the same commit.
-4. Follow `CONTRIBUTING.md` "Branches and commits" and `AGENTS.md` "GitHub CLI
-   and commit rules". A commit message holds no AI attribution.
-5. Commit locally. The orchestrator pushes.
-6. When the plan does not answer a question, stop and report the question, the
-   options and your recommendation in your final message.
-7. Run a command that can take more than 8 minutes in the background.
-8. End with a report: the commits, the checks you ran and their results, and
-   each gap you met.
+1. **What went wrong.** Each event where the workflow failed or cost time: a
+   skipped or repeated step, a stalled child, a round that a rule could have
+   prevented, a command in a rule that did not work, an owner correction. Give
+   the evidence (commit, round, run id, owner's words).
+2. **Why.** The cause in the rules or the tools for each event: a missing
+   step, a vague exit check, a wrong command, a missing failure case.
+3. **Proposals.** One change to `.agents/rules/` per cause, with the file, the
+   section and the new text. Mark each `accepted` or `rejected` with the owner's
+   choice at gate 2.
 
-An implementer keeps out of `scripts/gh`, `git push`, merges, tags, workflow
-runs, review threads, the task folder files other than the plan checkbox, and
-the contents of `.env`. The brief passes no token and no `.env` value.
-
-## T3 Code
-
-The orchestrator delegates and waits with the T3 Code tools.
-
-1. **Delegate.** Call `orchestrator_capabilities` once per thread. Start each
-   implementer with `delegate_task`: provider `codex`, model `gpt-6-luna`,
-   `reasoningEffort: high`, `runtimeMode: full-access`, `isolation: shared`,
-   unless the owner names another model. The brief names the plan path, the task
-   numbers, a time box, and "Implementer rules" in this file.
-2. **Wait.** Wait for a child with `t3_thread_wait` (`untilDelegatedWorkSettled:
-   true`, timeout 15 to 30 minutes). Wait for a background command with
-   `t3_background_wait`. Use a shell loop only for external state that T3 cannot
-   see (a review on GitHub, CI), as one command of at most 30 minutes.
-3. **Check progress.** When a wait times out, read the child's activity, `git
-   log` and `git status`. If the child made progress, wait again. If not, send
-   one reminder with `t3_thread_send` that names the next plan task. If it still
-   made no progress at the next check, stop it with `task_cancel`, and finish the
-   task yourself or delegate a smaller brief.
-4. **Take over.** When a child's harness crashes or the child stops early, verify
-   what it committed and continue from there. When its commits exist but no
-   report arrives, verify the commits and continue.
+Accepted proposals become a small-change task that changes the rules. Start it
+right after the merge. When a task went without a problem, write "No problem"
+in each part.
 
 ## Push
 
@@ -253,11 +251,12 @@ Push with `git push`. When the push is rejected, run `git fetch`, merge
 
 ## Resume
 
-To resume a task, find the pull request (`scripts/gh pr list --head <branch>`).
-If none exists, start at stage 1. Otherwise read the state block, `git log`,
+To resume a task, find the pull request:
+`scripts/gh pr list --head <branch> --state all --json number,state,mergedAt`.
+If the branch exists but has no pull request, continue at stage 1 step 3. If
+the pull request is merged, continue at stage 9. Otherwise read the state block, `git log`,
 `git status`, the plan checkboxes, `reviews.md`, the reviews and
-`scripts/gh pr checks <number>`. Continue at the first stage whose exit check
-fails.
+the CI gate check. Continue at the first stage whose exit check fails.
 
 ## Small change
 

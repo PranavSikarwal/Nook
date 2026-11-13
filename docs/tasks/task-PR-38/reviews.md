@@ -2,6 +2,9 @@
 
 ## Round 1 (spec)
 
+The "Where" column refers to the rule before the review rule was split out in
+round 2.
+
 - Head: `9155703`
 - Reviewer: review on `9155703`, verdict REQUEST_CHANGES. P0: 0, P1: 5, P2: 9,
   P3: 3.
@@ -66,5 +69,32 @@
 
 ## Round 3 (spec)
 
-- Reviewer: T3 reviewer (spec review, required by the review rule).
-- Inputs pending.
+- Head: `baf8dc0`
+- Reviewer: T3 reviewer (spec review, required by the review rule). Verdict
+  COMMENT. P0: 0, P1: 0, P2: 6, P3: 7. Round 2 findings fixed, except 5 and 21
+  (partly, now P3).
+- SonarCloud: gate passed.
+- Checks: all four passed.
+- Owner input in the same round: every CI check is a gate, and a failing check
+  is fixed before the review starts. Each task ends with a retro on the
+  framework.
+- Gaps closed by recommendation since round 2: none.
+- Round limit: this is round 3. It ends with open P2 findings, so the owner
+  decides the next step (gap G12).
+
+| # | Finding | Action | Where |
+| --- | --- | --- | --- |
+| 27 | `gh pr checks` exits 0 with a missing check. | fix | Review rule "Read the inputs" 2: the CI gate check counts four `pass` lines. Tested: PR 38 passes, PR 34 fails. |
+| 28 | Resume cannot find a merged pull request. | fix | SDLC "Resume": `--state all`, merged resumes at stage 9, branch without a pull request resumes at stage 1 step 3. |
+| 29 | The Actions reviewer may post a plain comment with no verdict. | fix | Review rule "Ask the GitHub Actions reviewer" and "Read the inputs" 1. The script change is gap G11. |
+| 30 | A spec round appends to a plan that does not exist. | fix | Review rule "Run a round" 5 splits spec and code rounds. |
+| 31 | Reviews are counted without a login filter. | fix | Review rule "Read the inputs" 1: owner login for T3, `github-actions[bot]` for Actions. |
+| 32 | `reviewers.yml` runs PR code with secrets in scope. | fix and defer | Review rule: never on a fork pull request. The workflow fix is gap G11. |
+| 5 | Boundary check has no baseline, other bans unchecked. | fix | New `.agents/rules/delegation-standard.md` "Boundary check". |
+| 21 | No command for the run id and the wait. | fix | SDLC stage 9: `run list` and `run watch --exit-status`. |
+| 33 | `reviewers.yml` reliability. | defer | Gap G11. |
+| 34 | `base_ref` interpolated in `run:`. | defer | Gap G11. |
+| 35 | Attribution ban scope for the bot. | fix | SDLC "Roles": the ban covers text under the owner's account. |
+| 36 | Stale "Where" column, no round 3 head. | fix | Note under round 1, head above. |
+| 37 | Comment cannot be typed, small change has no design file, no pagination. | fix | Review rule: `--body-file`, spec paragraph for a small change, `--paginate`. |
+| size | The SDLC file nears 12,000 characters. | fix | Implementer and T3 rules moved to `.agents/rules/delegation-standard.md`. |

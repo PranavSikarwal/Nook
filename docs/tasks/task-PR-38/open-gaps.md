@@ -151,3 +151,35 @@ Each entry records one question and its decision. The format is in
   reviewer atleast")
 - Date: 2026-11-13
 - Status: decided by owner
+
+## G11. Harden the GitHub Actions reviewer
+
+- Stage: 3 spec review (round 3, findings 29, 32, 33, 34)
+- Question: when does `reviewers.yml` and `pr_reviewer.py` get fixed?
+- Options: (a) a follow-up task after this pull request: `persist-credentials:
+  false`, run the script from a base-ref checkout, fail the trust step when the
+  base file is missing, exit non-zero without secrets, a `concurrency` block,
+  pin the review to `git rev-parse HEAD`, always post a review with the verdict
+  line first, pass `base_ref` through `env:`. (b) fix it in this pull request.
+- Recommendation: (a). It is workflow code, outside this spec. Until then the
+  review rule forbids the Actions reviewer on fork pull requests and reads its
+  plain comments.
+- Decision:
+- Decided by:
+- Date:
+- Status: open
+
+## G12. Round 3 ended with open findings
+
+- Stage: 3 spec review (round 3)
+- Question: the rule allows 3 spec rounds. Round 3 ended with 6 open P2
+  findings, now fixed but not reviewed. What next?
+- Options: (a) a round 4 to confirm the fixes, then gate 1. (b) gate 1 now, and
+  the code rounds in stage 7 check the fixes.
+- Recommendation: (a). Four P2 fixes change commands that every later task
+  runs (the CI gate check, resume, the reviewer reads), so a reviewer must see
+  them once.
+- Decision:
+- Decided by:
+- Date:
+- Status: open

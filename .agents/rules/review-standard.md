@@ -13,8 +13,9 @@ task runs rounds: stage 3 for the spec and stage 7 for the code.
 
 ## Pick the reviewer
 
-Pick the reviewer from the task in `specs/design.md`, and write the choice into
-the round in `reviews.md`.
+Pick the reviewer from the task (`specs/design.md`, or the spec paragraph in
+`plans/plan.md` for a small change), and write the choice into the round in
+`reviews.md`.
 
 | Task | Reviewer |
 | --- | --- |
@@ -22,7 +23,9 @@ the round in `reviews.md`.
 | Small change (see "Small change" in the SDLC Work Standard) | The GitHub Actions reviewer. |
 
 The GitHub Actions reviewer may also run in addition on any pull request. Its
-findings join the same round.
+findings join the same round. Use it only on a pull request from a branch of
+this repository, never on a pull request from a fork: the job runs with the
+reviewer secrets.
 
 Fallback, when a reviewer fails (see "When an input fails to arrive"):
 
@@ -59,15 +62,19 @@ the only verdict. Put the line format into every review request.
 `.github/workflows/reviewers.yml` runs `pr_reviewer.py` on a pull request
 comment from the owner's account. Post the comment with `scripts/gh`:
 
-1. Round 1: `scripts/gh pr comment <number> --body "/code-review-expert high"`,
-   then a new line with "Start the review with the line: Verdict: ..." and the
-   format above.
-2. Each later round: `/feedback-on-resolution high`, with the same verdict line
-   instruction. It checks whether the fixes resolved the earlier findings.
+1. Write the comment into a file. Round 1 starts with `/code-review-expert high`.
+   Each later round starts with `/feedback-on-resolution high`, which checks
+   whether the fixes resolved the earlier findings. The second line is the
+   instruction "Start the review with the line:" and the verdict line format.
+2. Post it: `scripts/gh pr comment <number> --body-file <file>`.
 3. `/code-review` runs the lighter review. Use it only when the owner asks.
 
-The job posts a "Review in progress" comment, then a `COMMENT` review pinned to
-the head. Its run log is the "Manual PR reviewers" workflow run.
+The job posts a "Review in progress" comment as `github-actions[bot]`. When
+the model returns inline comments, the job posts a `COMMENT` review. When it
+returns none, it edits the "Review in progress" comment or posts a plain
+comment instead, with no `commit_id`. Read the result as "Read the inputs" 1
+says. Push nothing while the job runs, so that its result belongs to the head.
+Its run log is the "Manual PR reviewers" workflow run.
 
 ## Run a round
 
@@ -85,10 +92,13 @@ the head. Its run log is the "Manual PR reviewers" workflow run.
 4. **Record.** Write the head SHA and every finding into the round: each reviewer
    finding, each SonarCloud issue, hotspot or gate condition, and each failed
    job. Give each one action: `fix`, `defer` (a gap with status `deferred`), or
-   `reject` (with the reason). List the gaps closed by recommendation since the
+   `reject` (with the reason). A failed check and a failed SonarCloud gate are
+   always `fix`, because every CI check is a gate. List the gaps closed by recommendation since the
    last round, so the owner can read them early.
-5. **Fix.** Append the `fix` items to `plans/plan.md` under `## Round N`, one task
-   per commit, and implement them as stage 6 of the SDLC Work Standard says.
+5. **Fix.** In a spec round, edit the spec, the rules and `open-gaps.md` in one
+   commit for the pass. In a code round, append the `fix` items to
+   `plans/plan.md` under `## Round N`, one task per commit, and implement them as
+   stage 6 of the SDLC Work Standard says.
 6. **Push.** The next round starts on the new head.
 
 Run at most 3 rounds in a stage. If round 3 ends with an open P0, P1 or P2
@@ -97,14 +107,23 @@ toward the limit.
 
 ## Read the inputs
 
-1. **Reviews:**
-   `scripts/gh api repos/PranavSikarwal/Nook/pulls/<number>/reviews --jq '.[]|[.user.login,.commit_id,(.body|split("\n")[0])]|@tsv'`.
-   The review that counts is the newest one whose `commit_id` is the head SHA
-   and whose first line is a verdict line. Ignore every other review.
-2. **Checks:** `scripts/gh pr checks <number>`. Exit code 0 means every check
-   passed, 8 means a check is pending, 1 means a check failed. The four checks
-   are `Code Quality and Tests`, `Windows named-pipe IPC`,
-   `SonarCloud Code Analysis` and `Native Tauri E2E Gate`.
+1. **Reviews.** The T3 reviewer posts as the owner (`PranavSikarwal`). The
+   GitHub Actions reviewer posts as `github-actions[bot]`. Read the reviews:
+   `scripts/gh api --paginate repos/PranavSikarwal/Nook/pulls/<number>/reviews --jq '.[]|[.user.login,.commit_id,(.body|split("\n")[0])]|@tsv'`.
+   For the T3 reviewer, the review that counts is the newest one from the owner
+   whose `commit_id` is the head SHA and whose first line is a verdict line. For
+   the GitHub Actions reviewer, also read the comments
+   (`scripts/gh api --paginate repos/PranavSikarwal/Nook/issues/<number>/comments`)
+   and take the newest review or comment from `github-actions[bot]` created after
+   your trigger comment. If it has no verdict line, count its P0 to P3 findings
+   yourself and write the counts into the round as "verdict derived". Ignore
+   every other review and comment.
+2. **Checks.** The **CI gate check** passes only when all four checks report
+   `pass` on the head:
+   `[ "$(scripts/gh pr checks <number> | cut -f1,2 | grep -c -E '^(Code Quality and Tests|Windows named-pipe IPC|SonarCloud Code Analysis|Native Tauri E2E Gate)\tpass$')" = 4 ]`.
+   The exit code of `scripts/gh pr checks` alone is not enough: it is 0 also
+   when a check is missing. Use the exit code only to see that a check is
+   pending (8) or failed (1).
 3. **SonarCloud:**
    `scripts/gh api repos/PranavSikarwal/Nook/commits/<sha>/check-runs --jq '.check_runs[]|select(.name=="SonarCloud Code Analysis")|.output.title,.output.summary'`.
    It gives the gate result and the counts of issues, hotspots, coverage and
@@ -118,7 +137,7 @@ A round passes when all of these hold on the current head:
 1. The review that counts says `Verdict: APPROVE`, or counts `P0: 0, P1: 0, P2: 0`.
 2. Every P2 is fixed, or deferred or rejected with a reason in `reviews.md`.
 3. Every deferred finding is a gap in `open-gaps.md`.
-4. `scripts/gh pr checks <number>` exits 0.
+4. The CI gate check passes.
 
 ## When an input fails to arrive
 
