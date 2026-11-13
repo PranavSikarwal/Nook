@@ -122,19 +122,19 @@ Same constraints as above: branch `fix/daemon-exit-on-sigterm`, one task per com
 
 **Files:** `panel/src-tauri/src/lib.rs`.
 
-- [ ] Write the test first. `quitting_the_panel_stops_a_daemon_that_handles_sigterm`: a child `sh -c 'trap "exit 0" TERM; sleep 60 & wait'` exits by itself within the grace time, and the test records that it exited with status 0 (not killed by a signal 9). `quitting_the_panel_kills_a_daemon_that_ignores_sigterm`: a child `sh -c 'trap "" TERM; sleep 60 & wait'` is killed after the grace time.
-- [ ] On Unix, `stop_spawned_daemon` sends SIGTERM with `libc::kill` (the Panel already depends on `libc`; check `panel/src-tauri/Cargo.toml` and add nothing new), polls `try_wait()` every 50 ms for at most 2 seconds, then calls `start_kill()`. Pass the grace time as a parameter so a test can use a short one. On Windows keep `start_kill()`.
-- [ ] Commit: `fix(panel): ask the Daemon to stop before killing it`
+- [x] Write the test first. `quitting_the_panel_stops_a_daemon_that_handles_sigterm`: a child `sh -c 'trap "exit 0" TERM; sleep 60 & wait'` exits by itself within the grace time, and the test records that it exited with status 0 (not killed by a signal 9). `quitting_the_panel_kills_a_daemon_that_ignores_sigterm`: a child `sh -c 'trap "" TERM; sleep 60 & wait'` is killed after the grace time.
+- [x] On Unix, `stop_spawned_daemon` sends SIGTERM with `libc::kill` (the Panel already depends on `libc`; check `panel/src-tauri/Cargo.toml` and add nothing new), polls `try_wait()` every 50 ms for at most 2 seconds, then calls `start_kill()`. Pass the grace time as a parameter so a test can use a short one. On Windows keep `start_kill()`.
+- [x] Commit: `fix(panel): ask the Daemon to stop before killing it`
 
 ### Task 8: Small fixes (findings 4, 8, 10)
 
 **Files:** `daemon/crates/nookd/tests/signal_shutdown_tests.rs`, `daemon/crates/nookd/src/shutdown.rs`, `CHANGELOG.md`.
 
-- [ ] Finding 4: the tests use the same database URL fallback as `daemon/crates/nook-core/tests/db_tests.rs`, in one helper function. No developer user name stays in the file.
-- [ ] Finding 8: `handle_signal` logs with a direct `info!` call. Remove `spawn_blocking`. Make sure "Received ..." is logged before the shutdown message is sent.
-- [ ] Finding 10: the changelog line starts with "On macOS and Linux,".
-- [ ] Commit: `fix(daemon): use the shared database URL in the signal tests and log signals directly`
+- [x] Finding 4: the tests use the same database URL fallback as `daemon/crates/nook-core/tests/db_tests.rs`, in one helper function. No developer user name stays in the file.
+- [x] Finding 8: `handle_signal` logs with a direct `info!` call. Remove `spawn_blocking`. Make sure "Received ..." is logged before the shutdown message is sent.
+- [x] Finding 10: the changelog line starts with "On macOS and Linux,".
+- [x] Commit: `fix(daemon): use the shared database URL in the signal tests and log signals directly`
 
 ### Task 9: Tick and verify
 
-- [ ] Tick the boxes. Run from `daemon/`: `rtk cargo fmt --check`, `timeout 540 rtk cargo clippy --workspace --all-targets -- -D warnings`, `timeout 540 rtk cargo test -p nookd`, `NOOK_REQUIRE_SANDBOX=1 timeout 540 rtk cargo test -p nook-core`. From `panel/src-tauri/`: `rtk cargo fmt --check`, `timeout 540 rtk cargo clippy -- -D warnings`, `timeout 540 rtk cargo test`. Commit: `docs: tick the review response tasks`
+- [x] Tick the boxes. Run from `daemon/`: `rtk cargo fmt --check`, `timeout 540 rtk cargo clippy --workspace --all-targets -- -D warnings`, `timeout 540 rtk cargo test -p nookd`, `NOOK_REQUIRE_SANDBOX=1 timeout 540 rtk cargo test -p nook-core`. From `panel/src-tauri/`: `rtk cargo fmt --check`, `timeout 540 rtk cargo clippy -- -D warnings`, `timeout 540 rtk cargo test`. Commit: `docs: tick the review response tasks`
