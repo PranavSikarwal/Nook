@@ -103,7 +103,7 @@ prints nothing once task 10 is done (before it, it reports only the C3 line).
 - [x] **11. C4: round heading in the template.** `docs/tasks/_template/reviews.md`:
   `## Round 1` becomes `## Round 1 (spec|code)`.
   Commit: `docs(tasks): give the template round heading its type`.
-- [ ] **12. G14: implementer model order.** `.agents/rules/delegation-standard.md`,
+- [x] **12. G14: implementer model order.** `.agents/rules/delegation-standard.md`,
   "T3 Code" 1: replace "provider `codex`, model `gpt-6-luna`,
   `reasoningEffort: high`, `runtimeMode: full-access`, `isolation: shared`,
   unless the owner names another model." with: "`runtimeMode: full-access`,

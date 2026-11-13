@@ -34,9 +34,12 @@ the contents of `.env`. The brief passes no token and no `.env` value.
 The orchestrator delegates and waits with the T3 Code tools.
 
 1. **Delegate.** Call `orchestrator_capabilities` once per thread. Start each
-   implementer with `delegate_task`: provider `codex`, model `gpt-6-luna`,
-   `reasoningEffort: high`, `runtimeMode: full-access`, `isolation: shared`,
-   unless the owner names another model. The brief names the plan path, the task
+   implementer with `delegate_task`: `runtimeMode: full-access`,
+   `isolation: shared`, and the first model in this order that is available,
+   unless the owner names another model:
+   1. Provider `codex`, model `gpt-6-luna`, `reasoningEffort: high`.
+   2. Provider `antigravity`, model `gemini-3.8-flash`, `thinking_level: high`, when
+      `gpt-6-luna` is unavailable or its child was cancelled as stalled. The brief names the plan path, the task
    numbers, a time box, and "Implementer rules" in this file. Its first line tells
    the child to read `.agents/rules/sdlc-work-standard.md` and
    `.agents/rules/delegation-standard.md` before any work, for every provider:
