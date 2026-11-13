@@ -13,7 +13,7 @@ the plan checkbox, which an implementer ticks.
 
 ```
 docs/tasks/task-PR-<number>/
-  specs/design.md   the spec: why, what changes, options, risks, rule changes
+  specs/design.md   the spec: why, what changes, options, risks, rule changes (for a rule task: the files and pointers)
   plans/plan.md     one task per commit, each with a checkbox
   open-gaps.md      every gap and decision, from spec to merge
   reviews.md        one entry per review round

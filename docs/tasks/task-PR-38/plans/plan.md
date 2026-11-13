@@ -191,7 +191,7 @@ task below is one commit by the implementer. Check after each commit:
   `policy/`, no public interface, no authorization and no sandbox. Anything
   else is a plan task or a gap." Keep the sentences after it.
   Commit: `docs(rules): bound a small fix by files, lines and paths`.
-- [ ] **21. C8: the spec of a rule task.** `.agents/rules/sdlc-work-standard.md`
+- [x] **21. C8: the spec of a rule task.** `.agents/rules/sdlc-work-standard.md`
   stage 2: the paragraph that starts "When the task changes rules or documents"
   becomes: "When the task changes rules or documents, those files are the spec.
   Write them in this stage. In `specs/design.md`, the sections `Design` and
