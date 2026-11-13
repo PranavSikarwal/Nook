@@ -181,7 +181,7 @@ task below is one commit by the implementer. Check after each commit:
     `reviews.md` with the Action `fix (small)`, and names the fix in the commit
     message."
   - Commit: `docs(rules): let a small fix sit outside the plan with a record`.
-- [ ] **20. C7: bound a small fix.** `.agents/rules/delegation-standard.md`,
+- [x] **20. C7: bound a small fix.** `.agents/rules/delegation-standard.md`,
   "T3 Code" item 5: replace the first sentence "A fix that touches one or two
   files and a few lines, and changes no behavior in `daemon/`, `worker/`,
   `panel/`, `contracts/` or `policy/`, needs no child." with: "A fix that touches
