@@ -125,7 +125,7 @@ The owner accepted retro proposals P1, P2 and P4 at gate 2 (gap G16). Each task
 is one commit by the implementer. Check after each commit:
 `git diff --check origin/main HEAD` prints nothing.
 
-- [ ] **15. P1: the rule files are the spec.** `.agents/rules/sdlc-work-standard.md`,
+- [x] **15. P1: the rule files are the spec.** `.agents/rules/sdlc-work-standard.md`,
   stage 2 "Spec": add this paragraph after the first paragraph (before "Exit"):
   "When the task changes rules or documents, those files are the spec. Write them
   in this stage, and keep `specs/design.md` to the why and the list of file

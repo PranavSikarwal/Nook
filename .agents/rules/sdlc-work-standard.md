@@ -69,6 +69,10 @@ central doc the task changes (`docs/architecture.md`, `docs/contracts.md`,
 that the owner must decide into `open-gaps.md`, with options and a
 recommendation.
 
+When the task changes rules or documents, those files are the spec. Write them
+in this stage, and keep `specs/design.md` to the why and the list of file
+changes.
+
 Exit: every template section has content, and every gap has options and a
 recommendation.
 
