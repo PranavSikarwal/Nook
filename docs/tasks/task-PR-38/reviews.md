@@ -152,5 +152,21 @@ left the spec and this record out. The next commit adds them.
 
 ## Round 6 (spec)
 
+- Head: `8f75795`
+- Reviewer: T3 reviewer. Verdict COMMENT. P0: 0, P1: 0, P2: 0, P3: 1. Round 5
+  findings 45, 50 and 52 fixed, 51 partly.
+- SonarCloud: gate passed.
+- Checks: all four passed. The native gate rerun after the round 5 flake passed
+  (run 43479291034).
+- Gaps closed by recommendation since round 5: none.
+
+| # | Finding | Action | Where |
+| --- | --- | --- | --- |
+| 51 | The thread command hides `hasPreviousPage`. | fix | Review rule "Round exit check" 2 prints both values, `false` and `0`. |
+| residual 1, 2 | No rule for an empty run list, no source for the comment time. | fix | Review rule: "An empty result means the run has not started", `created_at` from the issue comments. |
+| residual 4 | The T3-until-G11 clause has no owner. | fix | G11: its task removes the clause. |
+
+## Round 7 (spec)
+
 - Reviewer: T3 reviewer (spec review).
 - Inputs pending.

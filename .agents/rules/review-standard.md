@@ -80,7 +80,8 @@ says, after the reviewer run for your comment completes. Every comment starts a
 run, and a comment that matches no job ends `skipped`, so find the newest run
 that is not skipped:
 `scripts/gh run list --workflow reviewers.yml --limit 10 --json databaseId,status,conclusion,createdAt --jq '[.[]|select(.conclusion!="skipped")][0]'`.
-It must be created after your comment and have `status` `completed`. A
+It must be created after your comment (its `created_at` in the issue comments)
+and have `status` `completed`. An empty result means the run has not started. A
 "Review in progress" comment is a placeholder and never counts. Push nothing while the job runs, so
 that its result belongs to the head.
 
@@ -163,9 +164,9 @@ A round passes when all of these hold on the current head:
    findings counts as `APPROVE`.
 2. Every finding from every round is fixed, or the owner decided it in
    `open-gaps.md`, and no review thread of the reviewer is unresolved:
-   `scripts/gh api graphql -f query='query{repository(owner:"PranavSikarwal",name:"Nook"){pullRequest(number:<number>){reviewThreads(last:100){pageInfo{hasPreviousPage} nodes{isResolved}}}}}' --jq '.data.repository.pullRequest.reviewThreads|[(.nodes[]|select(.isResolved|not))]|length'`
-   prints `0`. If `hasPreviousPage` is `true`, the pull request has more than 100
-   threads: page back with `before:` until every thread is counted.
+   `scripts/gh api graphql -f query='query{repository(owner:"PranavSikarwal",name:"Nook"){pullRequest(number:<number>){reviewThreads(last:100){pageInfo{hasPreviousPage} nodes{isResolved}}}}}' --jq '.data.repository.pullRequest.reviewThreads|[.pageInfo.hasPreviousPage,([.nodes[]|select(.isResolved|not)]|length)]|@tsv'`
+   prints `false` and `0`. If the first value is `true`, page back with
+   `before:` until every thread is counted.
 3. The CI gate check passes.
 
 The orchestrator and the T3 reviewer both post as the owner, so the login

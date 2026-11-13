@@ -167,7 +167,8 @@ Each entry records one question and its decision. The format is in
 - Decision: (a). It joins the other follow-up fixes.
   It is the first task after PR 38 merges. The retro proposals of PR 38 come
   after it. Until it merges, the review rule sends small changes to the T3
-  reviewer too.
+  reviewer too. The G11 task removes that clause from
+  `.agents/rules/review-standard.md`.
 - Decided by: owner ("works let's add it to other follow up fixes")
 - Date: 2026-11-13
 - Status: deferred
