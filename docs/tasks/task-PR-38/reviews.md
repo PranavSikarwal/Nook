@@ -315,6 +315,21 @@ it did. The orchestrator's diff read confirmed it. Boundary check passed.
 
 ## Round 6 (code)
 
-- Head: the commit that records the round 5 fix pass (plan tasks 24 and 25).
-- Reviewer: T3 reviewer (code review), follow-up of round 5.
-- Inputs pending.
+- Head: `9e368f3`
+- Reviewer: T3 reviewer (code review), follow-up of round 5. Verdict APPROVE.
+  P0: 0, P1: 0, P2: 0, P3: 0. C10 and C14 fixed.
+- SonarCloud: gate passed, 0 new issues, 0 hotspots.
+- Checks: all four passed. The CI gate check printed 4.
+- Threads: `false 0`.
+- Gaps closed by recommendation since round 5: none.
+- Flake: `Code Quality and Tests` failed once on `a4411ec` in the `nook-core` test
+  `test_server_ping_pong_and_permissions` (run 43511244397). The same test passed
+  on `36e6cda` and `9e368f3`. `a4411ec` was a docs-only commit and not a round
+  head. The next head passed, so the failure counts as a flake. The reviewer
+  suggests a follow-up on that test.
+- Observation for the next task: SDLC stage 8 step 5 says "the review exit
+  check", and the heading in the review rule is "Round exit check". It blocks
+  nothing and changes no rule in this pull request.
+- Result: the round exit check passed.
+
+Reviewed head: `9e368f3f14b6066ddf3cf2e2f34af86e696cf672`
