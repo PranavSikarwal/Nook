@@ -181,4 +181,4 @@ Decision: one function, `nook_core::shutdown::stop_everything(state: &AppState, 
 
 ### Task 13: Tick and verify
 
-- [ ] Tick the boxes of this section. Run the Daemon and Panel check commands once more. Commit: `docs: tick the round 2 review response`
+- [x] Tick the boxes of this section. Run the Daemon and Panel check commands once more. Commit: `docs: tick the round 2 review response`
