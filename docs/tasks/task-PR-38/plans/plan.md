@@ -10,7 +10,7 @@ Tick the task's box in the same commit. Commit locally. Do not push.
 
 ## Tasks
 
-- [ ] **1. Task folder template.** Create `docs/tasks/_template/` with five
+- [x] **1. Task folder template.** Create `docs/tasks/_template/` with five
   files. Take each file's content from `.agents/rules/task-records.md`.
   - `specs/design.md`: the state block (`Stage: 1 start`, `Gate 1: pending`,
     `Gate 2: pending`) and the headings `## Why`, `## Scope`, `## Design`,
