@@ -270,3 +270,17 @@ Each entry records one question and its decision. The format is in
 - Decided by: owner ("Works do all fixes follow next steps")
 - Date: 2026-11-13
 - Status: decided by owner
+
+## G18. Code round 4 findings C10 to C13
+
+- Stage: 7 review rounds (code round 4)
+- Question: C10 can be fixed two ways, and C11 changes the small-fix bound.
+- Options: (a) C10 option 1: add a row for all 42 commands. C10 option 2:
+  change the rule so that only check commands need a row. (b) C11 to C13 as the
+  reviewer recommends.
+- Recommendation: C10 option 2, and C11 to C13 as recommended.
+- Decision: C10 option 2. C11 to C13 as recommended. G17 also covers the
+  `AGENTS.md` change of plan task 19.
+- Decided by: owner ("Follow recommendations")
+- Date: 2026-11-13
+- Status: decided by owner

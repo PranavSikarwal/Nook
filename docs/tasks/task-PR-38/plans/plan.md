@@ -201,3 +201,43 @@ task below is one commit by the implementer. Check after each commit:
   options, risks, rule changes (for a rule task: the files and pointers)`. Keep
   the column alignment of the other lines.
   Commit: `docs(rules): say how a rule task fills the spec file`.
+
+## Round 4 (code review findings C10 to C13)
+
+The owner accepted option 2 for C10 and the fixes for C11 to C13 (gap G18).
+C13 and the table rows are orchestrator edits in the task folder. Each task below
+is one commit by the implementer. Check after each commit:
+`git diff --check origin/main HEAD` prints nothing, and `git diff --stat HEAD~1 HEAD`
+lists the file the task names.
+
+- [ ] **22. C10 and C12: rows for check commands only.**
+  `.agents/rules/sdlc-work-standard.md` and `docs/tasks/_template/reviews.md`.
+  - Stage 2 "Exit" becomes: "Exit: every template section has content, every gap
+    has options and a recommendation, and `reviews.md` has a `## Commands run`
+    section with one row for each check command that the task adds to a rule or a
+    document. A check command decides whether a stage or a round passes, or it
+    uses a filter, a regex or `jq`. Run a read-only check command on the pull
+    request of the task or on a merged one, with `/usr/bin/grep` where it uses
+    grep. For a check command that changes state, run its `--help` or write
+    `not run: changes state`."
+  - Stage 6, the paragraph under item 2 becomes: "Add a row to `## Commands run`
+    in `reviews.md` for each check command that the task added to a rule or a
+    document, as stage 2 says."
+  - Template `reviews.md`: the line under `## Commands run` becomes "One row for
+    each check command that the task adds to a rule or a document."
+  - Commit: `docs(rules): require command rows for check commands only`.
+- [ ] **23. C11: bound a small fix by binding documents.**
+  `.agents/rules/delegation-standard.md`, "T3 Code" item 5 becomes (wrap at about
+  80 characters, keep the list indentation): "5. **Small fixes.** A fix needs no
+  child when it changes at most 20 lines (added plus removed, as
+  `git diff --shortstat` counts) in at most 2 files. It touches nothing under
+  `.agents/rules/`, `.github/` or `scripts/`, none of `AGENTS.md`, `CLAUDE.md`,
+  `CONTRIBUTING.md` or `docs/testing.md`, and no dependency or lock file. It
+  changes no behavior in `daemon/`, `worker/`, `panel/`, `contracts/` or
+  `policy/`, no public interface, no authorization and no sandbox. Anything else
+  is a plan task or a gap. The orchestrator makes the fix, runs the same checks,
+  and commits it, even when the plan does not list it. It writes a row of the
+  current round in `reviews.md` with the Action `fix (small)` and the commit SHA
+  in the `Where` cell, and names the fix in the commit message. A planned task
+  goes to a child."
+  Commit: `docs(rules): keep binding documents out of the small-fix bound`.

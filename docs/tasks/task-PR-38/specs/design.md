@@ -1,7 +1,7 @@
 # Spec: SDLC Work Standard
 
 ```
-Stage: 6 implement (retro proposals, round 2)
+Stage: 7 review rounds
 Gate 1: approved by owner on 2026-11-13: "approve"
 Gate 2: pending
 ```
@@ -66,7 +66,7 @@ pointers.
 | `AGENTS.md` "Where things are" | `docs/plans/` holds active implementation plans. `docs/design/` holds proposed designs. | Each task has `docs/tasks/task-PR-<number>/`. `docs/plans/` and `docs/design/` keep only the plans and designs that started before PR 38. |
 | `AGENTS.md` "Planning rules" | Always write plans inside `docs/plans/`. | Follow `.agents/rules/sdlc-work-standard.md`. The spec and the plan live in the task folder. |
 | `AGENTS.md` top | none | A pointer: read `.agents/rules/sdlc-work-standard.md` before any work. |
-| `AGENTS.md` "Done" 3 | If the plan is wrong or a change outside it is needed, stop and report. | Unchanged, plus: the rule's stage 6 says when the orchestrator may close a gap by recommendation. |
+| `AGENTS.md` "Done" 3 | If the plan is wrong or a change outside it is needed, stop and report. | Unchanged, plus: the rule's stage 6 says when the orchestrator may close a gap by recommendation. A small fix is the exception (gaps G16 to G18, `delegation-standard.md` "T3 Code" 5). |
 | `AGENTS.md` "Where things are" | `docs/plan.md` holds the active work, and `CHECKLIST.md` tracks it. | `docs/plan.md` and `CHECKLIST.md` track the work that started before PR 38. A new task is tracked by its task folder and its pull request. |
 | `AGENTS.md` "Issue tracker" | Issues and specs live as local markdown under `.scratch/`. | Issues live under `.scratch/`. The spec of a task lives in its task folder. |
 | `docs/agents/issue-tracker.md` | The spec is `.scratch/<feature-slug>/spec.md`. | Adds: a task that becomes a pull request moves its spec into `docs/tasks/task-PR-<number>/specs/design.md`. |

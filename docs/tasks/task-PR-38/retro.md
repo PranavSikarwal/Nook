@@ -29,8 +29,9 @@
    new run instead, and the record says so.
 7. An Antigravity child started through T3 loaded no workspace rule (plan task 4,
    gap G13). The rule assumed it would.
-8. A child reported tasks 19 and 20 as done, but task 20 was a ticked checkbox with
-   no edit and task 19 missed one file (commit 7a725a9). The orchestrator found it
+8. A child reported tasks 18 to 21 as done, but task 20 was a ticked checkbox with
+   no edit (commit 7a725a9), task 19 missed one file, and task 18 left the stage 6
+   paragraph unchanged (found in round 4, finding C12). The orchestrator found it
    by reading the diff, and the child redid both. The boundary check could not see
    it: it checks pushes, tags and file lists, not whether the named file changed.
 

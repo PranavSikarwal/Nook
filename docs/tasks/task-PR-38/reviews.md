@@ -225,7 +225,7 @@ Fix pass for the retro proposals: plan tasks 15 to 17 by `gpt-6-luna` (`700234b`
 `b16004f`, `3e3cbc6`). Boundary check passed. `git diff --check origin/main HEAD`
 printed nothing.
 
-## Commands run (retro proposal P2, applied to this task)
+## Commands run
 
 | Command (rule file) | Run | Result |
 | --- | --- | --- |
@@ -237,6 +237,15 @@ printed nothing.
 | Retro exit check (`task-records.md`) | this retro | Passes after the `Owner:` line fix. |
 | Markdown check (`docs/testing.md`) | `git diff --check origin/main HEAD` | Prints nothing. |
 | Resume query (`sdlc-work-standard.md`) | PR 36 and 37 branches | Lists the merged pull request with `--state all`. |
+| Reviews call (`review-standard.md` "Read the inputs" 1) | `reviews?per_page=100 ... @tsv`, PR 38 | Prints login, short commit and first line for each review. |
+| SonarCloud read (`review-standard.md` "Read the inputs" 3) | `check-runs` of the head, PR 38 | Prints `Quality Gate passed`. |
+| Fork check (`review-standard.md`) | `isCrossRepository`, PR 38 | Prints `false`. |
+| Merge exit (`sdlc-work-standard.md` stage 8) | `pr view --json mergedAt,mergeCommit`, PR 37 | Prints the merge time and `3f843da`. |
+| `gh pr checks` exit code (`review-standard.md`) | PR 34 and PR 38 | Prints exit 0 for both, although PR 34 reports one check. This is why the CI gate check counts four `pass` lines. |
+| Task folder only (`sdlc-work-standard.md` stage 8 step 6) | `git diff --name-only 1cb3660 HEAD` outside the task folder | Lists rule files, as it must when other paths changed. |
+| Package run list (`sdlc-work-standard.md` stage 9) | `run list --workflow package.yml --branch main` | Prints run 43430991494 and `3f843da`. |
+| Tag baseline (`delegation-standard.md` boundary check) | `git ls-remote --tags origin` | Lists the 9 tag refs, equal before and after each task. |
+| State-changing commands (`pr create`, `pr ready`, `pr merge`, `pr comment`, `workflow run`, `run rerun`, `release create`, `git push`) | not run: changes state | Run for real during this task as steps, not as tests. |
 
 ## Round 3 (code)
 
@@ -267,6 +276,22 @@ nothing.
 
 ## Round 4 (code)
 
+- Head: `1a6fd36`
+- Reviewer: T3 reviewer. Verdict COMMENT. P0: 0, P1: 0, P2: 2, P3: 2. C6, C8 and
+  C9 fixed. C5 and C7 partly fixed.
+- SonarCloud: gate passed.
+- Checks: all four passed.
+- Gaps closed by recommendation since round 3: none.
+
+| # | Finding | Action | Where |
+| --- | --- | --- | --- |
+| C10 | The commands table has 8 rows, the rule asks for one row per command (42). | fix (owner chose option 2, G18) | Plan task 22 changes the rule to check commands only. The table has rows for the check commands now. |
+| C11 | The small-fix bound leaves out `AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md`, `docs/testing.md`, and has no unit or `Where` content. | fix | Plan task 23. |
+| C12 | Task 18's stage 6 edit is missing. | fix | Plan task 22. Retro note updated. |
+| C13 | The spec row for `AGENTS.md` lags, G17 does not name it, the state block says stage 6. | fix (orchestrator) | Spec row, G18, state block `Stage: 7 review rounds`. |
+
+## Round 5 (code)
+
 - Head: the commit that adds this heading.
-- Reviewer: T3 reviewer (code review), follow-up of round 3.
+- Reviewer: T3 reviewer (code review), follow-up of round 4.
 - Inputs pending.
