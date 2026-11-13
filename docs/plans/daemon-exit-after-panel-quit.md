@@ -163,12 +163,12 @@ Decision: one function, `nook_core::shutdown::stop_everything(state: &AppState, 
 
 **Files:** `daemon/crates/nook-core/src/server.rs`, `daemon/crates/nookd/tests/signal_shutdown_tests.rs`, `daemon/crates/nook-core/tests/sandbox_tests.rs`.
 
-- [ ] Test first. In `server.rs` add unit tests for `remove_socket_if_owned`: a socket with the expected identity is removed; a different file at the same path is kept; a path that was re-bound (new socket, new identity) is kept; a missing path does not panic. Run them; the re-bound case must fail only if you can build it with the current inode-only check, otherwise state in the commit body why it cannot.
-- [ ] Store `(dev, ino)` from `tokio::fs::symlink_metadata` at bind time and compare both in `remove_socket_if_owned` (use `std::os::unix::fs::MetadataExt::{dev, ino}`). `Server` keeps one identity value, not two fields. Update every caller (`Server::run`, `nookd/src/shutdown.rs`, `nookd/src/main.rs`).
-- [ ] Delete the test `a_second_signal_exits_the_daemon_at_once`. It does not reach the second-signal path. Write one sentence in the commit body.
-- [ ] In `sandbox_tests.rs` add a test that starts a sandboxed command that spawns a long child, calls the same cleanup path that `stop_everything` uses (drop of the owner), and asserts that the process group is gone. It skips with a message when the sandbox is missing, like the other sandbox tests.
-- [ ] Run fmt, clippy and `timeout 540 rtk cargo test -p nookd` and `-p nook-core`. All pass.
-- [ ] Commit: `test(daemon): cover the socket ownership check and the Worker kill; compare device and inode`
+- [x] Test first. In `server.rs` add unit tests for `remove_socket_if_owned`: a socket with the expected identity is removed; a different file at the same path is kept; a path that was re-bound (new socket, new identity) is kept; a missing path does not panic. Run them; the re-bound case must fail only if you can build it with the current inode-only check, otherwise state in the commit body why it cannot.
+- [x] Store `(dev, ino)` from `tokio::fs::symlink_metadata` at bind time and compare both in `remove_socket_if_owned` (use `std::os::unix::fs::MetadataExt::{dev, ino}`). `Server` keeps one identity value, not two fields. Update every caller (`Server::run`, `nookd/src/shutdown.rs`, `nookd/src/main.rs`).
+- [x] Delete the test `a_second_signal_exits_the_daemon_at_once`. It does not reach the second-signal path. Write one sentence in the commit body.
+- [x] In `sandbox_tests.rs` add a test that starts a sandboxed command that spawns a long child, calls the same cleanup path that `stop_everything` uses (drop of the owner), and asserts that the process group is gone. It skips with a message when the sandbox is missing, like the other sandbox tests.
+- [x] Run fmt, clippy and `timeout 540 rtk cargo test -p nookd` and `-p nook-core`. All pass.
+- [x] Commit: `test(daemon): cover the socket ownership check and the Worker kill; compare device and inode`
 
 ### Task 12: Panel test and code cleanups (findings 14 and 15)
 

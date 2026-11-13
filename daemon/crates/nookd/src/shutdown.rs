@@ -42,11 +42,11 @@ impl Write for SafeStderr {
     }
 }
 
-pub fn spawn_deadline_thread(socket_path: PathBuf, #[cfg(unix)] socket_inode: u64) {
+pub fn spawn_deadline_thread(socket_path: PathBuf, #[cfg(unix)] socket_identity: (u64, u64)) {
     std::thread::spawn(move || {
         std::thread::sleep(Duration::from_secs(5));
         #[cfg(unix)]
-        nook_core::server::remove_socket_if_owned(&socket_path, socket_inode);
+        nook_core::server::remove_socket_if_owned(&socket_path, socket_identity);
         std::process::exit(1);
     });
 }
@@ -55,18 +55,18 @@ pub fn handle_signal(
     signal_name: &'static str,
     shutdown_tx: &broadcast::Sender<()>,
     socket_path: &Path,
-    #[cfg(unix)] socket_inode: u64,
+    #[cfg(unix)] socket_identity: (u64, u64),
 ) {
     if SIGNAL_COUNT.fetch_add(1, Ordering::SeqCst) > 0 {
         #[cfg(unix)]
-        nook_core::server::remove_socket_if_owned(socket_path, socket_inode);
+        nook_core::server::remove_socket_if_owned(socket_path, socket_identity);
         std::process::exit(1);
     }
 
     spawn_deadline_thread(
         socket_path.to_path_buf(),
         #[cfg(unix)]
-        socket_inode,
+        socket_identity,
     );
 
     info!("Received {signal_name}, shutting down daemon");

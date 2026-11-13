@@ -122,7 +122,7 @@ pub struct AppState {
 pub struct Server {
     socket_path: PathBuf,
     #[cfg(unix)]
-    socket_inode: u64,
+    socket_identity: (u64, u64),
     #[cfg(unix)]
     listener: UnixListener,
     #[cfg(windows)]
@@ -192,10 +192,10 @@ pub fn windows_pipe_name() -> std::io::Result<String> {
 }
 
 #[cfg(unix)]
-pub fn remove_socket_if_owned(socket_path: &Path, expected_inode: u64) -> bool {
+pub fn remove_socket_if_owned(socket_path: &Path, expected_identity: (u64, u64)) -> bool {
     use std::os::unix::fs::MetadataExt;
-    if let Ok(meta) = std::fs::metadata(socket_path) {
-        if meta.ino() == expected_inode {
+    if let Ok(meta) = std::fs::symlink_metadata(socket_path) {
+        if (meta.dev(), meta.ino()) == expected_identity {
             return std::fs::remove_file(socket_path).is_ok();
         }
     }
@@ -203,8 +203,60 @@ pub fn remove_socket_if_owned(socket_path: &Path, expected_inode: u64) -> bool {
 }
 
 #[cfg(not(unix))]
-pub fn remove_socket_if_owned(_socket_path: &Path, _expected_inode: u64) -> bool {
+pub fn remove_socket_if_owned(_socket_path: &Path, _expected_identity: (u64, u64)) -> bool {
     false
+}
+
+#[cfg(all(test, unix))]
+mod socket_removal_tests {
+    use super::remove_socket_if_owned;
+    use std::os::unix::fs::MetadataExt;
+    use std::os::unix::net::UnixListener;
+
+    #[test]
+    fn removes_socket_with_expected_identity() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("daemon.sock");
+        let _listener = UnixListener::bind(&path).unwrap();
+        let metadata = std::fs::symlink_metadata(&path).unwrap();
+        let identity = (metadata.dev(), metadata.ino());
+
+        assert!(remove_socket_if_owned(&path, identity));
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn keeps_a_different_file_at_the_socket_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("daemon.sock");
+        std::fs::write(&path, "replacement").unwrap();
+
+        assert!(!remove_socket_if_owned(&path, (0, 1)));
+        assert!(path.exists());
+    }
+
+    #[test]
+    fn keeps_a_socket_rebound_with_a_new_inode() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("daemon.sock");
+        let old_listener = UnixListener::bind(&path).unwrap();
+        let metadata = std::fs::symlink_metadata(&path).unwrap();
+        let old_identity = (metadata.dev(), metadata.ino());
+        std::fs::remove_file(&path).unwrap();
+        let _new_listener = UnixListener::bind(&path).unwrap();
+
+        assert!(!remove_socket_if_owned(&path, old_identity));
+        assert!(path.exists());
+        drop(old_listener);
+    }
+
+    #[test]
+    fn missing_socket_does_not_panic() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("missing.sock");
+
+        assert!(!remove_socket_if_owned(&path, (0, 1)));
+    }
 }
 
 impl Server {
@@ -239,9 +291,11 @@ impl Server {
 
             Ok(Self {
                 socket_path: socket_path.to_path_buf(),
-                socket_inode: std::os::unix::fs::MetadataExt::ino(
-                    &tokio::fs::metadata(socket_path).await?,
-                ),
+                socket_identity: {
+                    use std::os::unix::fs::MetadataExt;
+                    let metadata = tokio::fs::symlink_metadata(socket_path).await?;
+                    (metadata.dev(), metadata.ino())
+                },
                 listener,
                 shutdown_rx,
                 state,
@@ -265,8 +319,8 @@ impl Server {
     }
 
     #[cfg(unix)]
-    pub fn socket_inode(&self) -> u64 {
-        self.socket_inode
+    pub fn socket_identity(&self) -> (u64, u64) {
+        self.socket_identity
     }
 
     pub async fn run(mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -292,7 +346,7 @@ impl Server {
                 }
             }
 
-            remove_socket_if_owned(&self.socket_path, self.socket_inode);
+            remove_socket_if_owned(&self.socket_path, self.socket_identity);
 
             Ok(())
         }
