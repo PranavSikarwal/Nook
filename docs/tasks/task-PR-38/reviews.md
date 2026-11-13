@@ -183,3 +183,9 @@ left the spec and this record out. The next commit adds them.
 | --- | --- | --- | --- |
 | Codex `gpt-6-luna` via T3 | `AGENTS.md` with the "Work standard" pointer | Read `.agents/rules/sdlc-work-standard.md` | Stage 4 follows the spec review. Correct. |
 | Antigravity `gemini-3.8-flash` via T3 | No workspace rule, no `AGENTS.md`, no `GEMINI.md` | Not applicable | "no rule in context". Gap G13. |
+
+## Code round 1
+
+- Reviewer: T3 reviewer (code review, required: this task changes the rules).
+- CI gate at the end of stage 6 passed on `2391447`.
+- Inputs pending.

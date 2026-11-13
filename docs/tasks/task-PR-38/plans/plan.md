@@ -72,7 +72,7 @@ Tick the task's box in the same commit. Commit locally. Do not push.
   child read the rule in gap G2 and in `reviews.md`.
   - Commit: `docs(tasks): record the live rule load check`.
 
-- [ ] **5. CI gate (orchestrator).** Push, start the native gate, and run the
+- [x] **5. CI gate (orchestrator).** Push, start the native gate, and run the
   CI gate check from `.agents/rules/review-standard.md`. Fix any failure as a
   new task below.
 
