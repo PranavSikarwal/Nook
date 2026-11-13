@@ -137,7 +137,7 @@ is one commit by the implementer. Check after each commit:
   and on a real pull request." In stage 6, item 2 of "After each task" ends with
   this added sentence: "Run each command that the task added to a rule or a
   document, as stage 2 says." Commit: `docs(rules): run each new command before review`.
-- [ ] **17. P4: small fixes need no child.** `.agents/rules/delegation-standard.md`,
+- [x] **17. P4: small fixes need no child.** `.agents/rules/delegation-standard.md`,
   "T3 Code" 4 "Take over": add a new item 5 after it: "5. **Small fixes.** A
   fix that touches one or two files and a few lines, and changes no behavior in
   `daemon/`, `worker/`, `panel/`, `contracts/` or `policy/`, needs no child. The
