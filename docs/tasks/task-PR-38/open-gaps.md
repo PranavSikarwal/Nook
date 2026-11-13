@@ -216,3 +216,30 @@ Each entry records one question and its decision. The format is in
 - Decided by: owner ("1")
 - Date: 2026-11-13
 - Status: decided by owner
+
+## G14. Implementer model order
+
+- Stage: 7 review rounds (owner input in code round 1)
+- Question: which model does an implementer child use?
+- Options: (a) `gpt-6-luna` only, unless the owner names another. (b)
+  `gpt-6-luna` first, `gemini-3.8-flash` with high thinking second.
+- Recommendation: none, the owner decided it directly.
+- Decision: (b). The second model runs when `gpt-6-luna` is unavailable or its
+  child was cancelled as stalled.
+- Decided by: owner ("let child first option be gpt-6-luna better then second
+  option be gemini-3.8-flash high effort")
+- Date: 2026-11-13
+- Status: decided by owner
+
+## G15. Spec changes for code round 1 findings C1 and C2
+
+- Stage: 7 review rounds (code round 1)
+- Question: the fixes for C1 (stage 6 exit check) and C2 (the Markdown check
+  `git diff --check origin/main HEAD`) change the approved spec. Apply them?
+- Options: (a) apply both as described in `reviews.md` round 1 (code). (b)
+  change them first.
+- Recommendation: (a).
+- Decision: (a), with C3, C4 and G14 in the same pass.
+- Decided by: owner ("works do all these changes")
+- Date: 2026-11-13
+- Status: decided by owner

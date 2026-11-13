@@ -5,7 +5,7 @@ files in `.agents/rules/` are done. This plan applies the "Rule changes" table
 and adds the task folder template.
 
 Each task is one commit. Every task changes only Markdown, so its check is
-`git diff --check` (no output, exit 0). Stage only the files the task names.
+`git diff --check origin/main HEAD` after the commit (no output, exit 0). Stage only the files the task names.
 Tick the task's box in the same commit. Commit locally. Do not push.
 
 ## Tasks
@@ -82,3 +82,35 @@ Tick the task's box in the same commit. Commit locally. Do not push.
 - [x] **7. Brief line for every provider (orchestrator, gap G13).** Edit
   `.agents/rules/delegation-standard.md` "T3 Code" 1 and the Antigravity row in
   the spec.
+
+## Round 1
+
+Code round 1 findings C1 to C4 and gap G14. Each task is one commit by the
+implementer. Check after each commit: `git diff --check origin/main HEAD`
+prints nothing once task 10 is done (before it, it reports only the C3 line).
+
+- [ ] **8. C1: stage 6 exit check.** `.agents/rules/sdlc-work-standard.md`,
+  stage 6 "Exit": replace ``grep -c -- '- \[ \]' plans/plan.md`` with
+  ``grep -c -E '^- \[ \]' docs/tasks/task-PR-<number>/plans/plan.md``.
+  Commit: `docs(rules): count only real open tasks in the stage 6 exit check`.
+- [ ] **9. C2: Markdown check.** `docs/testing.md`, "Documentation checks":
+  the sentence becomes "A change that touches only Markdown runs
+  `git diff --check origin/main HEAD` after the commit. It must print nothing."
+  Commit: `docs(testing): check Markdown changes against main after the commit`.
+- [ ] **10. C3: blank line at the end.** `.agents/rules/task-records.md`: the
+  file ends with one line break, not two.
+  Commit: `docs(rules): remove the blank line at the end of task-records`.
+- [ ] **11. C4: round heading in the template.** `docs/tasks/_template/reviews.md`:
+  `## Round 1` becomes `## Round 1 (spec|code)`.
+  Commit: `docs(tasks): give the template round heading its type`.
+- [ ] **12. G14: implementer model order.** `.agents/rules/delegation-standard.md`,
+  "T3 Code" 1: replace "provider `codex`, model `gpt-6-luna`,
+  `reasoningEffort: high`, `runtimeMode: full-access`, `isolation: shared`,
+  unless the owner names another model." with: "`runtimeMode: full-access`,
+  `isolation: shared`, and the first model in this order that is available,
+  unless the owner names another model:" followed by a numbered list: 1.
+  Provider `codex`, model `gpt-6-luna`, `reasoningEffort: high`. 2. Provider
+  `antigravity`, model `gemini-3.8-flash`, `thinking_level: high`, when
+  `gpt-6-luna` is unavailable or its child was cancelled as stalled. Keep the
+  sentences after it.
+  Commit: `docs(rules): add gemini-3.8-flash as the second implementer model`.

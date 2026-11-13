@@ -74,7 +74,7 @@ pointers.
 | `CONTRIBUTING.md` "Branches and commits" | Do not add author-attribution trailers or generator notices to commits. | No AI attribution in a commit, a pull request title or body, a comment or a review. |
 | `CONTRIBUTING.md` "Pull requests" | Update `docs/plan.md` and `CHECKLIST.md` when the change completes or adds an active task. | Follow `.agents/rules/sdlc-work-standard.md`. Update `docs/plan.md` and `CHECKLIST.md` only for work that started before PR 38. |
 | `CONTRIBUTING.md` | Keep completed plans in `docs/archive/plans/`. | Task folders stay in `docs/tasks/` after the merge. Completed plans from `docs/plans/` still move to `docs/archive/plans/`. |
-| `docs/testing.md` | No check for a change that touches only Markdown. | Adds `git diff --check` as the check for a Markdown-only change. |
+| `docs/testing.md` | No check for a change that touches only Markdown. | Adds `git diff --check origin/main HEAD`, run after the commit, as the check for a Markdown-only change. |
 | `docs/plans/README.md` | Lists active plans. | Adds: new work uses task folders under `docs/tasks/`. |
 
 `CHECKLIST.md` and `docs/plan.md` keep their content. This pull request merges
