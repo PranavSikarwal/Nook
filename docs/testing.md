@@ -186,4 +186,4 @@ native-system access.
 
 ## Documentation checks
 
-A change that touches only Markdown runs `git diff --check`. It must print nothing.
+A change that touches only Markdown runs `git diff --check origin/main HEAD` after the commit. It must print nothing.

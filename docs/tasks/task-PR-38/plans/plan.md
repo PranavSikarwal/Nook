@@ -93,7 +93,7 @@ prints nothing once task 10 is done (before it, it reports only the C3 line).
   stage 6 "Exit": replace ``grep -c -- '- \[ \]' plans/plan.md`` with
   ``grep -c -E '^- \[ \]' docs/tasks/task-PR-<number>/plans/plan.md``.
   Commit: `docs(rules): count only real open tasks in the stage 6 exit check`.
-- [ ] **9. C2: Markdown check.** `docs/testing.md`, "Documentation checks":
+- [x] **9. C2: Markdown check.** `docs/testing.md`, "Documentation checks":
   the sentence becomes "A change that touches only Markdown runs
   `git diff --check origin/main HEAD` after the commit. It must print nothing."
   Commit: `docs(testing): check Markdown changes against main after the commit`.
