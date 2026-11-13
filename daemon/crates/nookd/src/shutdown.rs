@@ -70,6 +70,7 @@ pub fn handle_signal(
     });
 }
 
+/// Warning: `exit` calls `std::process::exit`, which ends the process immediately without running destructors.
 pub fn exit(code: i32) -> ! {
     std::process::exit(code)
 }

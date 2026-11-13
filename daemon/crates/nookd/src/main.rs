@@ -2,7 +2,7 @@ use nook_core::config::Config;
 use nook_core::db;
 use nook_core::keychain;
 use nook_core::policy_assets::{find_policy_directory, PolicyAssets};
-use nook_core::providers::{build_registry, ProviderHandle};
+use nook_core::providers::{build_registry, ProviderHandle, ProviderRegistry};
 use nook_core::server::{AppState, Server};
 use nook_core::supervisor::WorkerSupervisor;
 use std::collections::HashMap;
@@ -127,7 +127,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let socket_path = Config::default_socket_path();
     let (shutdown_tx, shutdown_rx) = broadcast::channel(1);
 
-    let server = Server::bind(&socket_path, shutdown_rx, state).await?;
+    let server = Server::bind(&socket_path, shutdown_rx, state.clone()).await?;
 
     let shutdown_tx_clone = shutdown_tx.clone();
     let socket_path_clone = socket_path.clone();
@@ -163,7 +163,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         }
     });
 
-    match server.run().await {
+    let run_res = server.run().await;
+
+    let _ = tokio::time::timeout(Duration::from_secs(2), async {
+        let mut running = state.running_tools.lock().await;
+        for (_, handles) in running.drain() {
+            for (_, handle) in handles {
+                handle.abort();
+            }
+        }
+        drop(running);
+
+        if let Some(ref sup) = *state.supervisor.lock().await {
+            sup.shutdown().await;
+        }
+
+        state.providers.replace(ProviderRegistry::empty());
+    })
+    .await;
+
+    match run_res {
         Ok(()) => shutdown::exit(0),
         Err(e) => {
             error!("Server error: {e}");

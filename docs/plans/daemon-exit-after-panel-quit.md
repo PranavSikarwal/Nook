@@ -103,11 +103,11 @@ Same constraints as above: branch `fix/daemon-exit-on-sigterm`, one task per com
 
 **Files:** `daemon/crates/nookd/src/main.rs`, `daemon/crates/nookd/src/shutdown.rs`.
 
-- [ ] Keep a clone of the `Arc` state in `main` before `Server::bind`. After `server.run()` returns, call `supervisor.shutdown()` and the cleanup that stops running tool process groups (read `sandbox.rs` `GroupKill` and `providers/` to find an explicit call; if only `Drop` does it, drop the owner explicitly). Wrap the whole cleanup in `tokio::time::timeout(Duration::from_secs(2), ...)`. Then exit.
-- [ ] If no explicit cleanup API exists for the tool process groups, stop and report. Do not invent a new public API.
-- [ ] Add a `Warning:` comment on `shutdown::exit`: it skips destructors.
-- [ ] Add the test `the_daemon_stops_its_worker_on_sigterm`: start `nookd` with the fake Worker, send SIGTERM, assert that the Worker process is gone within 5 seconds.
-- [ ] Commit: `fix(daemon): stop the Worker and tool processes before exiting`
+- [x] Keep a clone of the `Arc` state in `main` before `Server::bind`. After `server.run()` returns, call `supervisor.shutdown()` and the cleanup that stops running tool process groups (read `sandbox.rs` `GroupKill` and `providers/` to find an explicit call; if only `Drop` does it, drop the owner explicitly). Wrap the whole cleanup in `tokio::time::timeout(Duration::from_secs(2), ...)`. Then exit.
+- [x] If no explicit cleanup API exists for the tool process groups, stop and report. Do not invent a new public API.
+- [x] Add a `Warning:` comment on `shutdown::exit`: it skips destructors.
+- [x] Add the test `the_daemon_stops_its_worker_on_sigterm`: start `nookd` with the fake Worker, send SIGTERM, assert that the Worker process is gone within 5 seconds.
+- [x] Commit: `fix(daemon): stop the Worker and tool processes before exiting`
 
 ### Task 6: One ownership-checked socket removal and honest exit codes (finding 3), and the two forced-exit tests (finding 12)
 

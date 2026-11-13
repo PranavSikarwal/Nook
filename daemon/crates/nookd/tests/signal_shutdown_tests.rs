@@ -182,3 +182,45 @@ fn the_daemon_exits_on_sigint() {
     send_signal(daemon.child.id(), "-INT");
     assert_exits_within_5s_and_socket_removed(daemon);
 }
+
+#[test]
+fn the_daemon_stops_its_worker_on_sigterm() {
+    let daemon = spawn_daemon("w-stop", false, None);
+    let daemon_pid = daemon.child.id();
+
+    let output = Command::new("pgrep")
+        .args(["-P", &daemon_pid.to_string()])
+        .output()
+        .expect("pgrep failed to execute");
+    let worker_pids: Vec<u32> = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|l| l.trim().parse::<u32>().ok())
+        .collect();
+    assert!(
+        !worker_pids.is_empty(),
+        "expected worker process to be running under nookd"
+    );
+
+    send_signal(daemon_pid, "-TERM");
+    assert_exits_within_5s_and_socket_removed(daemon);
+
+    let start = Instant::now();
+    let timeout = Duration::from_secs(5);
+    let mut all_gone = false;
+    while start.elapsed() < timeout {
+        let any_running = worker_pids.iter().any(|&pid| {
+            Command::new("kill")
+                .args(["-0", &pid.to_string()])
+                .stderr(Stdio::null())
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false)
+        });
+        if !any_running {
+            all_gone = true;
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert!(all_gone, "Worker process was not stopped within 5 seconds");
+}
