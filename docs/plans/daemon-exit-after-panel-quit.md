@@ -62,11 +62,11 @@ Do each sub-step only for a scenario that failed in Task 1, except the first one
 
 **Files:** `panel/src-tauri/src/lib.rs`.
 
-- [ ] Write the failing test first: a unit test `quitting_the_panel_kills_the_daemon_it_started` in the existing test module. It puts a real child (`sleep 60`, or `ping -n 60 127.0.0.1` on Windows) into `DaemonState.spawned_process`, calls the new function `stop_spawned_daemon(&state)`, and asserts that the child has exited and that the slot is `None`. A second test, `quitting_the_panel_with_no_started_daemon_does_nothing`, asserts that the call returns without error when the slot is `None`.
-- [ ] Add `fn stop_spawned_daemon(state: &DaemonState)` that takes the lock with `try_lock` or `blocking_lock` (the exit event is not async), calls `start_kill()` on the child and sets the slot to `None`. Add a `tauri::RunEvent::Exit` arm in the `.run(|app, event| ...)` closure that gets `app.state::<DaemonState>()` and calls it. Remove the dead `let _ = (app, event);` line only if the new arm makes it unused.
-- [ ] A Daemon that the Panel did not start stays alive (the slot is `None` for it). Make sure that the test above covers that.
-- [ ] Run, from `panel/src-tauri/`: `rtk cargo fmt --check`, `timeout 540 rtk cargo clippy -- -D warnings`, `timeout 540 rtk cargo test`. All pass.
-- [ ] Commit: `fix(panel): stop the Daemon that the Panel started when it quits`
+- [x] Write the failing test first: a unit test `quitting_the_panel_kills_the_daemon_it_started` in the existing test module. It puts a real child (`sleep 60`, or `ping -n 60 127.0.0.1` on Windows) into `DaemonState.spawned_process`, calls the new function `stop_spawned_daemon(&state)`, and asserts that the child has exited and that the slot is `None`. A second test, `quitting_the_panel_with_no_started_daemon_does_nothing`, asserts that the call returns without error when the slot is `None`.
+- [x] Add `fn stop_spawned_daemon(state: &DaemonState)` that takes the lock with `try_lock` or `blocking_lock` (the exit event is not async), calls `start_kill()` on the child and sets the slot to `None`. Add a `tauri::RunEvent::Exit` arm in the `.run(|app, event| ...)` closure that gets `app.state::<DaemonState>()` and calls it. Remove the dead `let _ = (app, event);` line only if the new arm makes it unused.
+- [x] A Daemon that the Panel did not start stays alive (the slot is `None` for it). Make sure that the test above covers that.
+- [x] Run, from `panel/src-tauri/`: `rtk cargo fmt --check`, `timeout 540 rtk cargo clippy -- -D warnings`, `timeout 540 rtk cargo test`. All pass.
+- [x] Commit: `fix(panel): stop the Daemon that the Panel started when it quits`
 
 ### Task 4: Docs and tick
 
