@@ -201,7 +201,7 @@ SonarCloud fails "Reliability Rating on New Code" (C, needs A) on head `f7a9d74`
 
 **Files:** `daemon/crates/nook-core/tests/supervisor_tests.rs`, `daemon/crates/nook-core/src/server.rs`.
 
-- [ ] `supervisor_tests.rs`: the async test calls the blocking `std::process::Command::status()`, `std::fs::remove_file` and probably `std::thread::sleep` inside an `async fn`. Replace them with `tokio::process::Command`, `tokio::fs::remove_file` and `tokio::time::sleep` (`.await`). Remove the `use std::process::Command` import if nothing else uses it. Fix every blocking call in that async test, not only line 59.
-- [ ] `server.rs`: the module `socket_removal_tests` (line 210) sits in the middle of the file, and 700 lines of code follow it. Move it, unchanged, to the end of the file (after the last item). If `server.rs` already has a `#[cfg(test)]` module at the end, put the tests into it instead. Change no test body.
-- [ ] Run `rtk cargo fmt --check`, `timeout 540 rtk cargo clippy --workspace --all-targets -- -D warnings`, `timeout 540 rtk cargo test -p nook-core`, and the Worker test in `supervisor_tests.rs` 5 times in a row. All pass.
-- [ ] Commit: `fix(daemon): remove blocking calls from the async supervisor test and move the socket tests to the end`
+- [x] `supervisor_tests.rs`: the async test calls the blocking `std::process::Command::status()`, `std::fs::remove_file` and probably `std::thread::sleep` inside an `async fn`. Replace them with `tokio::process::Command`, `tokio::fs::remove_file` and `tokio::time::sleep` (`.await`). Remove the `use std::process::Command` import if nothing else uses it. Fix every blocking call in that async test, not only line 59.
+- [x] `server.rs`: the module `socket_removal_tests` (line 210) sits in the middle of the file, and 700 lines of code follow it. Move it, unchanged, to the end of the file (after the last item). If `server.rs` already has a `#[cfg(test)]` module at the end, put the tests into it instead. Change no test body.
+- [x] Run `rtk cargo fmt --check`, `timeout 540 rtk cargo clippy --workspace --all-targets -- -D warnings`, `timeout 540 rtk cargo test -p nook-core`, and the Worker test in `supervisor_tests.rs` 5 times in a row. All pass.
+- [x] Commit: `fix(daemon): remove blocking calls from the async supervisor test and move the socket tests to the end`

@@ -2,7 +2,6 @@ use nook_core::config::Config;
 use nook_core::protocol::{AuthorizationDecision, DaemonWorkerEvent, DaemonWorkerRequest};
 use nook_core::supervisor::WorkerSupervisor;
 use std::path::PathBuf;
-use std::process::Command;
 use std::time::{Duration, Instant};
 use uuid::Uuid;
 
@@ -30,7 +29,7 @@ async fn shutdown_can_be_called_twice() {
 #[tokio::test]
 async fn shutdown_kills_a_worker_that_ignores_stdin_close() {
     let pid_file = std::env::temp_dir().join(format!("nook-worker-{}.pid", std::process::id()));
-    let _ = std::fs::remove_file(&pid_file);
+    let _ = tokio::fs::remove_file(&pid_file).await;
     std::env::set_var("FAKE_WORKER_IGNORE_EOF", "1");
     std::env::set_var("FAKE_WORKER_PID_FILE", &pid_file);
     let config = Config::default();
@@ -43,7 +42,8 @@ async fn shutdown_kills_a_worker_that_ignores_stdin_close() {
         .expect("fake Worker should start");
     std::env::remove_var("FAKE_WORKER_IGNORE_EOF");
     std::env::remove_var("FAKE_WORKER_PID_FILE");
-    let pid: u32 = std::fs::read_to_string(&pid_file)
+    let pid: u32 = tokio::fs::read_to_string(&pid_file)
+        .await
         .unwrap()
         .trim()
         .parse()
@@ -53,13 +53,14 @@ async fn shutdown_kills_a_worker_that_ignores_stdin_close() {
 
     let start = Instant::now();
     while start.elapsed() < Duration::from_secs(1) {
-        if !Command::new("kill")
+        if !tokio::process::Command::new("kill")
             .args(["-0", &pid.to_string()])
             .stderr(std::process::Stdio::null())
             .status()
+            .await
             .is_ok_and(|status| status.success())
         {
-            let _ = std::fs::remove_file(pid_file);
+            let _ = tokio::fs::remove_file(pid_file).await;
             return;
         }
         tokio::time::sleep(Duration::from_millis(10)).await;
