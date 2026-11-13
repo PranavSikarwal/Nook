@@ -210,7 +210,7 @@ is one commit by the implementer. Check after each commit:
 `git diff --check origin/main HEAD` prints nothing, and `git diff --stat HEAD~1 HEAD`
 lists the file the task names.
 
-- [ ] **22. C10 and C12: rows for check commands only.**
+- [x] **22. C10 and C12: rows for check commands only.**
   `.agents/rules/sdlc-work-standard.md` and `docs/tasks/_template/reviews.md`.
   - Stage 2 "Exit" becomes: "Exit: every template section has content, every gap
     has options and a recommendation, and `reviews.md` has a `## Commands run`
