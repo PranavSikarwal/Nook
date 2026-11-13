@@ -14,6 +14,7 @@ pub mod providers;
 pub mod reconnect;
 pub mod sandbox;
 pub mod server;
+pub mod shutdown;
 pub mod supervisor;
 pub mod tool_approval;
 

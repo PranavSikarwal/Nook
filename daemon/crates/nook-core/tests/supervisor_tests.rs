@@ -2,12 +2,70 @@ use nook_core::config::Config;
 use nook_core::protocol::{AuthorizationDecision, DaemonWorkerEvent, DaemonWorkerRequest};
 use nook_core::supervisor::WorkerSupervisor;
 use std::path::PathBuf;
+use std::time::{Duration, Instant};
 use uuid::Uuid;
 
 fn fake_worker_script() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests")
         .join("fake_worker.py")
+}
+
+#[tokio::test]
+async fn shutdown_can_be_called_twice() {
+    let config = Config::default();
+    let command = vec![
+        "python3".to_string(),
+        fake_worker_script().to_string_lossy().to_string(),
+    ];
+    let supervisor = WorkerSupervisor::new(&config, None, Some(command))
+        .await
+        .expect("fake Worker should start");
+
+    supervisor.shutdown().await;
+    supervisor.shutdown().await;
+}
+
+#[tokio::test]
+async fn shutdown_kills_a_worker_that_ignores_stdin_close() {
+    let pid_file = std::env::temp_dir().join(format!("nook-worker-{}.pid", std::process::id()));
+    let _ = tokio::fs::remove_file(&pid_file).await;
+    std::env::set_var("FAKE_WORKER_IGNORE_EOF", "1");
+    std::env::set_var("FAKE_WORKER_PID_FILE", &pid_file);
+    let config = Config::default();
+    let command = vec![
+        "python3".to_string(),
+        fake_worker_script().to_string_lossy().to_string(),
+    ];
+    let supervisor = WorkerSupervisor::new(&config, None, Some(command))
+        .await
+        .expect("fake Worker should start");
+    std::env::remove_var("FAKE_WORKER_IGNORE_EOF");
+    std::env::remove_var("FAKE_WORKER_PID_FILE");
+    let pid: u32 = tokio::fs::read_to_string(&pid_file)
+        .await
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+
+    supervisor.shutdown().await;
+
+    let start = Instant::now();
+    while start.elapsed() < Duration::from_secs(1) {
+        if !tokio::process::Command::new("kill")
+            .args(["-0", &pid.to_string()])
+            .stderr(std::process::Stdio::null())
+            .status()
+            .await
+            .is_ok_and(|status| status.success())
+        {
+            let _ = tokio::fs::remove_file(pid_file).await;
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!("Worker process {pid} stayed alive after supervisor shutdown");
 }
 
 #[tokio::test]

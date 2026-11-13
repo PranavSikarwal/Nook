@@ -380,6 +380,54 @@ pub async fn ensure_daemon_started(state: &DaemonState) {
     }
 }
 
+pub fn stop_spawned_daemon(
+    state: &DaemonState,
+    grace: std::time::Duration,
+) -> Option<std::process::ExitStatus> {
+    let mut guard = match state.spawned_process.try_lock() {
+        Ok(guard) => guard,
+        Err(_) => state.spawned_process.blocking_lock(),
+    };
+    if let Some(mut child) = guard.take() {
+        #[cfg(unix)]
+        {
+            if let Some(pid) = child.id() {
+                // The PID is safe to signal because child.id() is None once the child is reaped.
+                unsafe {
+                    libc::kill(pid as libc::pid_t, libc::SIGTERM);
+                }
+            }
+            if let Some(status) = wait_for_exit(&mut child, grace) {
+                return Some(status);
+            }
+            let _ = child.start_kill();
+            wait_for_exit(&mut child, std::time::Duration::from_secs(2))
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = grace;
+            let _ = child.start_kill();
+            wait_for_exit(&mut child, std::time::Duration::from_secs(2))
+        }
+    } else {
+        None
+    }
+}
+
+fn wait_for_exit(
+    child: &mut tokio::process::Child,
+    timeout: std::time::Duration,
+) -> Option<std::process::ExitStatus> {
+    let start = std::time::Instant::now();
+    while start.elapsed() < timeout {
+        if let Ok(Some(status)) = child.try_wait() {
+            return Some(status);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    None
+}
+
 /// Helper to configure SO_NOSIGPIPE on UnixStream on macOS
 #[cfg(unix)]
 fn configure_socket_safety(stream: &UnixStream) {
@@ -1202,7 +1250,12 @@ pub fn run() {
                     }
                 });
             }
-            let _ = (app, event);
+            if let tauri::RunEvent::Exit = event {
+                stop_spawned_daemon(
+                    &app.state::<DaemonState>(),
+                    std::time::Duration::from_secs(2),
+                );
+            }
         });
 }
 
@@ -1305,6 +1358,88 @@ mod tests {
         }
         let proc = state.spawned_process.lock().await;
         assert!(proc.is_none() || proc.is_some());
+    }
+
+    #[tokio::test]
+    async fn quitting_the_panel_kills_the_daemon_it_started() {
+        let state = DaemonState::default();
+        let child = if cfg!(windows) {
+            tokio::process::Command::new("ping")
+                .args(["-n", "60", "127.0.0.1"])
+                .spawn()
+                .unwrap()
+        } else {
+            tokio::process::Command::new("sleep")
+                .arg("60")
+                .spawn()
+                .unwrap()
+        };
+        let pid = child.id().expect("child has pid");
+        *state.spawned_process.lock().await = Some(child);
+
+        stop_spawned_daemon(&state, std::time::Duration::from_secs(2));
+
+        assert!(state.spawned_process.lock().await.is_none());
+
+        #[cfg(unix)]
+        {
+            let mut exited = false;
+            for _ in 0..50 {
+                let status = std::process::Command::new("kill")
+                    .args(["-0", &pid.to_string()])
+                    .status();
+                if status.is_err() || !status.unwrap().success() {
+                    exited = true;
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            }
+            assert!(exited, "spawned daemon child should have exited");
+        }
+    }
+
+    #[tokio::test]
+    async fn quitting_the_panel_with_no_started_daemon_does_nothing() {
+        let state = DaemonState::default();
+        stop_spawned_daemon(&state, std::time::Duration::from_secs(2));
+        assert!(state.spawned_process.lock().await.is_none());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn quitting_the_panel_stops_a_daemon_that_handles_sigterm() {
+        let state = DaemonState::default();
+        let child = tokio::process::Command::new("sh")
+            .args(["-c", "trap 'kill $!; exit 0' TERM; sleep 60 & wait"])
+            .spawn()
+            .unwrap();
+        *state.spawned_process.lock().await = Some(child);
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        let status = stop_spawned_daemon(&state, std::time::Duration::from_millis(500));
+        assert!(state.spawned_process.lock().await.is_none());
+        assert!(status.is_some(), "expected exit status");
+        assert_eq!(status.unwrap().code(), Some(0));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn quitting_the_panel_kills_a_daemon_that_ignores_sigterm() {
+        use std::os::unix::process::ExitStatusExt;
+        let state = DaemonState::default();
+        let child = tokio::process::Command::new("sh")
+            .args(["-c", "trap '' TERM; exec sleep 60"])
+            .spawn()
+            .unwrap();
+        *state.spawned_process.lock().await = Some(child);
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        let status = stop_spawned_daemon(&state, std::time::Duration::from_millis(200));
+        assert!(state.spawned_process.lock().await.is_none());
+        assert!(status.is_some(), "expected exit status");
+        let s = status.unwrap();
+        assert_ne!(s.code(), Some(0));
+        assert_eq!(s.signal(), Some(9));
     }
 }
 

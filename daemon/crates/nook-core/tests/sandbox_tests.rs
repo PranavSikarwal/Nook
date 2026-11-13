@@ -23,6 +23,39 @@ async fn sandbox() -> Option<Sandbox> {
     }
 }
 
+#[tokio::test]
+async fn dropping_sandbox_process_kills_its_process_group() {
+    let Some(sandbox) = sandbox().await else {
+        return;
+    };
+    let area = area();
+    let pid_file = area.allowed.join("child.pid");
+    let script = format!("sleep 60 & echo $! > {}; wait", path_text(&pid_file));
+    let process = sandbox
+        .spawn(&spec(&area, &["/bin/sh", "-c", &script]))
+        .unwrap();
+    let start = Instant::now();
+    while !pid_file.exists() && start.elapsed() < Duration::from_secs(2) {
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    let pid: u32 = std::fs::read_to_string(pid_file)
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+
+    drop(process);
+
+    let start = Instant::now();
+    while start.elapsed() < Duration::from_secs(1) {
+        if unsafe { libc::kill(pid as i32, 0) } == -1 {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!("sandbox child {pid} stayed alive after its owner was dropped");
+}
+
 struct Area {
     _dir: TempDir,
     allowed: PathBuf,
