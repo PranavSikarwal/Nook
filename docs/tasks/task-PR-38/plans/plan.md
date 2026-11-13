@@ -226,7 +226,7 @@ lists the file the task names.
   - Template `reviews.md`: the line under `## Commands run` becomes "One row for
     each check command that the task adds to a rule or a document."
   - Commit: `docs(rules): require command rows for check commands only`.
-- [ ] **23. C11: bound a small fix by binding documents.**
+- [x] **23. C11: bound a small fix by binding documents.**
   `.agents/rules/delegation-standard.md`, "T3 Code" item 5 becomes (wrap at about
   80 characters, keep the list indentation): "5. **Small fixes.** A fix needs no
   child when it changes at most 20 lines (added plus removed, as
