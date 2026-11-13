@@ -100,7 +100,7 @@ prints nothing once task 10 is done (before it, it reports only the C3 line).
 - [x] **10. C3: blank line at the end.** `.agents/rules/task-records.md`: the
   file ends with one line break, not two.
   Commit: `docs(rules): remove the blank line at the end of task-records`.
-- [ ] **11. C4: round heading in the template.** `docs/tasks/_template/reviews.md`:
+- [x] **11. C4: round heading in the template.** `docs/tasks/_template/reviews.md`:
   `## Round 1` becomes `## Round 1 (spec|code)`.
   Commit: `docs(tasks): give the template round heading its type`.
 - [ ] **12. G14: implementer model order.** `.agents/rules/delegation-standard.md`,
