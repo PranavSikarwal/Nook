@@ -92,3 +92,49 @@ Do each sub-step only for a scenario that failed in Task 1, except the first one
 | `the_daemon_exits_on_sigterm_when_stderr_has_no_reader` | hang | Daemon hung on logging to broken stderr; killed after 5s by assertion |
 | `the_daemon_exits_on_sigterm_when_the_stderr_pipe_is_full` | hang | Daemon hung on logging to full 64 KB stderr pipe; killed after 5s by assertion |
 | `the_daemon_exits_on_sigint` | pass | Exited immediately and removed socket file |
+
+## Review response (PR 37)
+
+The reviewer found no P0 or P1. This section fixes the findings that matter before the merge. Findings 5, 6, 7 and 9 go to a follow-up pull request.
+
+Same constraints as above: branch `fix/daemon-exit-on-sigterm`, one task per commit, foreground commands with `timeout 540`, prefix `rtk`, test first, no push.
+
+### Task 5: Clean up before the Daemon exits (finding 1)
+
+**Files:** `daemon/crates/nookd/src/main.rs`, `daemon/crates/nookd/src/shutdown.rs`.
+
+- [ ] Keep a clone of the `Arc` state in `main` before `Server::bind`. After `server.run()` returns, call `supervisor.shutdown()` and the cleanup that stops running tool process groups (read `sandbox.rs` `GroupKill` and `providers/` to find an explicit call; if only `Drop` does it, drop the owner explicitly). Wrap the whole cleanup in `tokio::time::timeout(Duration::from_secs(2), ...)`. Then exit.
+- [ ] If no explicit cleanup API exists for the tool process groups, stop and report. Do not invent a new public API.
+- [ ] Add a `Warning:` comment on `shutdown::exit`: it skips destructors.
+- [ ] Add the test `the_daemon_stops_its_worker_on_sigterm`: start `nookd` with the fake Worker, send SIGTERM, assert that the Worker process is gone within 5 seconds.
+- [ ] Commit: `fix(daemon): stop the Worker and tool processes before exiting`
+
+### Task 6: One ownership-checked socket removal and honest exit codes (finding 3), and the two forced-exit tests (finding 12)
+
+**Files:** `daemon/crates/nook-core/src/server.rs`, `daemon/crates/nookd/src/shutdown.rs`, `daemon/crates/nookd/src/main.rs`, `daemon/crates/nookd/tests/signal_shutdown_tests.rs`.
+
+- [ ] Move the "remove the socket only if the inode is still ours" logic of `Server::run` into one public function. Use it in `Server::run`, in the deadline thread and in the second-signal path. The deadline thread and the second-signal path exit with code `1`. The graceful path exits with `0`. `Server` must expose what the function needs (the inode) without a second source of truth.
+- [ ] Add `a_second_signal_exits_the_daemon_at_once`: make shutdown hang (a client connection that never closes does not hang the accept loop; instead use an environment variable such as `NOOK_TEST_HANG_SHUTDOWN` only if the code already has a test hook; else send SIGTERM twice within 100 ms and assert the exit within 1 second and the exit code `0` or `1`).
+- [ ] Add `a_stuck_shutdown_is_forced_after_the_deadline`: only if a hook for a stuck shutdown can be added in test code. Otherwise state in the plan why it cannot be tested through the public interface and skip it.
+- [ ] Commit: `fix(daemon): remove the socket only when it is ours on every exit path`
+
+### Task 7: The Panel asks the Daemon to stop before it kills it (finding 2)
+
+**Files:** `panel/src-tauri/src/lib.rs`.
+
+- [ ] Write the test first. `quitting_the_panel_stops_a_daemon_that_handles_sigterm`: a child `sh -c 'trap "exit 0" TERM; sleep 60 & wait'` exits by itself within the grace time, and the test records that it exited with status 0 (not killed by a signal 9). `quitting_the_panel_kills_a_daemon_that_ignores_sigterm`: a child `sh -c 'trap "" TERM; sleep 60 & wait'` is killed after the grace time.
+- [ ] On Unix, `stop_spawned_daemon` sends SIGTERM with `libc::kill` (the Panel already depends on `libc`; check `panel/src-tauri/Cargo.toml` and add nothing new), polls `try_wait()` every 50 ms for at most 2 seconds, then calls `start_kill()`. Pass the grace time as a parameter so a test can use a short one. On Windows keep `start_kill()`.
+- [ ] Commit: `fix(panel): ask the Daemon to stop before killing it`
+
+### Task 8: Small fixes (findings 4, 8, 10)
+
+**Files:** `daemon/crates/nookd/tests/signal_shutdown_tests.rs`, `daemon/crates/nookd/src/shutdown.rs`, `CHANGELOG.md`.
+
+- [ ] Finding 4: the tests use the same database URL fallback as `daemon/crates/nook-core/tests/db_tests.rs`, in one helper function. No developer user name stays in the file.
+- [ ] Finding 8: `handle_signal` logs with a direct `info!` call. Remove `spawn_blocking`. Make sure "Received ..." is logged before the shutdown message is sent.
+- [ ] Finding 10: the changelog line starts with "On macOS and Linux,".
+- [ ] Commit: `fix(daemon): use the shared database URL in the signal tests and log signals directly`
+
+### Task 9: Tick and verify
+
+- [ ] Tick the boxes. Run from `daemon/`: `rtk cargo fmt --check`, `timeout 540 rtk cargo clippy --workspace --all-targets -- -D warnings`, `timeout 540 rtk cargo test -p nookd`, `NOOK_REQUIRE_SANDBOX=1 timeout 540 rtk cargo test -p nook-core`. From `panel/src-tauri/`: `rtk cargo fmt --check`, `timeout 540 rtk cargo clippy -- -D warnings`, `timeout 540 rtk cargo test`. Commit: `docs: tick the review response tasks`
