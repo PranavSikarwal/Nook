@@ -4,6 +4,8 @@ This file records user-visible changes for each Nook release.
 
 ## Unreleased
 
+## v0.1.6 - 2026-11-13
+
 ### Fixed
 
 - Shut down the Daemon within 5 seconds of receiving SIGTERM or SIGINT, and stop the Daemon that the Panel started when the Panel quits.
