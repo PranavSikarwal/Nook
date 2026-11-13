@@ -113,7 +113,7 @@ round 2.
 | # | Finding | Action | Where |
 | --- | --- | --- | --- |
 | 38 | The CI gate check fails with GNU grep (`\t` in `-E`). | fix | Review rule "Read the inputs" 2: `[[:space:]]+` and `sort -u`. Tested with `/usr/bin/grep`: PR 32 and PR 38 pass, PR 34 fails. |
-| 39 | The unlimited loop has no stop-and-ask trigger. | fix | Review rule "Run a round": four stop-and-ask triggers, a status line every 5 rounds, and `ask owner` for a fix outside the plan. Rounds still have no limit. |
+| 39 | The unlimited loop has no stop-and-ask trigger. | fix | Review rule "Run a round": four stop-and-ask triggers, a status line every 5 rounds, and `ask owner` for a fix that changes the spec, `contracts/`, `policy/`, a public interface, authorization, the sandbox or a dependency. Rounds still have no limit. |
 | 40 | The SDLC file is 19 characters under the limit. | fix | Task folder, open gaps and retro moved to `.agents/rules/task-records.md`. The SDLC file is now 9,850 characters. |
 | 41 | The retro has no exit command and no home. | fix | Task records "Retro": exact headings, `Owner: accepted/rejected` lines, an exit check, accepted proposals as deferred gaps. |
 | 42 | The spec is stale. | fix | Spec "The rules" lists four files, risk 1 updated, "This pull request applies every row". |
@@ -130,6 +130,27 @@ The commit `6b91f7a` holds only the rule changes of this pass. A script error
 left the spec and this record out. The next commit adds them.
 
 ## Round 5 (spec)
+
+- Head: `d579503`
+- Reviewer: T3 reviewer. Verdict COMMENT. P0: 0, P1: 0, P2: 1, P3: 3. Round 4
+  findings fixed, except 45 (partly).
+- SonarCloud: gate passed.
+- Checks: `Code Quality and Tests` and `Windows named-pipe IPC` passed.
+  `Native Tauri E2E Gate` failed: flake. Run 43477721481, job "Deterministic
+  native tests": Postgres on the macOS runner was still "rejecting connections"
+  when the step checked it. The tests did not run. The native gate on the next
+  head is the one rerun.
+- Gaps closed by recommendation since round 4: none.
+
+| # | Finding | Action | Where |
+| --- | --- | --- | --- |
+| 45 | The run-list command finds a skipped run, so a placeholder can count as a review. | fix | Review rule "Ask the GitHub Actions reviewer": newest run that is not skipped, created after the comment, `completed`; a placeholder never counts. |
+| 50 | Two rules claim the first task after the merge. | fix | Retro: "a later small-change task", in the order of `open-gaps.md`. G11 comes first. The review rule sends small changes to the T3 reviewer until G11 merges. |
+| 51 | The exit-check commands fail open past 100 threads or 30 reviews. | fix | Reviews with `?per_page=100`. Threads with `last:100` and `hasPreviousPage`. |
+| 52 | Boundary check 4 fails on the plan checkbox. | fix | Delegation rule: "and `plans/plan.md`". `isDraft` added to the baseline. |
+| native gate | Flake on the macOS runner. | fix | Rerun on the next head. |
+
+## Round 6 (spec)
 
 - Reviewer: T3 reviewer (spec review).
 - Inputs pending.

@@ -20,7 +20,7 @@ Pick the reviewer from the task (`specs/design.md`, or the spec paragraph in
 | Task | Reviewer |
 | --- | --- |
 | Spec review, new feature, design change, bug fix, or any change in `contracts/`, `policy/`, authorization, the sandbox, or the Daemon or Worker core | The T3 reviewer. It is required. |
-| Small change (see "Small change" in the SDLC Work Standard) | The GitHub Actions reviewer. |
+| Small change (see "Small change" in the SDLC Work Standard) | The GitHub Actions reviewer. Until the `reviewers.yml` hardening (gap G11 of PR 38) merges, use the T3 reviewer. |
 
 The GitHub Actions reviewer may also run in addition on any pull request. Its
 findings join the same round. Use it only on a pull request from a branch of
@@ -76,9 +76,12 @@ The job posts a "Review in progress" comment as `github-actions[bot]`. When
 the model returns inline comments, the job posts a `COMMENT` review. When it
 returns none, it edits the "Review in progress" comment or posts a plain
 comment instead, with no `commit_id`. Read the result as "Read the inputs" 1
-says, after the "Manual PR reviewers" run for your comment completes
-(`scripts/gh run list --workflow reviewers.yml --limit 1 --json status,conclusion`).
-Until then the comment is a placeholder. Push nothing while the job runs, so
+says, after the reviewer run for your comment completes. Every comment starts a
+run, and a comment that matches no job ends `skipped`, so find the newest run
+that is not skipped:
+`scripts/gh run list --workflow reviewers.yml --limit 10 --json databaseId,status,conclusion,createdAt --jq '[.[]|select(.conclusion!="skipped")][0]'`.
+It must be created after your comment and have `status` `completed`. A
+"Review in progress" comment is a placeholder and never counts. Push nothing while the job runs, so
 that its result belongs to the head.
 
 ## Run a round
@@ -128,7 +131,7 @@ and continue.
 
 1. **Reviews.** The T3 reviewer posts as the owner (`PranavSikarwal`). The
    GitHub Actions reviewer posts as `github-actions[bot]`. Read the reviews:
-   `scripts/gh api --paginate repos/PranavSikarwal/Nook/pulls/<number>/reviews --jq '.[]|[.user.login,.commit_id,(.body|split("\n")[0])]|@tsv'`.
+   `scripts/gh api 'repos/PranavSikarwal/Nook/pulls/<number>/reviews?per_page=100' --jq '.[]|[.user.login,.commit_id,(.body|split("\n")[0])]|@tsv'`.
    For the T3 reviewer, the review that counts is the newest one from the owner
    whose `commit_id` is the head SHA and whose first line is a verdict line. For
    the GitHub Actions reviewer, also read the comments
@@ -155,13 +158,14 @@ A round passes when all of these hold on the current head:
 
 1. The review that counts starts with `Verdict: APPROVE`. For the T3 reviewer
    this prints `true`:
-   `scripts/gh api --paginate repos/PranavSikarwal/Nook/pulls/<number>/reviews --jq '[.[]|select(.user.login=="PranavSikarwal" and .commit_id=="<head>")]|last|(.body//"")|split("\n")[0]|startswith("Verdict: APPROVE")'`.
+   `scripts/gh api 'repos/PranavSikarwal/Nook/pulls/<number>/reviews?per_page=100' --jq '[.[]|select(.user.login=="PranavSikarwal" and .commit_id=="<head>")]|last|(.body//"")|split("\n")[0]|startswith("Verdict: APPROVE")'`.
    For the GitHub Actions reviewer, a verdict derived with 0 open P0 to P3
    findings counts as `APPROVE`.
 2. Every finding from every round is fixed, or the owner decided it in
    `open-gaps.md`, and no review thread of the reviewer is unresolved:
-   `scripts/gh api graphql -f query='query{repository(owner:"PranavSikarwal",name:"Nook"){pullRequest(number:<number>){reviewThreads(first:100){nodes{isResolved}}}}}' --jq '[.data.repository.pullRequest.reviewThreads.nodes[]|select(.isResolved|not)]|length'`
-   prints `0`.
+   `scripts/gh api graphql -f query='query{repository(owner:"PranavSikarwal",name:"Nook"){pullRequest(number:<number>){reviewThreads(last:100){pageInfo{hasPreviousPage} nodes{isResolved}}}}}' --jq '.data.repository.pullRequest.reviewThreads|[(.nodes[]|select(.isResolved|not))]|length'`
+   prints `0`. If `hasPreviousPage` is `true`, the pull request has more than 100
+   threads: page back with `before:` until every thread is counted.
 3. The CI gate check passes.
 
 The orchestrator and the T3 reviewer both post as the owner, so the login

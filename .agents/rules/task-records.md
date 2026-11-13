@@ -72,8 +72,8 @@ owner's corrections during the task. It has three sections, with these exact hea
    `Owner: accepted` or `Owner: rejected`.
 
 Write each accepted proposal as a gap with status `deferred` in
-`open-gaps.md`. The next task that the owner starts after the merge is a small
-change that applies them. When a task went without a problem, write "No
+`open-gaps.md`. A later small-change task applies them, in the order that
+`open-gaps.md` gives. When a task went without a problem, write "No
 problem" under each heading.
 
 The retro exit check:

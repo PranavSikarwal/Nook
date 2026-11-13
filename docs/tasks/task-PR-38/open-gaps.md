@@ -165,8 +165,9 @@ Each entry records one question and its decision. The format is in
   review rule forbids the Actions reviewer on fork pull requests and reads its
   plain comments.
 - Decision: (a). It joins the other follow-up fixes.
-  It is the first task after PR 38 merges, and it runs before the GitHub
-  Actions reviewer runs on any other pull request.
+  It is the first task after PR 38 merges. The retro proposals of PR 38 come
+  after it. Until it merges, the review rule sends small changes to the T3
+  reviewer too.
 - Decided by: owner ("works let's add it to other follow up fixes")
 - Date: 2026-11-13
 - Status: deferred
