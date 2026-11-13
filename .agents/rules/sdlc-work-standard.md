@@ -73,8 +73,10 @@ When the task changes rules or documents, those files are the spec. Write them
 in this stage, and keep `specs/design.md` to the why and the list of file
 changes.
 
-Exit: every template section has content, and every gap has options and a
-recommendation.
+Exit: every template section has content, every gap has options and a
+recommendation, and `reviews.md` holds the result of each command that the task
+adds to a rule or a document, run with `/usr/bin/grep` and on a real pull
+request.
 
 ### 3. Spec review
 
@@ -118,6 +120,9 @@ branch at a time. After each task:
 1. Run the boundary check in `.agents/rules/delegation-standard.md`.
 2. Read the diff, and run the checks from `docs/testing.md` for each changed
    component. A task passes when its checks pass with zero warnings.
+
+   Run each command that the task added to a rule or a document, as stage 2
+   says.
 
 When an implementer reports a gap, decide it:
 

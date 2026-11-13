@@ -130,7 +130,7 @@ is one commit by the implementer. Check after each commit:
   "When the task changes rules or documents, those files are the spec. Write them
   in this stage, and keep `specs/design.md` to the why and the list of file
   changes." Commit: `docs(rules): make the rule files the spec of a rule task`.
-- [ ] **16. P2: run every command before review.** `.agents/rules/sdlc-work-standard.md`.
+- [x] **16. P2: run every command before review.** `.agents/rules/sdlc-work-standard.md`.
   Stage 2 "Exit" becomes: "Exit: every template section has content, every gap
   has options and a recommendation, and `reviews.md` holds the result of each
   command that the task adds to a rule or a document, run with `/usr/bin/grep`
