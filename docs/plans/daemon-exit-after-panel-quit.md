@@ -174,10 +174,10 @@ Decision: one function, `nook_core::shutdown::stop_everything(state: &AppState, 
 
 **Files:** `panel/src-tauri/src/lib.rs`.
 
-- [ ] Finding 14: in the two `quitting_the_panel_*` signal tests, start the shell so that it is the only process: `exec sleep 60` after `trap '' TERM` for the ignore test, and for the handler test use `trap 'exit 0' TERM; sleep 60 & wait` only if the script also kills `$!` in the trap (`trap 'kill $!; exit 0' TERM`). After a test run, `pgrep -f "sleep 60"` shows nothing.
-- [ ] Finding 15: add a one-line comment above the `unsafe` block: the PID is safe to signal because `child.id()` is `None` once the child is reaped. Replace the two copied wait loops with one private helper `wait_for_exit(&mut Child, Duration) -> Option<ExitStatus>`.
-- [ ] Run, from `panel/src-tauri/`: `rtk cargo fmt --check`, `timeout 540 rtk cargo clippy -- -D warnings`, `timeout 540 rtk cargo test`. All pass.
-- [ ] Commit: `fix(panel): keep the quit tests from leaking processes`
+- [x] Finding 14: in the two `quitting_the_panel_*` signal tests, start the shell so that it is the only process: `exec sleep 60` after `trap '' TERM` for the ignore test, and for the handler test use `trap 'exit 0' TERM; sleep 60 & wait` only if the script also kills `$!` in the trap (`trap 'kill $!; exit 0' TERM`). After a test run, `pgrep -f "sleep 60"` shows nothing.
+- [x] Finding 15: add a one-line comment above the `unsafe` block: the PID is safe to signal because `child.id()` is `None` once the child is reaped. Replace the two copied wait loops with one private helper `wait_for_exit(&mut Child, Duration) -> Option<ExitStatus>`.
+- [x] Run, from `panel/src-tauri/`: `rtk cargo fmt --check`, `timeout 540 rtk cargo clippy -- -D warnings`, `timeout 540 rtk cargo test`. All pass.
+- [x] Commit: `fix(panel): keep the quit tests from leaking processes`
 
 ### Task 13: Tick and verify
 

@@ -392,41 +392,40 @@ pub fn stop_spawned_daemon(
         #[cfg(unix)]
         {
             if let Some(pid) = child.id() {
+                // The PID is safe to signal because child.id() is None once the child is reaped.
                 unsafe {
                     libc::kill(pid as libc::pid_t, libc::SIGTERM);
                 }
             }
-            let start = std::time::Instant::now();
-            while start.elapsed() < grace {
-                if let Ok(Some(status)) = child.try_wait() {
-                    return Some(status);
-                }
-                std::thread::sleep(std::time::Duration::from_millis(50));
+            if let Some(status) = wait_for_exit(&mut child, grace) {
+                return Some(status);
             }
             let _ = child.start_kill();
-            for _ in 0..40 {
-                if let Ok(Some(status)) = child.try_wait() {
-                    return Some(status);
-                }
-                std::thread::sleep(std::time::Duration::from_millis(50));
-            }
-            None
+            wait_for_exit(&mut child, std::time::Duration::from_secs(2))
         }
         #[cfg(not(unix))]
         {
             let _ = grace;
             let _ = child.start_kill();
-            for _ in 0..40 {
-                if let Ok(Some(status)) = child.try_wait() {
-                    return Some(status);
-                }
-                std::thread::sleep(std::time::Duration::from_millis(50));
-            }
-            None
+            wait_for_exit(&mut child, std::time::Duration::from_secs(2))
         }
     } else {
         None
     }
+}
+
+fn wait_for_exit(
+    child: &mut tokio::process::Child,
+    timeout: std::time::Duration,
+) -> Option<std::process::ExitStatus> {
+    let start = std::time::Instant::now();
+    while start.elapsed() < timeout {
+        if let Ok(Some(status)) = child.try_wait() {
+            return Some(status);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    None
 }
 
 /// Helper to configure SO_NOSIGPIPE on UnixStream on macOS
@@ -1411,7 +1410,7 @@ mod tests {
     async fn quitting_the_panel_stops_a_daemon_that_handles_sigterm() {
         let state = DaemonState::default();
         let child = tokio::process::Command::new("sh")
-            .args(["-c", "trap 'exit 0' TERM; sleep 60 & wait"])
+            .args(["-c", "trap 'kill $!; exit 0' TERM; sleep 60 & wait"])
             .spawn()
             .unwrap();
         *state.spawned_process.lock().await = Some(child);
@@ -1429,7 +1428,7 @@ mod tests {
         use std::os::unix::process::ExitStatusExt;
         let state = DaemonState::default();
         let child = tokio::process::Command::new("sh")
-            .args(["-c", "trap '' TERM; sleep 60 & wait"])
+            .args(["-c", "trap '' TERM; exec sleep 60"])
             .spawn()
             .unwrap();
         *state.spawned_process.lock().await = Some(child);
