@@ -194,3 +194,14 @@ Decision: one function, `nook_core::shutdown::stop_everything(state: &AppState, 
 - [x] Add a supervisor test in `crates/nook-core/tests/supervisor_tests.rs` that starts a supervisor with the fake Worker in ignore-EOF mode, calls `shutdown()`, and asserts that the Worker process is gone within 1 second. Run it 10 times too. Result: 0 of 10 failed.
 - [x] Run the 10-run loop of the Daemon test again: 10 out of 10 pass. Then fmt, clippy `-D warnings`, `timeout 540 rtk cargo test -p nookd`, `timeout 540 rtk cargo test -p nook-core`. Final result: 0 of 10 failed.
 - [x] Commit: `fix(daemon): kill the Worker when the supervisor future is dropped`. Put the failure counts before and after into the commit body.
+
+### Task 15: Fix the two SonarCloud findings on the new tests
+
+SonarCloud fails "Reliability Rating on New Code" (C, needs A) on head `f7a9d74`. The annotations point to `daemon/crates/nook-core/tests/supervisor_tests.rs:59` and `daemon/crates/nook-core/src/server.rs:211`. The annotation messages are empty, so the causes below are my reading of the code.
+
+**Files:** `daemon/crates/nook-core/tests/supervisor_tests.rs`, `daemon/crates/nook-core/src/server.rs`.
+
+- [ ] `supervisor_tests.rs`: the async test calls the blocking `std::process::Command::status()`, `std::fs::remove_file` and probably `std::thread::sleep` inside an `async fn`. Replace them with `tokio::process::Command`, `tokio::fs::remove_file` and `tokio::time::sleep` (`.await`). Remove the `use std::process::Command` import if nothing else uses it. Fix every blocking call in that async test, not only line 59.
+- [ ] `server.rs`: the module `socket_removal_tests` (line 210) sits in the middle of the file, and 700 lines of code follow it. Move it, unchanged, to the end of the file (after the last item). If `server.rs` already has a `#[cfg(test)]` module at the end, put the tests into it instead. Change no test body.
+- [ ] Run `rtk cargo fmt --check`, `timeout 540 rtk cargo clippy --workspace --all-targets -- -D warnings`, `timeout 540 rtk cargo test -p nook-core`, and the Worker test in `supervisor_tests.rs` 5 times in a row. All pass.
+- [ ] Commit: `fix(daemon): remove blocking calls from the async supervisor test and move the socket tests to the end`
