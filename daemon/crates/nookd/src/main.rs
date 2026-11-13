@@ -11,6 +11,8 @@ use std::time::Duration;
 use tokio::sync::{broadcast, Mutex, RwLock};
 use tracing::{error, info, warn};
 
+mod shutdown;
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -23,8 +25,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         }
     }
 
+    #[cfg(unix)]
+    shutdown::set_stderr_nonblocking();
+
     tracing_subscriber::fmt()
-        .with_writer(std::io::stderr)
+        .with_writer(|| shutdown::SafeStderr)
         .init();
 
     // 0. Load .env if present
@@ -128,37 +133,46 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let server = Server::bind(&socket_path, shutdown_rx, state).await?;
 
     let shutdown_tx_clone = shutdown_tx.clone();
+    let socket_path_clone = socket_path.clone();
     tokio::spawn(async move {
         #[cfg(unix)]
         {
             use tokio::signal::unix::{signal, SignalKind};
             let mut sigterm = signal(SignalKind::terminate()).ok();
-            tokio::select! {
-                _ = tokio::signal::ctrl_c() => {
-                    info!("Received Ctrl+C (SIGINT), shutting down daemon");
-                }
-                _ = async {
-                    if let Some(ref mut sig) = sigterm {
-                        sig.recv().await
-                    } else {
-                        std::future::pending().await
+            loop {
+                tokio::select! {
+                    _ = tokio::signal::ctrl_c() => {
+                        shutdown::handle_signal("Ctrl+C (SIGINT)", &shutdown_tx_clone, &socket_path_clone);
                     }
-                } => {
-                    info!("Received SIGTERM, shutting down daemon");
+                    _ = async {
+                        if let Some(ref mut sig) = sigterm {
+                            sig.recv().await
+                        } else {
+                            std::future::pending().await
+                        }
+                    } => {
+                        shutdown::handle_signal("SIGTERM", &shutdown_tx_clone, &socket_path_clone);
+                    }
                 }
             }
         }
         #[cfg(not(unix))]
         {
-            if let Ok(()) = tokio::signal::ctrl_c().await {
-                info!("Received Ctrl+C, shutting down daemon");
+            loop {
+                if let Ok(()) = tokio::signal::ctrl_c().await {
+                    shutdown::handle_signal("Ctrl+C", &shutdown_tx_clone, &socket_path_clone);
+                }
             }
         }
-        let _ = shutdown_tx_clone.send(());
     });
 
-    server.run().await?;
-    Ok(())
+    match server.run().await {
+        Ok(()) => shutdown::exit(0),
+        Err(e) => {
+            error!("Server error: {e}");
+            shutdown::exit(1);
+        }
+    }
 }
 
 fn check_policy() -> i32 {

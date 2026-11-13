@@ -51,12 +51,12 @@ If every scenario passes, write that in "Repro results", commit what you have, a
 
 Do each sub-step only for a scenario that failed in Task 1, except the first one, which is always needed.
 
-- [ ] Hard deadline (always): when the first signal arrives, start a `std::thread` (not a Tokio task) that sleeps 5 seconds and then calls `std::process::exit(0)` after it removes the socket file if the path still exists. A second signal exits at once.
-- [ ] Send the shutdown message before the log line, and make the log line unable to block the signal task (for example log from `tokio::task::spawn_blocking` or drop the line). Do this only if the pipe scenarios failed.
-- [ ] After `server.run().await?` returns, call `std::process::exit(0)` through the same helper, so that blocking tasks cannot hold the runtime. Keep the exit code `0` for a signal and `1` for an error.
-- [ ] Remove the `ignore` marks. All five tests pass.
-- [ ] Run: `cd daemon && rtk cargo fmt --check`, `timeout 540 rtk cargo clippy --workspace --all-targets -- -D warnings`, and `timeout 540 rtk cargo test -p nookd`. Run `NOOK_REQUIRE_SANDBOX=1 timeout 540 rtk cargo test -p nook-core` as well, one test file at a time if it times out. All pass.
-- [ ] Commit: `fix(daemon): exit within 5 seconds of SIGTERM or SIGINT`
+- [x] Hard deadline (always): when the first signal arrives, start a `std::thread` (not a Tokio task) that sleeps 5 seconds and then calls `std::process::exit(0)` after it removes the socket file if the path still exists. A second signal exits at once.
+- [x] Send the shutdown message before the log line, and make the log line unable to block the signal task (for example log from `tokio::task::spawn_blocking` or drop the line). Do this only if the pipe scenarios failed.
+- [x] After `server.run().await?` returns, call `std::process::exit(0)` through the same helper, so that blocking tasks cannot hold the runtime. Keep the exit code `0` for a signal and `1` for an error.
+- [x] Remove the `ignore` marks. All five tests pass.
+- [x] Run: `cd daemon && rtk cargo fmt --check`, `timeout 540 rtk cargo clippy --workspace --all-targets -- -D warnings`, and `timeout 540 rtk cargo test -p nookd`. Run `NOOK_REQUIRE_SANDBOX=1 timeout 540 rtk cargo test -p nook-core` as well, one test file at a time if it times out. All pass.
+- [x] Commit: `fix(daemon): exit within 5 seconds of SIGTERM or SIGINT`
 
 ### Task 3: Stop the Daemon when the Panel quits
 

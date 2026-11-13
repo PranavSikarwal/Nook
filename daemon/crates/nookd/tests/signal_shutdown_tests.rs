@@ -2,7 +2,7 @@
 
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::UnixStream;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
@@ -155,7 +155,6 @@ fn the_daemon_exits_on_sigterm_with_an_idle_client_connected() {
 }
 
 #[test]
-#[ignore = "fails until Task 2"]
 fn the_daemon_exits_on_sigterm_when_stderr_has_no_reader() {
     let mut daemon = spawn_daemon("no-reader", true, None);
     drop(daemon.child.stderr.take());
@@ -164,7 +163,6 @@ fn the_daemon_exits_on_sigterm_when_stderr_has_no_reader() {
 }
 
 #[test]
-#[ignore = "fails until Task 2"]
 fn the_daemon_exits_on_sigterm_when_the_stderr_pipe_is_full() {
     let daemon = spawn_daemon("pipe-full", true, Some("trace"));
     for _ in 0..1500 {
