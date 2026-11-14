@@ -13,7 +13,7 @@ use tokio::process::Command;
 #[cfg(unix)]
 const READER_DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct SandboxSpec {
     pub argv: Vec<String>,
     pub cwd: PathBuf,
@@ -23,6 +23,23 @@ pub struct SandboxSpec {
     pub env: BTreeMap<String, String>,
     pub timeout: Duration,
     pub max_output_bytes: usize,
+}
+
+/// Warning: `env` values are secrets, so this prints the variable names only.
+impl std::fmt::Debug for SandboxSpec {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let env_names: Vec<&String> = self.env.keys().collect();
+        f.debug_struct("SandboxSpec")
+            .field("argv", &self.argv)
+            .field("cwd", &self.cwd)
+            .field("read_roots", &self.read_roots)
+            .field("write_roots", &self.write_roots)
+            .field("network", &self.network)
+            .field("env", &env_names)
+            .field("timeout", &self.timeout)
+            .field("max_output_bytes", &self.max_output_bytes)
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -153,6 +170,7 @@ impl Sandbox {
                 let mut command = Command::new("bwrap");
                 command.args(bubblewrap_args(spec, mount_proc));
                 command.env_clear();
+                command.envs(&spec.env);
                 if let Some(path) = spec.env.get("PATH") {
                     command.env("PATH", path);
                 }
@@ -402,11 +420,31 @@ pub fn bubblewrap_args(spec: &SandboxSpec, mount_proc: bool) -> Vec<String> {
         args.extend(["--bind".to_string(), root.clone(), root]);
     }
     args.extend(["--chdir".to_string(), spec.cwd.display().to_string()]);
-    args.push("--clearenv".to_string());
-    for (key, value) in &spec.env {
-        args.extend(["--setenv".to_string(), key.clone(), value.clone()]);
-    }
     args.push("--".to_string());
     args.extend(spec.argv.iter().cloned());
     args
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sandbox_spec_debug_prints_env_names_and_never_values() {
+        let spec = SandboxSpec {
+            argv: vec!["/bin/true".to_string()],
+            cwd: PathBuf::from("/tmp"),
+            read_roots: vec![],
+            write_roots: vec![],
+            network: false,
+            env: BTreeMap::from([("TOKEN".to_string(), "my-secret-value".to_string())]),
+            timeout: Duration::from_secs(1),
+            max_output_bytes: 1024,
+        };
+
+        let debug = format!("{spec:?}");
+
+        assert!(debug.contains("TOKEN"), "{debug}");
+        assert!(!debug.contains("my-secret-value"), "{debug}");
+    }
 }

@@ -39,7 +39,9 @@ chat identifier as its thread identifier.
 
 Nook keeps its configuration in the platform application-data directory. The
 macOS location is `~/Library/Application Support/Nook/config.toml`. The Daemon
-reads the API key from the environment or the macOS Keychain.
+reads the API key from the environment or the macOS Keychain. For MCP servers,
+the Daemon resolves `env_secrets` from the operating system secret store under
+the `Nook MCP` service, managed with `nookctl secret`.
 
 ## Tool boundary
 

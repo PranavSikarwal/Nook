@@ -6,9 +6,10 @@ authors.workspace = true
 license.workspace = true
 
 [dependencies]
-nook-core = { path = "../nook-core" }
+nook-core = { path = "../nook-core", features = ["os-store"] }
 tokio.workspace = true
 clap.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 uuid.workspace = true
+rpassword.workspace = true

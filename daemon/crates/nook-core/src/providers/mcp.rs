@@ -5,6 +5,7 @@ use super::{
 use crate::config::McpServerConfig;
 use crate::protocol::{ToolDescriptor, ToolSourceInfo, ToolSourceState};
 use crate::sandbox::{Sandbox, SandboxProcess, SandboxSpec};
+use crate::secrets::{SecretContext, SecretError, SecretMaskExt};
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -344,6 +345,7 @@ pub struct StartupLimits {
     /// The shortest time between two starts of one server. A server that dies
     /// sooner than this after a start stays stopped.
     pub restart_interval: Duration,
+    pub secret_timeout: Duration,
 }
 
 impl Default for StartupLimits {
@@ -352,8 +354,47 @@ impl Default for StartupLimits {
             initialize: Duration::from_secs(10),
             list_tools: Duration::from_secs(10),
             restart_interval: Duration::from_secs(5),
+            secret_timeout: Duration::from_secs(10),
         }
     }
+}
+
+fn reject_loader_variable(server: &str, key: &str) -> Result<(), String> {
+    if key.starts_with("LD_") || key.starts_with("DYLD_") {
+        return Err(format!(
+            "Server \"{server}\": the variable \"{key}\" cannot start with LD_ or DYLD_"
+        ));
+    }
+    Ok(())
+}
+
+/// Checks one server's `env` and `env_secrets`. The error is the reason the server stays off.
+pub fn check_server_settings(config: &McpServerConfig) -> Result<(), String> {
+    for key in config.env.keys() {
+        reject_loader_variable(&config.name, key)?;
+    }
+    for (key, secret_name) in &config.env_secrets {
+        if config.env.contains_key(key) {
+            return Err(format!(
+                "Server \"{}\": the variable \"{key}\" appears in both env and env_secrets",
+                config.name
+            ));
+        }
+        reject_loader_variable(&config.name, key)?;
+        if secret_name.is_empty() {
+            return Err(format!(
+                "Server \"{}\": the secret name for \"{key}\" is empty",
+                config.name
+            ));
+        }
+        if secret_name == "model-api-key" {
+            return Err(format!(
+                "Server \"{}\": the secret name for \"{key}\" cannot be \"model-api-key\"",
+                config.name
+            ));
+        }
+    }
+    Ok(())
 }
 
 struct McpServer {
@@ -382,7 +423,12 @@ impl ServerSlot {
     /// Returns the running server. A server that has stopped is started again
     /// first, unless it was started less than `restart_interval` ago. The call
     /// that found the server stopped is never repeated by the Daemon.
-    async fn live(&self, sandbox: &Sandbox, limits: StartupLimits) -> Arc<McpServer> {
+    async fn live(
+        &self,
+        sandbox: &Sandbox,
+        limits: StartupLimits,
+        secrets: &SecretContext,
+    ) -> Arc<McpServer> {
         let current = self.current.read().await.clone();
         if !current.client.is_closed() {
             return current;
@@ -398,7 +444,7 @@ impl ServerSlot {
             }
             *started = Instant::now();
         }
-        match start_server(&self.config, sandbox, limits).await {
+        match start_server(&self.config, sandbox, limits, secrets).await {
             Ok((server, _)) => {
                 info!(server = %self.name, "MCP server restarted");
                 *guard = Arc::new(server);
@@ -414,9 +460,10 @@ pub struct McpProvider {
     tools: BTreeMap<String, ToolEntry>,
     sandbox: Sandbox,
     limits: StartupLimits,
+    secrets: SecretContext,
 }
 
-fn valid_server_name(name: &str) -> bool {
+pub fn valid_server_name(name: &str) -> bool {
     !name.is_empty()
         && name.len() <= 32
         && name
@@ -445,10 +492,26 @@ fn sandbox_path() -> String {
     path
 }
 
+/// An empty stored value counts as missing, so the server never starts with an empty secret.
+fn present_secret(stored: Result<String, SecretError>) -> Result<String, SecretError> {
+    match stored {
+        Ok(value) if value.is_empty() => Err(SecretError::Missing),
+        other => other,
+    }
+}
+
+/// Report entry for a server that did not start. The error is scrubbed before it is logged or reported.
+fn startup_failure(name: &str, error: &str, secrets: &SecretContext) -> ToolSourceInfo {
+    let error = secrets.mask.scrub(error);
+    warn!("MCP server {name} is off: {error}");
+    super::mcp_off(name, &error)
+}
+
 async fn start_server(
     config: &McpServerConfig,
     sandbox: &Sandbox,
     limits: StartupLimits,
+    secrets: &SecretContext,
 ) -> Result<(McpServer, Vec<McpTool>), String> {
     let home = tempfile::tempdir().map_err(|e| e.to_string())?;
     let home_path = home.path().canonicalize().map_err(|e| e.to_string())?;
@@ -460,6 +523,37 @@ async fn start_server(
         ("LANG".to_string(), "C.UTF-8".to_string()),
     ]);
     env.extend(config.env.clone());
+    for (env_name, secret_name) in &config.env_secrets {
+        let store = secrets.store.clone();
+        let name_clone = secret_name.clone();
+        let timeout = limits.secret_timeout;
+        let read_result = tokio::time::timeout(
+            timeout,
+            tokio::task::spawn_blocking(move || store.get(&name_clone)),
+        )
+        .await;
+
+        let secret_value = match read_result {
+            Err(_) => return Err(format!("The secret \"{secret_name}\": read timed out")),
+            Ok(Err(_join_err)) => {
+                return Err(format!(
+                    "The secret \"{secret_name}\": Secret cannot be read"
+                ))
+            }
+            Ok(Ok(stored)) => match present_secret(stored) {
+                Ok(val) => val,
+                Err(SecretError::Missing) => {
+                    return Err(format!(
+                        "The secret \"{secret_name}\" is not in the secret store. Run: nookctl secret set {secret_name}"
+                    ));
+                }
+                Err(err) => return Err(format!("The secret \"{secret_name}\": {err}")),
+            },
+        };
+
+        secrets.mask.add(&secret_value);
+        env.insert(env_name.clone(), secret_value);
+    }
     let mut write_roots = vec![home_path.clone()];
     write_roots.extend(existing_paths(&config.write_paths, &config.name));
     let spec = SandboxSpec {
@@ -479,9 +573,11 @@ async fn start_server(
     let stdout = process.child.stdout.take().ok_or("no standard output")?;
     let stderr = process.child.stderr.take().ok_or("no standard error")?;
     let name = config.name.clone();
+    let mask = secrets.mask.clone();
     let stderr_task = tokio::spawn(async move {
         let mut lines = BufReader::new(stderr).lines();
         while let Ok(Some(line)) = lines.next_line().await {
+            let line = mask.scrub(&line);
             debug!(server = %name, "MCP stderr: {line}");
         }
     });
@@ -523,8 +619,11 @@ impl McpProvider {
         configs: &[McpServerConfig],
         sandbox: &Sandbox,
         limits: StartupLimits,
+        secrets: SecretContext,
     ) -> Option<Self> {
-        Self::start_reporting(configs, sandbox, limits).await.0
+        Self::start_reporting(configs, sandbox, limits, secrets)
+            .await
+            .0
     }
 
     /// Like `start`, and also returns one entry for each server that is not
@@ -533,6 +632,7 @@ impl McpProvider {
         configs: &[McpServerConfig],
         sandbox: &Sandbox,
         limits: StartupLimits,
+        secrets: SecretContext,
     ) -> (Option<Self>, Vec<ToolSourceInfo>) {
         let mut failed: Vec<ToolSourceInfo> = Vec::new();
         let mut accepted: Vec<&McpServerConfig> = Vec::new();
@@ -556,6 +656,9 @@ impl McpProvider {
             } else if config.command.trim().is_empty() {
                 warn!("Ignored MCP server {}: the command is empty", config.name);
                 failed.push(super::mcp_off(&config.name, "The command is empty"));
+            } else if let Err(reason) = check_server_settings(config) {
+                warn!("Ignored MCP server {}: {reason}", config.name);
+                failed.push(super::mcp_off(&config.name, &reason));
             } else {
                 accepted.push(config);
             }
@@ -564,8 +667,13 @@ impl McpProvider {
         for (position, config) in accepted.iter().enumerate() {
             let config = (*config).clone();
             let sandbox = sandbox.clone();
-            starting
-                .spawn(async move { (position, start_server(&config, &sandbox, limits).await) });
+            let secrets = secrets.clone();
+            starting.spawn(async move {
+                (
+                    position,
+                    start_server(&config, &sandbox, limits, &secrets).await,
+                )
+            });
         }
         let mut started: Vec<(usize, McpServer, Vec<McpTool>)> = Vec::new();
         let started_at = Instant::now();
@@ -576,8 +684,7 @@ impl McpProvider {
             match outcome {
                 Ok((server, tools)) => started.push((position, server, tools)),
                 Err(error) => {
-                    warn!("MCP server {} is off: {error}", accepted[position].name);
-                    failed.push(super::mcp_off(&accepted[position].name, &error));
+                    failed.push(startup_failure(&accepted[position].name, &error, &secrets));
                 }
             }
         }
@@ -625,6 +732,7 @@ impl McpProvider {
             tools,
             sandbox: sandbox.clone(),
             limits,
+            secrets,
         };
         (Some(provider), failed)
     }
@@ -744,9 +852,9 @@ impl Provider for McpProvider {
             return ToolOutput::error("Error: unknown tool");
         };
         let server = self.servers[entry.server]
-            .live(&self.sandbox, self.limits)
+            .live(&self.sandbox, self.limits, &self.secrets)
             .await;
-        match server
+        let mut output = match server
             .client
             .call_tool(&entry.remote_name, arguments, server.call_timeout)
             .await
@@ -761,7 +869,9 @@ impl Provider for McpProvider {
                 "Error: the MCP server reported an error: {message}"
             )),
             Err(_) => ToolOutput::error("Error: the MCP call failed"),
-        }
+        };
+        output.text = self.secrets.mask.scrub(&output.text);
+        output
     }
 }
 
@@ -1115,5 +1225,123 @@ mod tests {
         assert!(long.ends_with("..."));
         assert_eq!(long.chars().count(), SUMMARY_ARGUMENT_CHARS + 3);
         assert_eq!(compact_arguments(&json!({ "a": 1 })), "{\"a\":1}");
+    }
+
+    #[test]
+    fn check_server_settings_validates_env_and_env_secrets() {
+        let base = McpServerConfig {
+            name: "test-server".to_string(),
+            command: "cmd".to_string(),
+            args: vec![],
+            env: BTreeMap::new(),
+            env_secrets: BTreeMap::new(),
+            network: false,
+            read_paths: vec![],
+            write_paths: vec![],
+            timeout_seconds: 60,
+        };
+        assert!(check_server_settings(&base).is_ok());
+
+        // Overlap between env and env_secrets
+        let mut overlap = base.clone();
+        overlap.env.insert("FOO".to_string(), "val".to_string());
+        overlap
+            .env_secrets
+            .insert("FOO".to_string(), "my-secret-val-999".to_string());
+        let err = check_server_settings(&overlap).unwrap_err();
+        assert!(err.contains("FOO"));
+        assert!(!err.contains("val"));
+        assert!(!err.contains("my-secret-val-999"));
+
+        // Empty secret name in env_secrets
+        let mut empty_sec = base.clone();
+        empty_sec
+            .env_secrets
+            .insert("VAR".to_string(), "".to_string());
+        let err = check_server_settings(&empty_sec).unwrap_err();
+        assert!(err.contains("VAR"));
+
+        // model-api-key name
+        let mut model_sec = base.clone();
+        model_sec
+            .env_secrets
+            .insert("VAR".to_string(), "model-api-key".to_string());
+        let err = check_server_settings(&model_sec).unwrap_err();
+        assert!(err.contains("VAR"));
+
+        // LD_ and DYLD_ in env
+        let mut ld_env = base.clone();
+        ld_env
+            .env
+            .insert("LD_PRELOAD".to_string(), "/lib/lib.so".to_string());
+        let err = check_server_settings(&ld_env).unwrap_err();
+        assert!(err.contains("LD_PRELOAD"));
+        assert!(!err.contains("/lib/lib.so"));
+
+        let mut dyld_env = base.clone();
+        dyld_env.env.insert(
+            "DYLD_INSERT_LIBRARIES".to_string(),
+            "/lib/lib.dylib".to_string(),
+        );
+        let err = check_server_settings(&dyld_env).unwrap_err();
+        assert!(err.contains("DYLD_INSERT_LIBRARIES"));
+
+        // LD_ in env_secrets
+        let mut ld_sec = base.clone();
+        ld_sec.env_secrets.insert(
+            "LD_LIBRARY_PATH".to_string(),
+            "my-secret-val-999".to_string(),
+        );
+        let err = check_server_settings(&ld_sec).unwrap_err();
+        assert!(err.contains("LD_LIBRARY_PATH"));
+        assert!(!err.contains("my-secret-val-999"));
+
+        // LDAP_URL is accepted
+        let mut ldap = base.clone();
+        ldap.env
+            .insert("LDAP_URL".to_string(), "ldap://localhost".to_string());
+        assert!(check_server_settings(&ldap).is_ok());
+    }
+
+    #[test]
+    fn secret_mask_scrubs_matching_secrets_from_tool_output() {
+        let mask: crate::secrets::SecretMask = Arc::default();
+        mask.add("super-secret-1234");
+        mask.add("sh"); // < 4 characters, not added
+        let out = mask.scrub("Result: super-secret-1234 and sh");
+        assert_eq!(out, "Result: *** and sh");
+    }
+
+    #[test]
+    fn an_empty_stored_value_counts_as_missing() {
+        assert_eq!(present_secret(Ok(String::new())), Err(SecretError::Missing));
+    }
+
+    #[test]
+    fn a_stored_value_is_kept() {
+        assert_eq!(present_secret(Ok("value".into())), Ok("value".to_string()));
+    }
+
+    #[test]
+    fn a_store_error_is_kept() {
+        assert_eq!(
+            present_secret(Err(SecretError::Unavailable)),
+            Err(SecretError::Unavailable)
+        );
+    }
+
+    #[test]
+    fn a_startup_error_that_holds_a_secret_value_is_scrubbed_in_the_report() {
+        let secrets = SecretContext::default();
+        secrets.mask.add("startup-secret-value");
+
+        let report = startup_failure(
+            "svc",
+            "unsupported protocol version startup-secret-value",
+            &secrets,
+        );
+
+        let reason = report.reason.expect("failure reason");
+        assert_eq!(reason, "unsupported protocol version ***");
     }
 }
