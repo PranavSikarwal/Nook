@@ -4,7 +4,7 @@ use nook_core::db;
 use nook_core::keychain;
 use nook_core::policy_assets::{find_policy_directory, PolicyAssets};
 use nook_core::providers::{build_registry, ProviderHandle};
-use nook_core::secrets::{SecretContext, SecretMaskExt};
+use nook_core::secrets::{OsSecretStore, SecretContext, SecretMaskExt};
 use nook_core::server::{AppState, Server};
 use nook_core::supervisor::WorkerSupervisor;
 use std::collections::HashMap;
@@ -27,7 +27,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         }
     }
 
-    let secret_context = SecretContext::default();
+    let secret_context = SecretContext {
+        store: Arc::new(OsSecretStore::default_for_os()),
+        mask: Arc::default(),
+    };
     let mask = secret_context.mask.clone();
     tracing_subscriber::fmt()
         .with_writer(move || RedactingWriter::new(shutdown::SafeStderr, mask.clone()))

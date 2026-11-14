@@ -1264,3 +1264,72 @@ async fn a_stopped_server_shows_as_stopped_until_a_call_starts_it() {
     run(&mut h, Uuid::new_v4(), "c2", ECHO, json!({ "text": "hi" })).await;
     assert_eq!(h.state.providers.sources()[0].state, ToolSourceState::Ready);
 }
+
+#[tokio::test]
+async fn a_store_error_that_holds_the_secret_bytes_never_reaches_a_report_or_the_log() {
+    use keyring_core::api::CredentialStoreApi;
+    use nook_core::secrets::{OsSecretStore, SecretContext};
+    use std::sync::Mutex;
+
+    let record_dir = tempfile::tempdir().unwrap();
+    let record_path = record_dir.path().canonicalize().unwrap();
+    let Some(sandbox) = sandbox().await else {
+        return;
+    };
+
+    let secret_bytes = b"super-confidential-credential-bytes";
+    let mock = keyring_core::mock::Store::new().unwrap();
+    let entry = mock
+        .build("Nook MCP", "google-docs-client-secret", None)
+        .unwrap();
+    let cred: &keyring_core::mock::Cred = entry.as_any().downcast_ref().unwrap();
+    cred.set_error(keyring_core::Error::BadEncoding(secret_bytes.to_vec()));
+
+    let store = Arc::new(OsSecretStore::with_store(mock));
+    let secrets = SecretContext {
+        store,
+        mask: Arc::default(),
+    };
+
+    let mut config = docs_server(&record_path);
+    config.env_secrets.insert(
+        "GOOGLE_DRIVE_MCP_CLIENT_SECRET".to_string(),
+        "google-docs-client-secret".to_string(),
+    );
+
+    let log_buffer = Arc::new(Mutex::new(Vec::new()));
+    let buffer_clone = log_buffer.clone();
+    struct LogCapture(Arc<Mutex<Vec<u8>>>);
+    impl std::io::Write for LogCapture {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let subscriber = tracing_subscriber::fmt()
+        .with_writer(move || LogCapture(buffer_clone.clone()))
+        .finish();
+    let _guard = tracing::subscriber::set_default(subscriber);
+
+    let (provider, failed) =
+        McpProvider::start_reporting(&[config], &sandbox, quick(), secrets).await;
+
+    assert!(provider.is_none());
+    assert_eq!(failed.len(), 1);
+    assert_eq!(failed[0].state, ToolSourceState::Off);
+    let reason = failed[0].reason.as_ref().expect("failure reason");
+    let secret_text = "super-confidential-credential-bytes";
+    assert!(
+        !reason.contains(secret_text),
+        "failure report must not contain secret bytes: {reason}"
+    );
+
+    let logged = String::from_utf8_lossy(&log_buffer.lock().unwrap()).to_string();
+    assert!(
+        !logged.contains(secret_text),
+        "captured log must not contain secret bytes: {logged}"
+    );
+}

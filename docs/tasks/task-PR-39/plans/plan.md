@@ -137,7 +137,7 @@ Rules for every task:
   value read from inside). The new test fails first because the arguments hold
   the value. Check: Daemon `rtk cargo test` and clippy. The Linux sandbox tests
   run in CI.
-- [ ] **8. The operating system store.** `daemon/Cargo.toml`,
+- [x] **8. The operating system store.** `daemon/Cargo.toml`,
   `daemon/crates/nook-core/Cargo.toml`, `daemon/crates/nookd/Cargo.toml`,
   `daemon/crates/nookctl/Cargo.toml`, `daemon/Cargo.lock`,
   `daemon/crates/nook-core/src/secrets.rs`, `daemon/crates/nookd/src/main.rs`,
