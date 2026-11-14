@@ -21,6 +21,17 @@
 | G1 note | Under option 1 the Cedar `folder` condition never fails. | fix | `open-gaps.md` G1 recommendation says so. |
 | G3 note | `scripts/bundle.sh` signs with no `--entitlements`. | fix | `specs/design.md` "Signing check": `bundle.sh` gets only the usage description. |
 
+## Round 2 (spec)
+
+- Head: pending
+- Reviewer: the T3 reviewer, follow-up of round 1
+- SonarCloud:
+- Checks:
+- Gaps closed by recommendation: none
+
+| # | Finding | Action | Where |
+| --- | --- | --- | --- |
+
 ## Commands run
 
 One row for each named check that the task adds to a rule or a document. A row lists the commands of its check.
