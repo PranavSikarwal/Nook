@@ -55,7 +55,9 @@ Out of scope:
    housekeeping task (PR #42, branch `chore/plans-housekeeping`). This task does
    not edit them. PR #42 does not change the row of item 11 in
    `docs/plans/open-items-fixes.md`, so the row is stale after this merge. Gap
-   G5 says who changes it.
+   G5 says who changes it. `docs/plans/README.md` on the branch of PR #42 also
+   says "The notice for a refused call remains open in PR 41", and that line
+   goes stale too. This spec assumes G5 (b) or (c).
 
 ## Design
 

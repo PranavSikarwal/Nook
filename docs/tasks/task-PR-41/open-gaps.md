@@ -95,18 +95,22 @@ Each entry records one question and its decision. The format is in
 
 - Stage: 3 spec review (found by the round 2 review, finding S4)
 - Question: the row says "Open ... Waits for a decision." After this merge it is
-  wrong. The housekeeping task (PR #42) owns `docs/plans/` and does not change
-  this row. Who changes it, and when?
+  wrong. `docs/plans/README.md` on the branch of PR #42 also says "The notice for
+  a refused call remains open in PR 41", and that line goes stale too. The
+  housekeeping task (PR #42) owns `docs/plans/` and changes neither. Who changes
+  the row and the README line, and when?
 - Options:
-  (a) This pull request edits the one table cell, as a plan task, after PR #42
-  merges. This needs a merge of `origin/main` first and can conflict with the
-  moves of PR #42.
-  (b) A later small change edits the cell after both pull requests merge. The
-  owner starts it, or accepts it as a `deferred` gap at gate 2.
-  (c) The owner asks the housekeeping task to change the cell in PR #42, with
-  the commit of this fix as its evidence.
-- Recommendation: (b). It avoids a conflict with the moves in PR #42 and keeps
-  this pull request inside its own files.
+  (a) This pull request edits the one table cell, as a plan task. This edits a
+  file that the owner gave to the housekeeping task, and the spec changes: the
+  task returns to gate 1.
+  (b) A later small change edits the cell and the README line after both pull
+  requests merge. The owner starts it, or accepts it as a `deferred` gap at
+  gate 2.
+  (c) The owner asks the housekeeping task to change the row and the README
+  line in PR #42, with the commit of this fix as its evidence.
+- Recommendation: (b). The owner gave `docs/plans/` to the housekeeping task, so
+  this pull request keeps out of it. Option (c) is as good, if PR #42 is still
+  open when the owner decides.
 - Decision:
 - Decided by:
 - Date:

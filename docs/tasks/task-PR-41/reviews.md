@@ -33,14 +33,16 @@
 
 ## Round 3 (spec)
 
-- Head: (the commit that adds this heading)
+- Head: c45815798f1a1e8e5260a77919513f8625c8a7d4 (the commit that adds this heading)
 - Reviewer: the T3 reviewer (follow-up of round 2)
 - SonarCloud: not applicable to a docs-only head
 - Checks: not applicable to a docs-only head
 - Gaps closed by recommendation: none
+- Review: `Verdict: COMMENT (P0: 0, P1: 0, P2: 0, P3: 1)` from `PranavSikarwal`, on this head. S4 is fixed.
 
 | # | Finding | Action | Where |
 | --- | --- | --- | --- |
+| S6 | G5 states a conflict with PR #42 that does not exist, and leaves out the stale line in `docs/plans/README.md` (P3). | fix: conflict claim removed, ownership given as the reason, README line added, assumption stated | `open-gaps.md` G5; `specs/design.md` Scope |
 
 ## Commands run
 
