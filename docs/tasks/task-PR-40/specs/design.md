@@ -140,7 +140,9 @@ Four rules keep the swap correct. Each one has a test.
    it in `ProviderHandle` and calls `update_tools`. It runs under the write lock
    of `state.config`, the same lock that `folders.rs` takes. A link event and a
    folder change then cannot lose each other's update (`AGENTS.md` Design 6).
-   The folder path calls this function too.
+   The folder path calls this function too. `folders.rs` already holds that
+   lock in `apply`, and the lock is not re-entrant, so the function takes the
+   held guard as an argument and never takes the lock a second time.
 3. **Waiting approvals.** After each link change, the Daemon calls
    `deny_stale_approvals`. For a waiting approval of the Notes tool, the reason
    is `The desktop is not available`. Today an unknown tool gets the reason
@@ -154,8 +156,13 @@ that finds no link is rare. Two cases remain:
 - The link closes while the call waits. The call holds the registry it took, so
   it fails with `Error: the desktop is not available`.
 - The model calls the tool after the swap but before its Worker has the new
-  catalog. The registry no longer has the tool, so the call fails with `Unknown
-  tool`. The model then sees the new catalog on its next turn.
+  catalog. The registry no longer has the tool, and `tools.yaml` still lists it.
+  The check at `tool_approval.rs:370-377` then denies the call with the reason
+  `Tool runs in the Worker`, and a denial ends the reply ("Denial ends the reply"
+  in `docs/tools-and-authorization.md`). The window is the short time between the
+  swap and the rebuild of the Worker. A distinct reason would need a way to tell a
+  Daemon tool from a Worker tool in that check, which is more than this task
+  needs. A test pins this behavior, and the docs say it.
 
 Nothing queues for later.
 
@@ -329,7 +336,7 @@ registers the desktop link on every platform, so the native tests run on Ubuntu.
 | Case | Result |
 | --- | --- |
 | The link closes while the call waits | `Error: the desktop is not available`. |
-| The call runs after the link closed and the registry changed | `Unknown tool`. The next catalog removes the tool. |
+| The call runs after the link closed and the registry changed | The Daemon denies it with `Tool runs in the Worker`, and the reply ends. The next catalog removes the tool. |
 | A waiting approval when the link closes | The Daemon denies it with the reason `The desktop is not available`. |
 | A second desktop registers | The Daemon answers with an `error` and keeps the first link. |
 | An old Daemon refuses `register_desktop` | The Panel logs it, offers no tool and tries again after 60 seconds. |
@@ -387,8 +394,10 @@ check` in `panel/src-tauri`):
 2. Panel Rust, from `panel/src-tauri/`: `rtk cargo test` and `rtk cargo clippy
    --all-targets -- -D warnings`. These are new in `docs/testing.md`, and the
    `Code Quality and Tests` job gets a step for each. If the base commit already
-   fails clippy, the first plan task records the failures as a gap, and the
-   owner decides.
+   fails clippy, or a test of `panel/src-tauri/src/lib.rs` fails on the CI
+   runner, the first plan task records the failure as a gap, and the owner
+   decides. The CI step runs only after the first plan task shows that both
+   commands pass on the base.
 3. Contracts: `rtk uv run --with pytest --with jsonschema pytest tests/contracts
    panel/e2e/test_fake_worker.py`.
 4. Native: `rtk npm run test:e2e:deterministic` from `panel/`.

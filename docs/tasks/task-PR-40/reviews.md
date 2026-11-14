@@ -23,8 +23,23 @@
 
 ## Round 2 (spec)
 
+- Head: `9d191c3d26bb4cb61c1aafbdef22685f9439a3c9`
+- Reviewer: the T3 reviewer, follow-up of round 1. Verdict: COMMENT (P0: 0, P1: 0, P2: 1, P3: 0). It resolved the threads of S1, S3, S4 and S5.
+- SonarCloud: Quality Gate passed.
+- Checks: all four pass. The CI gate check passes.
+- Gaps closed by recommendation: none
+
+| # | Finding | Action | Where |
+| --- | --- | --- | --- |
+| S2 (P2) | A call after the swap is denied with `Tool runs in the Worker` (`tool_approval.rs:370-377`), not `Unknown tool`, and the denial ends the reply. | fix | `specs/design.md` "Offering the tool" and the failure table: the spec states the denial and a test pins it. |
+| R1 | The tokio lock in `folders.rs` `apply` is not re-entrant. | fix | `specs/design.md` "Offering the tool" rule 2: the function takes the held guard. |
+| R2 | The new Panel `cargo test` step may fail on the CI runner. | fix | `specs/design.md` "Commands": the gap rule covers tests, and the CI step comes after the base passes. |
+| G4 | The reviewer recommends option 2 with an addition. | ask owner | `open-gaps.md` G4 lists both options and the reviewer's position. |
+
+## Round 3 (spec)
+
 - Head: pending
-- Reviewer: the T3 reviewer, follow-up of round 1
+- Reviewer: the T3 reviewer, follow-up of round 2
 - SonarCloud:
 - Checks:
 - Gaps closed by recommendation: none
