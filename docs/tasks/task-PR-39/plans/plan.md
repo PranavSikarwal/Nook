@@ -221,6 +221,17 @@ Rules for every task:
   that on Linux the server environment no longer shows in the process command
   line. No version bump. Check: `git diff --check origin/main HEAD` prints
   nothing.
+- [ ] **13. Fix the SonarCloud reliability finding in `nookctl`.**
+  `daemon/crates/nookctl/src/main.rs`. SonarCloud failed the Quality Gate on
+  head `efd389a` (`C Reliability Rating on New Code`, required A): `main` in
+  `nookctl` is an `async fn` that calls the blocking `std::fs::create_dir_all`
+  (line 287), `std::fs::metadata` (line 297) and `std::fs::copy` (line 316).
+  The task 9 edit of `main` made the function new code. Replace the three calls
+  with `tokio::fs::create_dir_all`, `tokio::fs::metadata` and `tokio::fs::copy`
+  (same errors, same behavior), and change nothing else. The fourth finding
+  (cognitive complexity 82 of 30 allowed, line 91) is not a gate condition; do
+  not refactor `main` for it. Check: Daemon `rtk cargo test` and clippy, and
+  the SonarCloud check on the pushed head.
 
 ## Order and why
 
