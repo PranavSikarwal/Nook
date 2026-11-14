@@ -2,7 +2,8 @@ use crate::providers::ProviderRegistry;
 use crate::server::AppState;
 use std::time::Duration;
 
-/// Returns false when cleanup does not finish within `timeout`.
+/// Stops the Worker, running tool tasks, and providers in that order.
+/// Each step waits for its work to finish, up to `timeout` for all steps.
 pub async fn stop_everything(state: &AppState, timeout: Duration) -> bool {
     tokio::time::timeout(timeout, async {
         let supervisor = state.supervisor.lock().await.clone();

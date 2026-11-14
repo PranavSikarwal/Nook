@@ -192,6 +192,7 @@ pub fn windows_pipe_name() -> std::io::Result<String> {
 }
 
 #[cfg(unix)]
+/// Removes the socket path only when it still names the owned socket.
 pub fn remove_socket_if_owned(socket_path: &Path, expected_identity: (u64, u64)) -> bool {
     use std::os::unix::fs::MetadataExt;
     if let Ok(meta) = std::fs::symlink_metadata(socket_path) {
@@ -267,6 +268,7 @@ impl Server {
     }
 
     #[cfg(unix)]
+    /// Returns the socket's device and inode numbers.
     pub fn socket_identity(&self) -> (u64, u64) {
         self.socket_identity
     }

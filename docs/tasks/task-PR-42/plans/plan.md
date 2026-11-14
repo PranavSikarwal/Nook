@@ -129,7 +129,7 @@ Tasks 6 to 10 touch `daemon/`. Their checks are `cd daemon && cargo fmt --check`
   result in the report. Change no non-test code. Check: the new test passes and
   the three daemon checks pass. Commit:
   `test(daemon): refuse to remove a symlink at the socket path`.
-- [ ] **10. Finding #20: doc comments and docs.** Doc comments of one or two
+- [x] **10. Finding #20: doc comments and docs.** Doc comments of one or two
   lines (AGENTS.md "Comments") for `stop_everything` (what it stops, in which
   order, and that every step waits), `abort_all_running_tools` (it waits for the
   tasks to finish), `socket_identity` (it returns `(dev, ino)`) and

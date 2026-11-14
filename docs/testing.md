@@ -110,7 +110,8 @@ chat grants inside a folder that becomes read only are dropped
 (`a_read_only_change_drops_the_chat_grants_inside_the_folder`). `folders.rs` holds
 unit tests for the path checks. `socket_ownership_tests.rs` sets its folder mode
 itself because `Server::bind` changes the process-wide umask for a moment.
-`signal_shutdown_tests.rs` verifies that the Daemon exits cleanly and removes its socket within 5 seconds of receiving SIGTERM or SIGINT.
+`signal_shutdown_tests.rs` verifies that the Daemon exits cleanly and removes its socket within 5 seconds of receiving SIGTERM or SIGINT. Its `TestDaemon` kills the Worker when a test ends, so a failing run leaves no Worker.
+`provider_execution_tests.rs` verifies that `stop_everything` aborts a running tool call and drops the provider (`stop_everything_aborts_running_tool_calls`, `stop_everything_drops_the_provider`). `supervisor_tests.rs` verifies that a shutdown kills a Worker that ignores the close of its standard input (`shutdown_kills_a_worker_that_ignores_stdin_close`). `socket_ownership_tests.rs` verifies that shutdown keeps a socket that another listener took over and a symlink at the socket path (`shutdown_keeps_a_symlink_at_the_socket_path`).
 `panel/e2e/specs/folders.spec.mjs` (6 tests, part of the 10 specs and 43 tests of the
 native suite on Linux) opens the tab through the `open_settings` event that the macOS
 menu sends, adds a folder (the test build reads it from `NOOK_E2E_PICK_FOLDER`), and
