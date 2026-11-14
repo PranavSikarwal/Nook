@@ -233,6 +233,63 @@ Rules for every task:
   not refactor `main` for it. Check: Daemon `rtk cargo test` and clippy, and
   the SonarCloud check on the pushed head.
 
+## Round 1
+
+- [ ] **R1-1. One masking routine, longest secret first (C1, C5).**
+  `daemon/crates/nook-core/src/secrets.rs`,
+  `daemon/crates/nook-core/src/daemon_log.rs`. `SecretMask::add` keeps the list
+  sorted by length, longest first. `scrub` replaces in that order. `add` and
+  `scrub` handle a poisoned lock with `unwrap_or_else(PoisonError::into_inner)`
+  and never fail open. `redact_line` in `daemon_log.rs` (the Panel path) calls
+  the same function as `scrub`, so the repository has one masking routine. Test:
+  `a_longer_secret_that_contains_a_shorter_one_is_fully_masked` (add `abcd`, then
+  `abcd-REFRESH-9z`, scrub text with the long value, assert that no part of the
+  long value remains) and a test that a poisoned lock still scrubs. Each fails
+  first. Check: Daemon `rtk cargo test` and clippy.
+- [ ] **R1-2. Sandbox test and `Debug` of the spec (C2, C4).**
+  `daemon/crates/nook-core/src/sandbox.rs`,
+  `daemon/crates/nook-core/tests/sandbox_tests.rs`. Replace `#[derive(Debug)]` on
+  `SandboxSpec` with a manual `Debug` that prints the `env` names only, with a
+  unit test that a secret value in `env` never shows in `format!("{:?}", spec)`.
+  Rewrite `a_sandboxed_command_sees_its_environment_and_no_host_variables`: set a
+  marker variable in the host environment (as `mcp_tool_tests.rs` does with
+  `NOOK_TEST_LEAK`), run `env` in the sandbox, and assert that the spec
+  variables are present and that the marker and the host `HOME` are absent. It
+  must not depend on `USER`. Check: Daemon `rtk cargo test` and clippy.
+- [ ] **R1-3. MCP start path (C3, C7 test, C10).**
+  `daemon/crates/nook-core/src/providers/mcp.rs`,
+  `daemon/crates/nook-core/tests/mcp_tool_tests.rs`. An empty value from the
+  store is treated as `SecretError::Missing` in `start_server`. The startup
+  error text that goes to the Panel report is scrubbed with the mask
+  (`mcp_off(&accepted[position].name, &error)` path). `check_server_settings`
+  keeps the `LD_` and `DYLD_` rule and its message in one helper. The test
+  `a_restart_with_a_missing_secret_logs_a_fixed_text_and_the_call_fails`
+  captures the log (as the store-error test does) and asserts the fixed text.
+  New tests: an empty stored value keeps the server off and names the secret; a
+  startup error that holds a secret value is scrubbed. Check: Daemon
+  `rtk cargo test` and clippy.
+- [ ] **R1-4. `check_name` text and one trim in `nookctl` (C6, C9).**
+  `daemon/crates/nook-core/src/secrets.rs`,
+  `daemon/crates/nookctl/src/main.rs`,
+  `daemon/crates/nookctl/tests/secret_tests.rs`. A new `SecretError::Refused`
+  with a fixed text for an empty name and the name `model-api-key` (replace the
+  `Unreadable` result of `check_name`, and update the tests that expect it).
+  `run_secret_command` calls `set_from_reader` on the raw reader and the
+  duplicate trim code is deleted, so the input `x\n\n` stores `x\n`. Add a doc
+  comment of one or two lines to the public items `SecretStore`, `check_name`,
+  `SecretMask` and `check_server_settings` (state what `Missing`,
+  `Unavailable`, `Unreadable` and `Refused` mean). Check: Daemon `rtk cargo test`
+  and clippy.
+- [ ] **R1-5. Docs claim and the Panel lock (C7 doc, C8).**
+  `docs/testing.md`, `panel/src-tauri/Cargo.lock`. Reword the `docs/testing.md`
+  sentence on `sandbox_tests.rs`: the test checks the argument list that
+  `bubblewrap_args` builds, and does not inspect a process. Restore
+  `panel/src-tauri/Cargo.lock` from `origin/main` (`git checkout origin/main --
+  panel/src-tauri/Cargo.lock`) and make sure that
+  `cargo metadata --locked --manifest-path panel/src-tauri/Cargo.toml
+  --format-version 1 > /dev/null` still passes. Check: that command, and
+  `git diff --check origin/main HEAD` prints nothing.
+
 ## Order and why
 
 1. Tasks 1 and 2 come first, as the spec asks: the signature change reaches

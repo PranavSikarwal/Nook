@@ -110,11 +110,11 @@ No findings. The spec went through rounds 1 to 6 with the owner's decisions G1 t
 
 ## Round 1 (code)
 
-- Head: pending (the commit that adds this heading)
+- Head: `03db730db01a6eac6e747ca825fa2fe5c7575a59`
 - Reviewer: the T3 reviewer ("Review Pull Requests"). The task changes the sandbox, authorization-adjacent MCP code and the Daemon core, so the review standard requires it.
-- Verdict:
-- SonarCloud:
-- Checks:
+- Verdict: `Verdict: COMMENT (P0: 0, P1: 0, P2: 2, P3: 8)` (review 5903614644). 0 threads are unresolved.
+- SonarCloud: Quality Gate passed.
+- Checks: `Code Quality and Tests`, `Windows named-pipe IPC`, `SonarCloud Code Analysis` and `Native Tauri E2E Gate` pass on the head.
 - Gaps closed by recommendation: none
 - Found in stage 6, before this round:
   1. SonarCloud failed the Quality Gate on head `efd389a` (`C Reliability Rating on New Code`): three blocking file calls in the async `main` of `nookctl`. Fixed by plan task 13 (`494b770`). SonarCloud passes on the later heads.
@@ -125,6 +125,16 @@ No findings. The spec went through rounds 1 to 6 with the owner's decisions G1 t
 | --- | --- | --- | --- |
 | P-1 (stage 6) | SonarCloud reliability finding in `nookctl` | fix | plan task 13, `494b770` |
 | P-2 (stage 6) | Test helper that never returns hangs CI | fix (small) | `67e0c5f` |
+| C1 (P2) | Replacement order leaks the tail of a longer secret; two masking routines exist. | fix | plan R1-1 |
+| C2 (P2) | The sandbox environment test fails when `USER` is unset on the host, and checks one variable only. | fix | plan R1-2 |
+| C3 (P3) | An empty stored value starts the server; the startup error reaches the report unscrubbed. | fix | plan R1-3 |
+| C4 (P3) | `SandboxSpec` derives `Debug` and holds secret values. | fix | plan R1-2 |
+| C5 (P3) | Lock poisoning is handled two ways, and `scrub` fails open. | fix | plan R1-1 |
+| C6 (P3) | The newline is trimmed twice, and `check_name` gives a misleading text. | fix | plan R1-4 |
+| C7 (P3) | The restart test never reads the log, and `docs/testing.md` says more than the test checks. | fix | plan R1-3 and R1-5 |
+| C8 (P3) | The Panel `Cargo.lock` has 14 unrelated changed lines. | fix | plan R1-5 |
+| C9 (P3) | Four public items have no doc comment. | fix | plan R1-4 |
+| C10 (P3) | `check_server_settings` writes the `LD_` message twice. | fix | plan R1-3 |
 
 ## Commands run
 
