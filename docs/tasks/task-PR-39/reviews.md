@@ -154,15 +154,16 @@ No findings. The spec went through rounds 1 to 6 with the owner's decisions G1 t
 
 ## Round 3 (code)
 
-- Head: pending (the commit that adds this heading)
+- Head: `30461c07f902aae8f80571d9ef409a0414418526` (reviewed head)
 - Reviewer: the T3 reviewer ("Review Pull Requests"), follow-up of review 5904434533.
-- Verdict:
-- SonarCloud:
-- Checks:
-- Open threads from round 2: C11 and C12.
+- Verdict: `Verdict: APPROVE (P0: 0, P1: 0, P2: 0, P3: 0)` (posted 2026-11-14T17:23:26Z, id PRR_kwDOU538GM8AAAABYAdxyg). The reviewer resolved both threads. No thread is open.
+- SonarCloud: Quality Gate passed, 0 hotspots, 1 new issue at `daemon/crates/nookctl/src/main.rs:78` (rule not readable, the owner decides at gate 2).
+- Checks: all four pass on the head (run 43619111087 and native gate run 43619114308). The CI gate check printed `GATE_PASS`.
+- Fix commits for round 2: R2-1 `89a8b7e`, R2-2 `8f10689`. Both closed C11 and C12.
 
 | # | Finding | Action | Where |
 | --- | --- | --- | --- |
+| - | No new finding. | none | - |
 
 ## Commands run
 
