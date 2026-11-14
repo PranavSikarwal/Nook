@@ -99,14 +99,14 @@ The review makes four notes for the plan, not findings:
 
 ## Round 6 (spec)
 
-- Head: pending (the commit that adds this heading)
+- Head: `f2206ef94a2cb202d1588b7103d67b81b115f466` (the reviewed head)
 - Reviewer: the T3 reviewer ("Review Pull Requests"), follow-up of round 5.
-- SonarCloud:
-- Checks:
-- Gaps closed by recommendation: none
+- Verdict: `Verdict: APPROVE (P0: 0, P1: 0, P2: 0, P3: 0)` (review 5901867062). 0 threads are unresolved.
+- SonarCloud: Quality Gate passed.
+- Checks: all four pass on the head (`Code Quality and Tests`, `Windows named-pipe IPC`, `SonarCloud Code Analysis`, `Native Tauri E2E Gate`, run 43561832880). The CI gate check printed `GATE_OK`.
+- Gaps closed by recommendation: none. G1 to G9 are decided by the owner.
 
-| # | Finding | Action | Where |
-| --- | --- | --- | --- |
+No findings. The spec went through rounds 1 to 6 with the owner's decisions G1 to G9 in between.
 
 ## Commands run
 
