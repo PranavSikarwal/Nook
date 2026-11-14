@@ -268,7 +268,7 @@ Rules for every task:
   New tests: an empty stored value keeps the server off and names the secret; a
   startup error that holds a secret value is scrubbed. Check: Daemon
   `rtk cargo test` and clippy.
-- [ ] **R1-4. `check_name` text and one trim in `nookctl` (C6, C9).**
+- [x] **R1-4. `check_name` text and one trim in `nookctl` (C6, C9).**
   `daemon/crates/nook-core/src/secrets.rs`,
   `daemon/crates/nookctl/src/main.rs`,
   `daemon/crates/nookctl/tests/secret_tests.rs`. A new `SecretError::Refused`

@@ -12,8 +12,14 @@ pub enum SecretError {
     Unavailable,
     #[error("Secret cannot be read")]
     Unreadable,
+    #[error("Secret name is not allowed")]
+    Refused,
+    #[error("The value is empty.")]
+    Empty,
 }
 
+/// Stores named secrets. `Missing`: no value under the name. `Unavailable`: the store cannot be used.
+/// `Unreadable`: a value exists but cannot be read. `Refused`: the name is not allowed (see `check_name`).
 pub trait SecretStore: Send + Sync {
     fn get(&self, name: &str) -> Result<String, SecretError>;
     fn set(&self, name: &str, value: &str) -> Result<(), SecretError>;
@@ -25,9 +31,10 @@ pub struct MemorySecretStore {
     values: RwLock<BTreeMap<String, String>>,
 }
 
+/// Refuses an empty name and `model-api-key`, the name reserved for the model key.
 pub fn check_name(name: &str) -> Result<(), SecretError> {
     if name.is_empty() || name == "model-api-key" {
-        Err(SecretError::Unreadable)
+        Err(SecretError::Refused)
     } else {
         Ok(())
     }
@@ -192,6 +199,7 @@ impl SecretStore for OsSecretStore {
     }
 }
 
+/// Values to hide from logs and results. Each value has at least four characters, longest first.
 pub type SecretMask = Arc<RwLock<Vec<String>>>;
 
 #[derive(Clone)]
@@ -261,7 +269,7 @@ pub fn set_from_reader(
         value.pop();
     }
     if value.is_empty() {
-        return Err(SecretError::Unreadable);
+        return Err(SecretError::Empty);
     }
     store.set(name, &value)
 }
@@ -286,19 +294,16 @@ mod tests {
         assert_eq!(store.get("b"), Ok("two".into()));
         assert_eq!(
             set_from_reader(&store, "c", &b"\n"[..]),
-            Err(SecretError::Unreadable)
+            Err(SecretError::Empty)
         );
     }
     #[test]
     fn the_model_key_name_is_refused_by_every_store_call() {
         let store = MemorySecretStore::default();
-        assert_eq!(store.get("model-api-key"), Err(SecretError::Unreadable));
-        assert_eq!(
-            store.set("model-api-key", "x"),
-            Err(SecretError::Unreadable)
-        );
-        assert_eq!(store.delete("model-api-key"), Err(SecretError::Unreadable));
-        assert_eq!(store.get(""), Err(SecretError::Unreadable));
+        assert_eq!(store.get("model-api-key"), Err(SecretError::Refused));
+        assert_eq!(store.set("model-api-key", "x"), Err(SecretError::Refused));
+        assert_eq!(store.delete("model-api-key"), Err(SecretError::Refused));
+        assert_eq!(store.get(""), Err(SecretError::Refused));
     }
     #[test]
     fn secret_mask_adds_values_of_at_least_four_chars_and_scrubs_them() {
@@ -346,15 +351,15 @@ mod tests {
         let store = OsSecretStore::with_store(mock);
 
         // Refused names
-        assert_eq!(store.get(""), Err(SecretError::Unreadable));
-        assert_eq!(store.set("", "value"), Err(SecretError::Unreadable));
-        assert_eq!(store.delete(""), Err(SecretError::Unreadable));
-        assert_eq!(store.get("model-api-key"), Err(SecretError::Unreadable));
+        assert_eq!(store.get(""), Err(SecretError::Refused));
+        assert_eq!(store.set("", "value"), Err(SecretError::Refused));
+        assert_eq!(store.delete(""), Err(SecretError::Refused));
+        assert_eq!(store.get("model-api-key"), Err(SecretError::Refused));
         assert_eq!(
             store.set("model-api-key", "value"),
-            Err(SecretError::Unreadable)
+            Err(SecretError::Refused)
         );
-        assert_eq!(store.delete("model-api-key"), Err(SecretError::Unreadable));
+        assert_eq!(store.delete("model-api-key"), Err(SecretError::Refused));
 
         // Missing
         assert_eq!(store.get("not-found"), Err(SecretError::Missing));

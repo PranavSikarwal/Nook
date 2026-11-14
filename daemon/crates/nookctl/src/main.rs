@@ -54,27 +54,14 @@ fn format_secret_error(err: SecretError, name: &str) -> String {
 pub fn run_secret_command(
     store: &dyn SecretStore,
     command: SecretCommand,
-    mut input: impl Read,
+    input: impl Read,
 ) -> Result<String, String> {
     match command {
         SecretCommand::Set { name } => {
-            check_name(&name).map_err(|err| format_secret_error(err, &name))?;
-            let mut raw = Vec::new();
-            input
-                .read_to_end(&mut raw)
-                .map_err(|_| format_secret_error(SecretError::Unreadable, &name))?;
-            let mut value = String::from_utf8(raw)
-                .map_err(|_| format_secret_error(SecretError::Unreadable, &name))?;
-            if value.ends_with("\r\n") {
-                value.truncate(value.len() - 2);
-            } else if value.ends_with('\n') {
-                value.pop();
-            }
-            if value.is_empty() {
-                return Err("The value is empty.".to_string());
-            }
-            set_from_reader(store, &name, value.as_bytes())
-                .map_err(|err| format_secret_error(err, &name))?;
+            set_from_reader(store, &name, input).map_err(|err| match err {
+                SecretError::Empty => err.to_string(),
+                other => format_secret_error(other, &name),
+            })?;
             Ok(format!("Stored the secret \"{name}\"."))
         }
         SecretCommand::Delete { name } => {
@@ -450,7 +437,7 @@ mod tests {
         );
         assert_eq!(
             res_set,
-            Err("Secret cannot be read: \"model-api-key\".".to_string())
+            Err("Secret name is not allowed: \"model-api-key\".".to_string())
         );
 
         let res_del = run_secret_command(
@@ -462,7 +449,21 @@ mod tests {
         );
         assert_eq!(
             res_del,
-            Err("Secret cannot be read: \"model-api-key\".".to_string())
+            Err("Secret name is not allowed: \"model-api-key\".".to_string())
         );
+    }
+
+    #[test]
+    fn input_with_two_trailing_newlines_keeps_one_newline() {
+        let store = MemorySecretStore::default();
+        let res = run_secret_command(
+            &store,
+            SecretCommand::Set {
+                name: "test-secret".to_string(),
+            },
+            &b"x\n\n"[..],
+        );
+        assert_eq!(res, Ok("Stored the secret \"test-secret\".".to_string()));
+        assert_eq!(store.get("test-secret"), Ok("x\n".to_string()));
     }
 }
