@@ -34,7 +34,7 @@ Tasks 6 to 10 touch `daemon/`. Their checks are `cd daemon && cargo fmt --check`
 
 ## Tasks
 
-- [ ] **1. Archive the finished plans.** `git mv` these six files from
+- [x] **1. Archive the finished plans.** `git mv` these six files from
   `docs/plans/` to `docs/archive/plans/`: `allowed-folders-hardening.md`,
   `pr32-sonar-gate-fixes.md`, `pr32-review-response.md`,
   `sonar-complexity-cleanup.md`, `node-24-upgrade.md`, `macos-runner-update.md`.
