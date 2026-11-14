@@ -1,7 +1,8 @@
 # Nook implementation plan
 
-Nook has one active implementation plan. The completed plans and retired version
-1 specifications are historical records in `docs/archive/`.
+The active plans are in `docs/plans/`, and `docs/plans/README.md` lists them.
+The completed plans and retired version 1 specifications are historical records
+in `docs/archive/`.
 
 ## Active work
 
