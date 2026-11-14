@@ -256,7 +256,14 @@ impl ProviderRegistry {
             .map_err(|_| ProviderError::InvalidArguments("Tool schema is invalid".to_string()))?;
         if let Some(error) = validator.iter_errors(arguments).next() {
             return Err(ProviderError::InvalidArguments(format!(
-                "Invalid arguments: {error}"
+                "Invalid arguments: {} at {}",
+                error
+                    .schema_path
+                    .as_str()
+                    .rsplit('/')
+                    .next()
+                    .unwrap_or("unknown"),
+                error.instance_path
             )));
         }
         self.provider(tool_id)?.facts(tool_id, arguments)
@@ -621,6 +628,52 @@ mod tests {
             registry.facts("nook:missing", &json!({})),
             Err(ProviderError::UnknownTool)
         );
+    }
+
+    #[test]
+    fn schema_error_does_not_include_the_refused_value_for_fixed_provider() {
+        let mut tool = descriptor("nook:a", "a_tool");
+        tool.input_schema =
+            json!({"type":"object","properties":{"a":{"type":"integer"}},"required":["a"]});
+        let registry = registry(vec![tool]).unwrap();
+
+        let error = registry
+            .facts("nook:a", &json!({"a":"secret-value"}))
+            .unwrap_err();
+        let ProviderError::InvalidArguments(message) = error else {
+            panic!("unexpected error");
+        };
+        assert!(message.contains("a"));
+        assert!(message.contains("type"));
+        assert!(!message.contains("secret-value"));
+        assert!(!message.contains("type mismatch"));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn schema_error_does_not_include_the_refused_value_for_file_provider() {
+        use crate::config::{FilesystemConfig, RootAccess, RootConfig};
+
+        let dir = tempfile::tempdir().unwrap();
+        let tools = ToolsConfig {
+            filesystem: FilesystemConfig {
+                roots: vec![RootConfig {
+                    path: dir.path().display().to_string(),
+                    access: RootAccess::Read,
+                }],
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let registry = build_registry(&tools).await;
+
+        let error = registry
+            .facts("nook:read_local_file", &json!({"path":["secret-value"]}))
+            .unwrap_err();
+        let ProviderError::InvalidArguments(message) = error else {
+            panic!("unexpected error");
+        };
+        assert!(!message.contains("secret-value"));
     }
 
     #[test]
