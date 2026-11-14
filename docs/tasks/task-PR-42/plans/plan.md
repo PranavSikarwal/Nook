@@ -56,7 +56,7 @@ Tasks 6 to 10 touch `daemon/`. Their checks are `cd daemon && cargo fmt --check`
   every `](x.md)` link in the file points at a file that exists
   (`for l in $(/usr/bin/grep -o -E '\]\([^)#]+' docs/plans/README.md | cut -c3-); do test -e "docs/plans/$l" || echo "missing $l"; done` prints nothing).
   Commit: `docs(plans): list the active plans in the plans README`.
-- [ ] **3. Fix `docs/plans/tool-platform-open-gaps.md`.** Update it to the
+- [x] **3. Fix `docs/plans/tool-platform-open-gaps.md`.** Update it to the
   facts above, with simple English and the existing numbering. Add the line
   "Updated on November 14, 2026." under the recorded date. Item 12 (stale
   Daemon) and item 14 (merge order of PR 31 and PR 32, both merged) are
