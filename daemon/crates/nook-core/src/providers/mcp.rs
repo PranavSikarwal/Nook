@@ -558,9 +558,11 @@ async fn start_server(
     let stdout = process.child.stdout.take().ok_or("no standard output")?;
     let stderr = process.child.stderr.take().ok_or("no standard error")?;
     let name = config.name.clone();
+    let mask = secrets.mask.clone();
     let stderr_task = tokio::spawn(async move {
         let mut lines = BufReader::new(stderr).lines();
         while let Ok(Some(line)) = lines.next_line().await {
+            let line = mask.scrub(&line);
             debug!(server = %name, "MCP stderr: {line}");
         }
     });

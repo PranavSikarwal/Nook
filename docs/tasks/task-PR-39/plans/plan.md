@@ -107,7 +107,7 @@ Rules for every task:
   `a_secret_printed_by_a_server_is_scrubbed_from_the_result` (`echoEnv` for the
   client secret returns `***`). It fails first because the scrub does not
   exist. Check: Daemon `rtk cargo test` and clippy.
-- [ ] **6. Redacting log writer in the Daemon.**
+- [x] **6. Redacting log writer in the Daemon.**
   `daemon/crates/nook-core/src/daemon_log.rs`,
   `daemon/crates/nook-core/src/providers/mcp.rs`,
   `daemon/crates/nookd/src/main.rs`,

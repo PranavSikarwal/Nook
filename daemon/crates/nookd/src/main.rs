@@ -1,8 +1,10 @@
 use nook_core::config::Config;
+use nook_core::daemon_log::{secrets_to_redact, RedactingWriter};
 use nook_core::db;
 use nook_core::keychain;
 use nook_core::policy_assets::{find_policy_directory, PolicyAssets};
 use nook_core::providers::{build_registry, ProviderHandle};
+use nook_core::secrets::{SecretContext, SecretMaskExt};
 use nook_core::server::{AppState, Server};
 use nook_core::supervisor::WorkerSupervisor;
 use std::collections::HashMap;
@@ -25,8 +27,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         }
     }
 
+    let secret_context = SecretContext::default();
+    let mask = secret_context.mask.clone();
     tracing_subscriber::fmt()
-        .with_writer(|| shutdown::SafeStderr)
+        .with_writer(move || RedactingWriter::new(shutdown::SafeStderr, mask.clone()))
         .init();
 
     // 0. Load .env if present
@@ -50,6 +54,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // 2. Read Keychain / env
     let api_key = keychain::get_api_key();
+    for secret in secrets_to_redact(&config, api_key.as_deref()) {
+        secret_context.mask.add(&secret);
+    }
 
     // 3. Connect to Postgres with 30s retry
     let pool = db::connect_with_retry(
@@ -80,8 +87,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     }
 
     // 6. Start Worker supervisor
-    let registry =
-        build_registry(&config.tools, nook_core::secrets::SecretContext::default()).await;
+    let registry = build_registry(&config.tools, secret_context.clone()).await;
     let descriptors = registry.descriptors().to_vec();
     let providers = ProviderHandle::new(registry);
     let supervisor =
