@@ -19,7 +19,7 @@ Rules for every task:
 
 ## Tasks
 
-- [ ] **1. Secret store module.** New `daemon/crates/nook-core/src/secrets.rs`,
+- [x] **1. Secret store module.** New `daemon/crates/nook-core/src/secrets.rs`,
   `daemon/crates/nook-core/src/lib.rs`. The module holds the trait
   `SecretStore` (`get`, `set`, `delete`, synchronous), the enum `SecretError`
   (missing, unavailable, unreadable) with a fixed text for each case and no raw
