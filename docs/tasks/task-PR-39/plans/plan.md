@@ -221,7 +221,7 @@ Rules for every task:
   that on Linux the server environment no longer shows in the process command
   line. No version bump. Check: `git diff --check origin/main HEAD` prints
   nothing.
-- [ ] **13. Fix the SonarCloud reliability finding in `nookctl`.**
+- [x] **13. Fix the SonarCloud reliability finding in `nookctl`.**
   `daemon/crates/nookctl/src/main.rs`. SonarCloud failed the Quality Gate on
   head `efd389a` (`C Reliability Rating on New Code`, required A): `main` in
   `nookctl` is an `async fn` that calls the blocking `std::fs::create_dir_all`

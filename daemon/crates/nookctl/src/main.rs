@@ -284,7 +284,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let att_dir =
                 nook_core::config::Config::default_attachments_dir().join(chat_id.to_string());
             if !attachments.is_empty() {
-                std::fs::create_dir_all(&att_dir)?;
+                tokio::fs::create_dir_all(&att_dir).await?;
             }
 
             let mut att_items = Vec::new();
@@ -294,7 +294,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .unwrap_or_default()
                     .to_string_lossy()
                     .to_string();
-                let size_bytes = std::fs::metadata(&src_path)
+                let size_bytes = tokio::fs::metadata(&src_path)
+                    .await
                     .map(|m| m.len() as i64)
                     .unwrap_or(0);
                 let ext = src_path
@@ -313,7 +314,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 let att_id = Uuid::new_v4();
                 let dest_path = att_dir.join(format!("{att_id}-{name}"));
-                std::fs::copy(&src_path, &dest_path)?;
+                tokio::fs::copy(&src_path, &dest_path).await?;
 
                 att_items.push(Attachment {
                     id: att_id,
