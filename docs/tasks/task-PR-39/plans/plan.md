@@ -190,7 +190,7 @@ Rules for every task:
   `simple-english` skill). The sample block must be the first `toml` block under
   the heading "Example: Google Docs". Check: `git diff --check origin/main HEAD`
   prints nothing.
-- [ ] **11. The sample test.** `daemon/crates/nook-core/src/providers/mcp.rs`,
+- [x] **11. The sample test.** `daemon/crates/nook-core/src/providers/mcp.rs`,
   `daemon/crates/nook-core/tests/docs_sample_tests.rs`. `valid_server_name`
   becomes a `pub` helper that the loader and the test both call (note N1).
   The new file holds `the_google_docs_sample_block_loads_as_a_valid_server`,

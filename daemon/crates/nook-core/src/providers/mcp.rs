@@ -463,7 +463,7 @@ pub struct McpProvider {
     secrets: SecretContext,
 }
 
-fn valid_server_name(name: &str) -> bool {
+pub fn valid_server_name(name: &str) -> bool {
     !name.is_empty()
         && name.len() <= 32
         && name
