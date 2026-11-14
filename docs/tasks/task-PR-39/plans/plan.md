@@ -160,7 +160,7 @@ Rules for every task:
   crates (`cargo tree -p` for the Panel, or a feature check). Each test fails
   first because `OsSecretStore` does not exist. Check: Daemon `rtk cargo test`
   and clippy, and the `cargo tree` check in the report.
-- [ ] **9. `nookctl secret set` and `delete`.**
+- [x] **9. `nookctl secret set` and `delete`.**
   `daemon/crates/nookctl/src/main.rs`, `daemon/crates/nookctl/Cargo.toml`,
   `daemon/Cargo.toml`, `daemon/Cargo.lock`, and a new test file
   `daemon/crates/nookctl/tests/secret_tests.rs`. A `secret` subcommand with

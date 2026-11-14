@@ -2,6 +2,8 @@ use clap::{Parser, Subcommand};
 use nook_core::client;
 use nook_core::config::Config;
 use nook_core::protocol::{Attachment, AttachmentKind, ClientMessage, DaemonMessage};
+use nook_core::secrets::{check_name, set_from_reader, OsSecretStore, SecretError, SecretStore};
+use std::io::{IsTerminal, Read};
 use std::path::PathBuf;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
@@ -14,8 +16,19 @@ struct Cli {
     command: Commands,
 }
 
+#[derive(Subcommand, Debug, Clone, PartialEq, Eq)]
+pub enum SecretCommand {
+    /// Store a secret read from standard input
+    Set { name: String },
+    /// Delete a secret from the store
+    Delete { name: String },
+}
+
 #[derive(Subcommand)]
 enum Commands {
+    /// Manage secrets in the secret store
+    #[command(subcommand)]
+    Secret(SecretCommand),
     /// Send a message to the agent and stream the response
     Send {
         question: String,
@@ -34,10 +47,83 @@ enum Commands {
     Ping,
 }
 
+fn format_secret_error(err: SecretError, name: &str) -> String {
+    format!("{err}: \"{name}\".")
+}
+
+pub fn run_secret_command(
+    store: &dyn SecretStore,
+    command: SecretCommand,
+    mut input: impl Read,
+) -> Result<String, String> {
+    match command {
+        SecretCommand::Set { name } => {
+            check_name(&name).map_err(|err| format_secret_error(err, &name))?;
+            let mut raw = Vec::new();
+            input
+                .read_to_end(&mut raw)
+                .map_err(|_| format_secret_error(SecretError::Unreadable, &name))?;
+            let mut value = String::from_utf8(raw)
+                .map_err(|_| format_secret_error(SecretError::Unreadable, &name))?;
+            if value.ends_with("\r\n") {
+                value.truncate(value.len() - 2);
+            } else if value.ends_with('\n') {
+                value.pop();
+            }
+            if value.is_empty() {
+                return Err("The value is empty.".to_string());
+            }
+            set_from_reader(store, &name, value.as_bytes())
+                .map_err(|err| format_secret_error(err, &name))?;
+            Ok(format!("Stored the secret \"{name}\"."))
+        }
+        SecretCommand::Delete { name } => {
+            check_name(&name).map_err(|err| format_secret_error(err, &name))?;
+            store
+                .delete(&name)
+                .map_err(|err| format_secret_error(err, &name))?;
+            Ok(format!("Deleted the secret \"{name}\"."))
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     nook_core::config::Config::load_env_file();
     let cli = Cli::parse();
+
+    if let Commands::Secret(secret_cmd) = cli.command {
+        let store = OsSecretStore::default_for_os();
+        let res = match secret_cmd {
+            SecretCommand::Set { name } => {
+                if std::io::stdin().is_terminal() {
+                    match rpassword::prompt_password("Enter secret: ") {
+                        Ok(pass) => {
+                            run_secret_command(&store, SecretCommand::Set { name }, pass.as_bytes())
+                        }
+                        Err(_) => Err(format_secret_error(SecretError::Unreadable, &name)),
+                    }
+                } else {
+                    run_secret_command(&store, SecretCommand::Set { name }, std::io::stdin())
+                }
+            }
+            SecretCommand::Delete { name } => {
+                run_secret_command(&store, SecretCommand::Delete { name }, std::io::empty())
+            }
+        };
+
+        match res {
+            Ok(msg) => {
+                println!("{msg}");
+                return Ok(());
+            }
+            Err(err) => {
+                eprintln!("{err}");
+                std::process::exit(1);
+            }
+        }
+    }
+
     let socket_path = Config::default_socket_path();
     #[cfg(unix)]
     if !socket_path.exists() {
@@ -63,6 +149,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut lines = BufReader::new(reader).lines();
 
     match cli.command {
+        Commands::Secret(_) => unreachable!(),
         Commands::Ping => {
             let req_id = Uuid::new_v4();
             let msg = ClientMessage::Ping { id: req_id };
@@ -292,4 +379,89 @@ async fn send_json<W: AsyncWriteExt + Unpin, T: serde::Serialize>(
     writer.write_all(json.as_bytes()).await?;
     writer.flush().await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nook_core::secrets::MemorySecretStore;
+
+    #[test]
+    fn set_stores_a_value() {
+        let store = MemorySecretStore::default();
+        let res = run_secret_command(
+            &store,
+            SecretCommand::Set {
+                name: "test-secret".to_string(),
+            },
+            &b"my-password\n"[..],
+        );
+        assert_eq!(res, Ok("Stored the secret \"test-secret\".".to_string()));
+        assert_eq!(store.get("test-secret"), Ok("my-password".to_string()));
+    }
+
+    #[test]
+    fn delete_removes_it() {
+        let store = MemorySecretStore::default();
+        store.set("test-secret", "my-password").unwrap();
+        let res = run_secret_command(
+            &store,
+            SecretCommand::Delete {
+                name: "test-secret".to_string(),
+            },
+            std::io::empty(),
+        );
+        assert_eq!(res, Ok("Deleted the secret \"test-secret\".".to_string()));
+        assert_eq!(store.get("test-secret"), Err(SecretError::Missing));
+    }
+
+    #[test]
+    fn an_empty_input_is_refused() {
+        let store = MemorySecretStore::default();
+        let res = run_secret_command(
+            &store,
+            SecretCommand::Set {
+                name: "test-secret".to_string(),
+            },
+            &b""[..],
+        );
+        assert_eq!(res, Err("The value is empty.".to_string()));
+
+        let res_newline = run_secret_command(
+            &store,
+            SecretCommand::Set {
+                name: "test-secret".to_string(),
+            },
+            &b"\n"[..],
+        );
+        assert_eq!(res_newline, Err("The value is empty.".to_string()));
+    }
+
+    #[test]
+    fn the_model_key_name_is_refused() {
+        let store = MemorySecretStore::default();
+        let res_set = run_secret_command(
+            &store,
+            SecretCommand::Set {
+                name: "model-api-key".to_string(),
+            },
+            &b"some-key"[..],
+        );
+        assert_eq!(
+            res_set,
+            Err("Secret cannot be read: \"model-api-key\".".to_string())
+        );
+
+        let res_del = run_secret_command(
+            &store,
+            SecretCommand::Delete {
+                name: "model-api-key".to_string(),
+            },
+            std::io::empty(),
+        );
+        assert_eq!(
+            res_del,
+            Err("Secret cannot be read: \"model-api-key\".".to_string())
+        );
+    }
 }
