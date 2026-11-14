@@ -255,6 +255,7 @@ pub async fn abort_running_tools(state: &AppState, client_request_id: Uuid) {
     }
 }
 
+/// Aborts every running tool task and waits for each task to finish.
 pub async fn abort_all_running_tools(state: &AppState) {
     let handles = {
         let mut running = state.running_tools.lock().await;

@@ -38,6 +38,11 @@ impl Drop for TestDaemon {
     fn drop(&mut self) {
         let _ = self.child.kill();
         let _ = self.child.wait();
+        if let Ok(pid) = std::fs::read_to_string(self.app_dir.join("worker.pid")) {
+            if let Ok(pid) = pid.trim().parse::<u32>() {
+                let _ = Command::new("kill").args(["-9", &pid.to_string()]).status();
+            }
+        }
         let _ = std::fs::remove_dir_all(&self.app_dir);
     }
 }

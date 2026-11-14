@@ -170,7 +170,7 @@ Exit: the round exit check passes on the current head. Write that head SHA into
    `docs/tasks/task-PR-<number>/`.
 4. Start the native gate on the new head:
    `scripts/gh workflow run native-e2e-gate.yml --ref <branch> -f pr_number=<number>`.
-5. Wait until the CI gate check passes, and the review exit check still holds
+5. Wait until the CI gate check passes, and the round exit check still holds
    for the reviewed head.
 6. Make sure that `git diff --name-only <reviewed head> HEAD` lists only paths
    under `docs/tasks/task-PR-<number>/`. Any other path opens a new round.
