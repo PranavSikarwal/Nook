@@ -85,3 +85,37 @@
 - Decided by: orchestrator by recommendation
 - Date: 2026-11-14
 - Status: closed by recommendation
+
+## G7. How task 6 observes the abort and the provider drop
+
+- Stage: 6 implement (plan task 6)
+- Question: the plan says to assert that the tool process group is gone. The
+  test cannot see a process group without a non-test change.
+- Options: (a) assert through drop flags: a slow call whose future sets a flag
+  when the abort drops it, and a provider whose `Drop` sets a flag. (b) change
+  non-test code to expose the process group.
+- Recommendation: (a). It proves the same two steps (abort and provider drop)
+  through public parts, and it follows the pattern of `provider_execution_tests.rs`.
+- Decision: (a). Commit `1bd481f`. The choice touches only the test file that
+  task 6 names and changes no contract, policy, interface or dependency.
+- Decided by: orchestrator by recommendation
+- Date: 2026-11-14
+- Status: closed by recommendation
+
+## G8. How task 7 passes the fake Worker flags
+
+- Stage: 6 implement (plan task 7)
+- Question: finding #18 says to pass the flags through the supervisor's
+  `env_vars`. `WorkerSupervisor::with_tools` builds `env_vars` inside, and the
+  tests cannot add to it without a non-test change.
+- Options: (a) pass the flags in the Worker command: `env FAKE_WORKER_IGNORE_EOF=1
+  FAKE_WORKER_PID_FILE=<file> python3 <script>`. `env` replaces itself with
+  `python3`, so the PID stays the same and no test changes the process
+  environment. (b) add an `env_vars` parameter to the supervisor.
+- Recommendation: (a). It removes the `set_var` race, which is the point of the
+  finding, and changes no non-test code. (b) changes a public interface.
+- Decision: (a). The choice touches only the test file that task 7 names and
+  changes no contract, policy, interface or dependency.
+- Decided by: orchestrator by recommendation
+- Date: 2026-11-14
+- Status: closed by recommendation

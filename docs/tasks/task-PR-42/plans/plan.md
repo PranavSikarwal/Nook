@@ -107,10 +107,11 @@ Tasks 6 to 10 touch `daemon/`. Their checks are `cd daemon && cargo fmt --check`
 - [ ] **7. Finding #18: pass the fake Worker flags through `env_vars`.** In
   `daemon/crates/nook-core/tests/supervisor_tests.rs`, stop using
   `std::env::set_var` for `FAKE_WORKER_IGNORE_EOF` and the PID file variable.
-  Pass them through the `env_vars` of the supervisor config. Add `cfg(unix)` to
+  Pass them in the Worker command instead: `env FAKE_WORKER_IGNORE_EOF=1
+  FAKE_WORKER_PID_FILE=<file> python3 <script>` (gap G8). Add `cfg(unix)` to
   the test that uses `kill -0`. Check: `cd daemon && cargo test -p nook-core
   --test supervisor_tests` passes ten times in a row, and the three daemon checks
-  pass. Commit: `test(daemon): pass the fake Worker flags through env_vars`.
+  pass. Commit: `test(daemon): pass the fake Worker flags in the command`.
 - [ ] **8. Finding #19: `TestDaemon::drop` kills the Worker.** In
   `daemon/crates/nookd/tests/signal_shutdown_tests.rs`, make `drop` read
   `worker.pid` and send SIGKILL to that PID after it kills the Daemon. Ignore a
