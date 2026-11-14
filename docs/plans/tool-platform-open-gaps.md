@@ -84,3 +84,9 @@ Updated on November 14, 2026.
     open. PR #41 is open. The Worker ends a reply with "Request denied. I
     stopped here." for every rejection, including a path outside the allowed
     folders. Risk: the message says the user denied a request when they did not.
+17. **Tests for the Worker folder search order.** `docs/archive/plans/pr32-review-response.md`
+    ("Round 2", finding 2) deferred them to a later cycle. `worker_dir_in_home()`
+    in `daemon/crates/nook-core/src/supervisor.rs` takes no root parameter, so a
+    test cannot use a temporary folder. The search stages must take their root as
+    a parameter first. Risk: a change to the search order can stop the Worker from
+    starting with no failing test.
