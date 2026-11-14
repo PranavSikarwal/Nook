@@ -352,9 +352,9 @@ struct BlockingSecretStore;
 
 impl nook_core::secrets::SecretStore for BlockingSecretStore {
     fn get(&self, _name: &str) -> Result<String, nook_core::secrets::SecretError> {
-        loop {
-            std::thread::sleep(Duration::from_secs(60));
-        }
+        // Warning: a read that never returns would hang the test runtime on drop, which waits for blocking threads.
+        std::thread::sleep(Duration::from_secs(5));
+        Err(nook_core::secrets::SecretError::Unavailable)
     }
     fn set(&self, _name: &str, _value: &str) -> Result<(), nook_core::secrets::SecretError> {
         Ok(())
