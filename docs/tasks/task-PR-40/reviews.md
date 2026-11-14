@@ -110,7 +110,7 @@
 
 | # | Finding | Action | Where |
 | --- | --- | --- | --- |
-| S22 (P2) | The test with 20,000 line breaks cannot pass on Linux: one argument may not exceed 131,072 bytes. | fix | `specs/design.md` "Tests": the Linux test uses 8,000 line breaks (about 90,000 bytes), and the Mac test sends 20,000. |
+| S22 (P2) | The test with 20,000 line breaks cannot pass on Linux: one argument may not exceed 131,072 bytes. | fix | `specs/design.md` "Tests": the Linux test uses 6,000 line breaks (under 100,000 bytes), and the Mac test sends 20,000. |
 | S23 (P3) | The environment test needs `/proc`, which macOS does not have, and the folder is not read in a stated way. | fix | `specs/design.md` "Tests": that test has `cfg(target_os = "linux")`, and the fake writes `pwd -P`. |
 | S24 (P3) | The description test is not in the Tests list, and the sentence is not pinned. | fix | `specs/design.md` "The tool" (the constant `The title is one line.`) and a bullet in "Tests". |
 

@@ -401,9 +401,9 @@ sets the program path in `nook-core`. Release builds of `nookd` use no feature.
     "Title"` hold. The titles `\n`, `Title\n\n` and `Ti\ntle` start no process
     and show no prompt. A NUL in the title or the body does the same. A body that
     breaks the schema starts no process.
-  - A body of 8,000 line breaks reaches the program in full. The HTML is about
-    90,000 bytes, which is under the Linux limit of 131,072 bytes for one
-    argument. The macOS limit is higher (1 MiB for all arguments and the
+  - A body of 6,000 line breaks reaches the program in full. The HTML is under
+    100,000 bytes, even at 15 bytes for each empty line, which is under the Linux
+    limit of 131,072 bytes for one argument. The macOS limit is higher (1 MiB for all arguments and the
     environment, not checked), and the Mac test sends the largest body, 20,000
     line breaks, which is about 220,000 bytes.
   - The descriptor description of the tool contains the constant `The title is
