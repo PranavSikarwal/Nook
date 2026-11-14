@@ -2,7 +2,7 @@
 
 mod common;
 
-use common::{tool_result, Harness};
+use common::{authorization_result, tool_result, Harness};
 use nook_core::config::Config;
 use nook_core::protocol::DaemonMessage;
 use serde_json::json;
@@ -345,4 +345,325 @@ async fn two_parallel_calls_never_overlap_also_across_a_rebuilt() {
     assert!(lines[1].starts_with("end "));
     assert!(lines[2].starts_with("start "));
     assert!(lines[3].starts_with("end "));
+}
+
+#[tokio::test]
+async fn a_folder_change_while_a_decision_waits_denies_the_call_and_records_no_grant() {
+    let note_id = "x-coredata://12345678-1234-1234-1234-1234567890ab/ICNote/p1";
+    let fixture = Fixture::new(&format!("{note_id}\n"));
+    let mut h = fixture.harness().await;
+    let chat = Uuid::new_v4();
+    let args = serde_json::json!({
+        "title": "Meeting Notes",
+        "body": "Discuss project plan"
+    })
+    .to_string();
+
+    let mut call = h.execute(chat, "c1", CREATE_NOTE, &args).await;
+    let panel_msg = h.panel().await;
+    assert!(matches!(panel_msg, DaemonMessage::ApprovalRequested { .. }));
+
+    // Hold state.config.write()
+    let mut cfg_guard = h.state.config.write().await;
+
+    let state_clone = h.state.clone();
+    let panel_tx = h.panel_tx.clone();
+    let decision_task = tokio::spawn(async move {
+        nook_core::tool_approval::handle_approval_decision(
+            &state_clone,
+            Uuid::new_v4(),
+            chat,
+            "c1".to_string(),
+            "allow_for_chat".to_string(),
+            &panel_tx,
+        )
+        .await;
+    });
+
+    // Wait until the decision has claimed the pending approval (decision_in_flight is true)
+    let mut attempts = 0;
+    loop {
+        attempts += 1;
+        let in_flight = {
+            let approvals = h.state.pending_approvals.lock().await;
+            approvals
+                .get("c1")
+                .map(|e| e.decision_in_flight)
+                .unwrap_or(false)
+        };
+        if in_flight || attempts > 100 {
+            break;
+        }
+        tokio::task::yield_now().await;
+    }
+
+    // Change the folder in memory under the write lock
+    cfg_guard.tools.notes.folder = "Work".to_string();
+    let tools = cfg_guard.tools.clone();
+    let rebuilt = h.state.providers.current().rebuilt(&tools);
+    h.state.providers.replace(rebuilt);
+    nook_core::tool_approval::deny_pending_notes_approvals(&h.state).await;
+    h.state
+        .policy
+        .authorizer
+        .grant_store()
+        .lock()
+        .await
+        .remove_tools(&[CREATE_NOTE]);
+
+    // Release the write lock
+    drop(cfg_guard);
+
+    decision_task.await.unwrap();
+
+    // The call must be denied with "The Notes folder changed"
+    let result = tool_result(&mut call).await;
+    assert_eq!(result["status"], "denied");
+    assert_eq!(result["output"], "The Notes folder changed");
+
+    // No grant was recorded
+    let store_arc = h.state.policy.authorizer.grant_store();
+    let grant_store = store_arc.lock().await;
+    assert!(
+        grant_store
+            .matching_scopes(chat, CREATE_NOTE, None, None, None)
+            .is_empty(),
+        "grant must not be recorded on folder mismatch"
+    );
+
+    // Fake program never ran
+    assert!(fixture.logged_args().is_empty());
+}
+
+#[tokio::test]
+async fn a_decision_before_a_folder_change_runs_in_the_old_folder() {
+    let note_id = "x-coredata://12345678-1234-1234-1234-1234567890ab/ICNote/p1";
+    let fixture = Fixture::new(&format!("{note_id}\n"));
+    let mut h = fixture.harness().await;
+    let chat = Uuid::new_v4();
+    let args = serde_json::json!({
+        "title": "Old Note",
+        "body": "Content in old folder"
+    })
+    .to_string();
+
+    let mut call = h.execute(chat, "c1", CREATE_NOTE, &args).await;
+    let panel_msg = h.panel().await;
+    assert!(matches!(panel_msg, DaemonMessage::ApprovalRequested { .. }));
+
+    // Decision finishes first
+    h.decide(chat, "c1", "allow_once").await;
+    h.drain_tool_events().await;
+
+    // Then folder change runs
+    {
+        let mut cfg_guard = h.state.config.write().await;
+        cfg_guard.tools.notes.folder = "Work".to_string();
+        let tools = cfg_guard.tools.clone();
+        let rebuilt = h.state.providers.current().rebuilt(&tools);
+        h.state.providers.replace(rebuilt);
+        nook_core::tool_approval::deny_pending_notes_approvals(&h.state).await;
+        h.state
+            .policy
+            .authorizer
+            .grant_store()
+            .lock()
+            .await
+            .remove_tools(&[CREATE_NOTE]);
+    }
+
+    let result = tool_result(&mut call).await;
+    assert_eq!(result["status"], "ok");
+    assert!(
+        result["output"]
+            .as_str()
+            .unwrap()
+            .contains("in the Notes folder \"Nook\""),
+        "tool result must name the old folder Nook: {}",
+        result["output"]
+    );
+
+    let logged = fixture.logged_args();
+    assert_eq!(logged[2], ":Nook", "fake program must receive old folder");
+}
+
+#[tokio::test]
+async fn a_folder_change_prevents_a_chat_grant_from_running_in_the_new_folder() {
+    let note_id = "x-coredata://12345678-1234-1234-1234-1234567890ab/ICNote/p1";
+    let fixture = Fixture::new(&format!("{note_id}\n"));
+    let mut h = fixture.harness().await;
+    let chat = Uuid::new_v4();
+    let args1 = serde_json::json!({
+        "title": "First Note",
+        "body": "First content"
+    })
+    .to_string();
+
+    // Run call 1 with allow_for_chat to establish chat grant
+    let res1 = h
+        .approve_and_run(chat, "c1", CREATE_NOTE, &args1, "allow_for_chat")
+        .await;
+    assert_eq!(res1["status"], "ok");
+
+    let store_arc = h.state.policy.authorizer.grant_store();
+    assert!(
+        !store_arc
+            .lock()
+            .await
+            .matching_scopes(chat, "notes_create_note", None, None, None)
+            .is_empty(),
+        "chat grant should exist"
+    );
+
+    // Now test the race: write lock held while call 2 is started
+    let mut cfg_guard = h.state.config.write().await;
+
+    let args2 = serde_json::json!({
+        "title": "Second Note",
+        "body": "Second content"
+    })
+    .to_string();
+
+    // Spawn call 2 - handle_authorize_tool will take state.config.read() and wait
+    let state_clone = h.state.clone();
+    let panel_tx = h.panel_tx.clone();
+    let client_id = Uuid::new_v4();
+    let worker_id = Uuid::new_v4();
+    let call_task = tokio::spawn(async move {
+        nook_core::tool_approval::handle_authorize_tool(
+            &state_clone,
+            &nook_core::tool_approval::AuthorizeContext {
+                client_request_id: client_id,
+                worker_request_id: worker_id,
+                chat_id: chat,
+            },
+            nook_core::tool_approval::AuthorizeToolCall {
+                message_id: Uuid::new_v4(),
+                call_id: "c2".to_string(),
+                chat_id: chat,
+                tool_name: CREATE_NOTE.to_string(),
+                arguments: args2,
+                execute: true,
+            },
+            &panel_tx,
+        )
+        .await;
+    });
+
+    // Folder change happens under the write lock
+    cfg_guard.tools.notes.folder = "Work".to_string();
+    let tools = cfg_guard.tools.clone();
+    let rebuilt = h.state.providers.current().rebuilt(&tools);
+    h.state.providers.replace(rebuilt);
+    nook_core::tool_approval::deny_pending_notes_approvals(&h.state).await;
+    h.state
+        .policy
+        .authorizer
+        .grant_store()
+        .lock()
+        .await
+        .remove_tools(&["notes_create_note"]);
+
+    // Release write lock
+    drop(cfg_guard);
+
+    call_task.await.unwrap();
+
+    // Because chat grant was dropped and folder changed, call 2 MUST NOT run automatically.
+    // It must show an approval request on the panel for the new folder.
+    let panel_msg = h.panel().await;
+    match panel_msg {
+        DaemonMessage::ApprovalRequested {
+            call_id, tool_name, ..
+        } => {
+            assert_eq!(call_id, "c2");
+            assert_eq!(tool_name, "nook:notes_create_note");
+        }
+        other => panic!("expected ApprovalRequested for new folder, got {other:?}"),
+    }
+
+    // Deny call 2
+    h.decide(chat, "c2", "deny").await;
+    h.assert_panel_silent();
+}
+
+#[tokio::test]
+async fn a_folder_change_leaves_an_approval_and_a_grant_of_another_tool_intact() {
+    let note_id = "x-coredata://12345678-1234-1234-1234-1234567890ab/ICNote/p1";
+    let fixture = Fixture::new(&format!("{note_id}\n"));
+    let mut h = fixture.harness().await;
+    let chat = Uuid::new_v4();
+
+    // Start another tool's call: nook:web_fetch
+    let mut other_call = h
+        .authorize(
+            chat,
+            "fetch1",
+            "nook:web_fetch",
+            r#"{"url":"https://example.com"}"#,
+        )
+        .await;
+
+    let panel_msg = h.panel().await;
+    assert!(matches!(panel_msg, DaemonMessage::ApprovalRequested { .. }));
+
+    // Add a grant for another tool in grant_store
+    let other_grant = nook_core::policy::ScopedGrant {
+        chat_id: chat,
+        tool_name: "web_fetch".to_string(),
+        scope: "chat".to_string(),
+        host: Some("example.org".to_string()),
+        path: None,
+        argument_digest: None,
+    };
+    h.state
+        .policy
+        .authorizer
+        .grant_store()
+        .lock()
+        .await
+        .add_grant(other_grant);
+
+    // Perform the Notes folder change
+    {
+        let mut cfg_guard = h.state.config.write().await;
+        cfg_guard.tools.notes.folder = "Work".to_string();
+        let tools = cfg_guard.tools.clone();
+        let rebuilt = h.state.providers.current().rebuilt(&tools);
+        h.state.providers.replace(rebuilt);
+        nook_core::tool_approval::deny_pending_notes_approvals(&h.state).await;
+        h.state
+            .policy
+            .authorizer
+            .grant_store()
+            .lock()
+            .await
+            .remove_tools(&["notes_create_note"]);
+    }
+
+    // The pending approval for fetch1 must STILL be pending
+    {
+        let approvals = h.state.pending_approvals.lock().await;
+        assert!(
+            approvals.contains_key("fetch1"),
+            "pending approval for another tool must stay"
+        );
+    }
+
+    // The grant for web_fetch must STILL be present
+    {
+        let store_arc = h.state.policy.authorizer.grant_store();
+        let store = store_arc.lock().await;
+        assert!(
+            !store
+                .matching_scopes(chat, "web_fetch", Some("example.org"), None, None)
+                .is_empty(),
+            "grant for another tool must stay"
+        );
+    }
+
+    // Decide allow_once on fetch1 - it must succeed
+    h.decide(chat, "fetch1", "allow_once").await;
+    let (decision, _) = authorization_result(&mut other_call).await;
+    assert_eq!(decision, "allow");
 }
