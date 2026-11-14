@@ -251,7 +251,7 @@ pub struct SandboxProcess {
 }
 
 #[cfg(unix)]
-struct GroupKill(Option<i32>);
+pub(crate) struct GroupKill(pub(crate) Option<i32>);
 
 #[cfg(unix)]
 impl Drop for GroupKill {
@@ -270,7 +270,10 @@ fn kill_group(pid: Option<i32>) {
 }
 
 #[cfg(unix)]
-async fn read_capped<R: AsyncRead + Unpin>(mut reader: R, max: usize) -> (Vec<u8>, bool) {
+pub(crate) async fn read_capped<R: AsyncRead + Unpin>(
+    mut reader: R,
+    max: usize,
+) -> (Vec<u8>, bool) {
     let mut kept = Vec::new();
     let mut truncated = false;
     let mut buffer = [0u8; 8192];
@@ -290,7 +293,7 @@ async fn read_capped<R: AsyncRead + Unpin>(mut reader: R, max: usize) -> (Vec<u8
 }
 
 #[cfg(unix)]
-async fn join_reader(task: tokio::task::JoinHandle<(Vec<u8>, bool)>) -> (Vec<u8>, bool) {
+pub(crate) async fn join_reader(task: tokio::task::JoinHandle<(Vec<u8>, bool)>) -> (Vec<u8>, bool) {
     match tokio::time::timeout(READER_DRAIN_TIMEOUT, task).await {
         Ok(Ok(result)) => result,
         _ => (Vec::new(), false),
