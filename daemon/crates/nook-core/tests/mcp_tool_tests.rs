@@ -585,6 +585,44 @@ async fn a_restart_with_a_missing_secret_logs_a_fixed_text_and_the_call_fails() 
 }
 
 #[tokio::test]
+async fn a_secret_printed_by_a_server_is_scrubbed_from_the_result() {
+    let record_dir = tempfile::tempdir().unwrap();
+    let record_path = record_dir.path().canonicalize().unwrap();
+    let mut config = docs_server(&record_path);
+    config.env_secrets.insert(
+        "GOOGLE_DRIVE_MCP_CLIENT_SECRET".to_string(),
+        "google-docs-client-secret".to_string(),
+    );
+    let store = Arc::new(nook_core::secrets::MemorySecretStore::default());
+    store
+        .set("google-docs-client-secret", "super-secret-1234")
+        .unwrap();
+    let secrets = nook_core::secrets::SecretContext {
+        store: store.clone(),
+        mask: Arc::default(),
+    };
+    let Some(sandbox) = sandbox().await else {
+        return;
+    };
+    let provider = McpProvider::start(&[config], &sandbox, quick(), secrets)
+        .await
+        .expect("server starts");
+    let mut h = Harness::new(vec![Arc::new(provider)]).await;
+    let chat = Uuid::new_v4();
+
+    let result = run(
+        &mut h,
+        chat,
+        "c1",
+        "mcp:google-docs:echoEnv",
+        json!({ "name": "GOOGLE_DRIVE_MCP_CLIENT_SECRET" }),
+    )
+    .await;
+    assert_eq!(result["status"], "ok");
+    assert_eq!(result["output"], "***");
+}
+
+#[tokio::test]
 async fn a_call_asks_first_and_returns_the_server_text() {
     let Some(mut h) = harness(&[server("fake", "normal")]).await else {
         return;

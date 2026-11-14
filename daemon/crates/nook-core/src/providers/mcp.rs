@@ -838,7 +838,7 @@ impl Provider for McpProvider {
         let server = self.servers[entry.server]
             .live(&self.sandbox, self.limits, &self.secrets)
             .await;
-        match server
+        let mut output = match server
             .client
             .call_tool(&entry.remote_name, arguments, server.call_timeout)
             .await
@@ -853,7 +853,9 @@ impl Provider for McpProvider {
                 "Error: the MCP server reported an error: {message}"
             )),
             Err(_) => ToolOutput::error("Error: the MCP call failed"),
-        }
+        };
+        output.text = self.secrets.mask.scrub(&output.text);
+        output
     }
 }
 
@@ -1283,5 +1285,14 @@ mod tests {
         ldap.env
             .insert("LDAP_URL".to_string(), "ldap://localhost".to_string());
         assert!(check_server_settings(&ldap).is_ok());
+    }
+
+    #[test]
+    fn secret_mask_scrubs_matching_secrets_from_tool_output() {
+        let mask: crate::secrets::SecretMask = Arc::default();
+        mask.add("super-secret-1234");
+        mask.add("sh"); // < 4 characters, not added
+        let out = mask.scrub("Result: super-secret-1234 and sh");
+        assert_eq!(out, "Result: *** and sh");
     }
 }

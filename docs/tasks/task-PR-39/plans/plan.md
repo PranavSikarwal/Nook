@@ -98,7 +98,7 @@ Rules for every task:
   next to `servers_that_cannot_start_or_have_bad_settings_are_skipped`. Each
   fails first because the check does not exist. Check: Daemon `rtk cargo test`
   and clippy.
-- [ ] **5. Scrub resolved secrets from tool results.**
+- [x] **5. Scrub resolved secrets from tool results.**
   `daemon/crates/nook-core/src/providers/mcp.rs`,
   `daemon/crates/nook-core/tests/mcp_tool_tests.rs`. `McpProvider::call`
   replaces each resolved value of 4 or more characters, from the `SecretMask`,
