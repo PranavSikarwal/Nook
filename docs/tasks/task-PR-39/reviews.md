@@ -108,6 +108,24 @@ The review makes four notes for the plan, not findings:
 
 No findings. The spec went through rounds 1 to 6 with the owner's decisions G1 to G9 in between.
 
+## Round 1 (code)
+
+- Head: pending (the commit that adds this heading)
+- Reviewer: the T3 reviewer ("Review Pull Requests"). The task changes the sandbox, authorization-adjacent MCP code and the Daemon core, so the review standard requires it.
+- Verdict:
+- SonarCloud:
+- Checks:
+- Gaps closed by recommendation: none
+- Found in stage 6, before this round:
+  1. SonarCloud failed the Quality Gate on head `efd389a` (`C Reliability Rating on New Code`): three blocking file calls in the async `main` of `nookctl`. Fixed by plan task 13 (`494b770`). SonarCloud passes on the later heads.
+  2. The job `Code Quality and Tests` hung on heads `ebdf354` to `494b770` in `a_store_that_never_answers_keeps_the_server_off_after_the_timeout`: the test helper blocked forever in a blocking thread, and the test runtime waits for blocking threads when it stops. The MCP tests skip on the author machine, so only CI ran it. Fixed as a small fix (`67e0c5f`): the helper returns after 5 seconds. All four checks pass on `67e0c5f`.
+  3. One run of `the_daemon_exits_on_sigterm_with_no_client` failed once on the author machine (exit by signal) and passed in 11 later runs. The Daemon binds its socket before it installs the signal handler, so a SIGTERM that comes right after the connect can win. This is older than this task. No change in this task.
+
+| # | Finding | Action | Where |
+| --- | --- | --- | --- |
+| P-1 (stage 6) | SonarCloud reliability finding in `nookctl` | fix | plan task 13, `494b770` |
+| P-2 (stage 6) | Test helper that never returns hangs CI | fix (small) | `67e0c5f` |
+
 ## Commands run
 
 This task adds no named check to a rule or a document.
