@@ -99,7 +99,7 @@
   2. A separate task first: the secret store abstraction, `env_secrets` and `nookctl secret`, with its own spec, gate 1 and pull request. This task then waits, and changes the Google Docs sample to use the store after that task merges. Smaller reviews. The Google Docs page waits for a full second cycle.
   3. Without the `keyring` crate: write the abstraction by hand over `security-framework` and the Windows and Linux libraries. The owner declined per-system code in G4.
 - Recommendation: Option 1, because the owner wants the Docs sample to use the store and the Docs sample is the first user. It needs a second spec review round and a new gate 1 for the changed spec. If the owner prefers smaller reviews, choose option 2. Moving the model API key onto the store is a separate follow-up.
-- Decision:
-- Decided by:
-- Date:
-- Status: open
+- Decision: Option 1: build it in this task, with the `keyring` crate. "In this task, with keyring crate (Recommended)." The spec now holds the secret store, the `env_secrets` setting and `nookctl secret`. The model API key stays on its current code.
+- Decided by: owner
+- Date: 2026-11-14
+- Status: decided by owner
