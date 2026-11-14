@@ -30,4 +30,4 @@ The Google Docs server needs a client secret and a refresh token. Nook forbids s
 - A headless Linux Daemon without a running Secret Service or D-Bus session cannot use `env_secrets`. The Daemon fails closed and leaves the affected server off.
 - The model API key stays on `keychain.rs` until a follow-up task moves it.
 - The crate introduces a new dependency tree for `keyring-core`, `zbus`, and system credential store bindings.
-- Scrubbing resolved secrets from tool results is best effort. A server that encodes or fragments a secret bypasses the text match.
+- Scrubbing resolved secrets from tool results and the log is best effort. A server that encodes or fragments a secret bypasses the text match. Two secrets that overlap can leave part of one visible. For example, `abcX` and `Xdef` in the text `abcXdef` leave `def`.

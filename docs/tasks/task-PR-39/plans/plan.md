@@ -292,7 +292,7 @@ Rules for every task:
 
 ## Round 2
 
-- [ ] **R2-1. The page and the ADR state what the mask does (C11).**
+- [x] **R2-1. The page and the ADR state what the mask does (C11).**
   `docs/mcp-servers.md`, `docs/adr/0009-secrets-live-in-the-operating-system-secret-store.md`.
   In `docs/mcp-servers.md` ("When Google Docs stops working" cause 6, and any
   other sentence that says the Daemon masks "every" value or secret), change

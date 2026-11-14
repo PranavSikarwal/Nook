@@ -215,7 +215,7 @@ application folder. The file is private to your user (mode `0600` on macOS and
 Linux). When it reaches 1 MiB, it becomes `daemon.log.1`, and Nook keeps no older
 file. The Daemon masks these values from every log line itself, also when started
 by hand: the database password, the API key in the environment, `env` values of
-4 or more characters, and resolved secrets from `env_secrets`. If you start
+4 or more characters, and resolved secrets of 4 or more characters from `env_secrets`. If you start
 `nookd` yourself, the log goes to the terminal, and you must quit Nook first
 because two Daemons cannot share one socket.
 
@@ -316,7 +316,7 @@ The approval card displays only the first 300 characters of arguments. A long wr
 3. A secret is missing or the secret store is locked. The server stays off, and the report names the secret. A restart shows only `Error: the MCP server stopped`, so check `daemon.log`. Run the `nookctl secret set` command that the report shows. On Linux, the secret store requires a running Secret Service and an unlocked keyring. On macOS, the first read by `nookd` of an item that `nookctl` created can show a Keychain prompt (not verified). Choose **Always Allow**.
 4. The call timed out. Raise `timeout_seconds` in `config.toml`, up to 600.
 5. The server did not start. The Daemon allows a server 10 seconds each for `initialize` and `tools/list`. A server that exceeds this limit stays off for the session. A cold start of a large Node package in the sandbox can be slow. Start the server by hand in a terminal to measure the start time, and read `daemon.log`.
-6. The log shows `***` where a value is expected. The Daemon replaces every `env` value of 4 or more characters, and every secret, with `***` in `daemon.log`. The Daemon masks these values itself, also when started by hand. The client ID and the scope name stay hidden in the log. Read `config.toml` to inspect those values.
+6. The log shows `***` where a value is expected. The Daemon replaces every `env` value of 4 or more characters, and every secret of 4 or more characters, with `***` in `daemon.log`. The mask replaces exact text. A server that encodes or splits a value, or two secrets that overlap, can show a part of it. The Daemon masks these values itself, also when started by hand. The client ID and the scope name stay hidden in the log. Read `config.toml` to inspect those values.
 
 ## Next steps for Google Workspace
 
