@@ -94,7 +94,7 @@ Tasks 6 to 10 touch `daemon/`. Their checks are `cd daemon && cargo fmt --check`
   CONTRIBUTING.md docs/testing.md` prints nothing. Commit:
   `docs(rules): name the round exit check in stage 8`.
 
-- [ ] **6. Finding #17: a test for the tool-abort and provider-drop steps.**
+- [x] **6. Finding #17: a test for the tool-abort and provider-drop steps.**
   In `daemon/crates/nook-core/tests/`, add one test that registers a running
   tool (or a fake MCP provider) in `AppState`, calls
   `nook_core::shutdown::stop_everything`, and asserts that the tool process
