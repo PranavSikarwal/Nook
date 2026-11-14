@@ -127,30 +127,42 @@ contract test, in the way of the folder list (`list_roots`, `add_root`):
    optional `reason` of 1 to 200 characters. `supported` is true when the
    platform has Notes (the program path is `Some`), so the Panel hides the field
    only on a platform without Notes. `folder` is the stored value cut to 200
-   characters, even when it is not valid. `reason` is set when the tools are off,
-   for a name that is not valid or a missing program. So a user can still repair
+   characters, even when it is not valid. `reason` is set when the tools are off. It is one of two fixed
+   texts: `The Notes folder name is not valid` and `Notes was not found on this
+   Mac`. So a user can still repair
    a bad name in the field.
 
 A change takes effect at once and does not need a restart, as for the folders of
-the file tools. It follows the same path as `folders.rs`, under the same write
-lock of `state.config`:
+the file tools. It follows the same path as `folders.rs`, with one difference: the
+whole sequence runs inside the write lock of `state.config`, and not only the
+first step, because `folders.rs` runs its `settle` step after it releases the
+lock, and that leaves a window. The sequence:
 
 1. The Daemon checks the name, writes it to `config.toml` and keeps the comments
-   and the other settings.
-2. The Daemon builds the Notes tools again with `rebuilt`, and sends the Worker
-   a new tool catalog. The tool descriptions name the folder, so the model sees
-   the new one.
-3. The Daemon denies every waiting approval of a Notes tool, with the reason `The
-   Notes folder changed`. `deny_stale_approvals` denies only when `facts` fails,
-   and after the change `facts` succeeds with the new folder. So the change calls
-   a new function that denies each pending approval whose tool is a Notes tool,
-   whatever its facts say. A card that named the old folder can then never run in
-   the new one.
-4. The Daemon drops every chat grant of a Notes tool, with a new
-   `GrantStore::remove_tools` method in `policy.rs` that removes the grants of
-   the given tool ids. A grant for the old folder must not apply to the new one.
+   and the other settings. A failed write gives a fixed error and changes
+   nothing.
+2. The Daemon denies every waiting approval of a Notes tool, with the reason `The
+   Notes folder changed`, and drops every chat grant of a Notes tool. The grant
+   drop is a new `GrantStore::remove_tools` method in `policy.rs` that removes
+   the grants of the given tool ids. `deny_stale_approvals` denies only when
+   `facts` fails, and after the change `facts` succeeds with the new folder, so a
+   new function denies each pending approval whose tool is a Notes tool, whatever
+   its facts say.
+3. The Daemon builds the Notes tools again with `rebuilt`, replaces the registry
+   and sends the Worker a new tool catalog. The tool descriptions name the
+   folder, so the model sees the new one.
 
-A call that already runs finishes with the folder it started with.
+Steps 2 and 3 alone leave two races, so two more rules close them. Each pending
+Notes approval stores the folder that its card showed. When a decision arrives,
+the Daemon takes the read lock of `state.config`, and under that lock it compares
+the stored folder with the current folder, records the grant and takes the
+registry. A mismatch denies the call with `The Notes folder changed`, and no grant
+is recorded. The change holds the write lock for its whole sequence, so a
+decision either finishes before it, with the old registry and the old folder, or
+starts after it and is denied. A call that already runs finishes with the folder
+it started with. A decision that is already claimed holds the read lock until it
+has the registry, so the change waits for it, and the call that follows uses the
+old registry and the old folder, as its card said.
 
 The folder name is valid when, after the Daemon removes spaces at both ends, it
 has 1 to 100 characters, no control character and no `:`, and it is not `Recently
@@ -438,15 +450,20 @@ an option.
    task, so no code after an `await` runs, and the group kill sits in the
    `GroupKill` drop guard.
 7. The limit is 60 seconds. The provider keeps at most 4096 bytes of standard
-   output for create, append, edit and delete, 128 KiB for list and 96 KiB for
-   read, and it drains the rest of each pipe, so a long output cannot block
-   `osascript`. The list limit fits 101 lines of the worst length (300 characters
-   of id, a tab and 200 characters of title at 4 bytes each is about 1,100
-   bytes), and the read limit fits 20,000 characters and a title. If the provider
-   still drops bytes of a list or a read, it adds a last line `[Cut]`, so the model
-   never takes a partial result for a complete one. It keeps 4096 bytes of
-   standard error. The text from `osascript` is read as UTF-8 and bad bytes are
-   replaced.
+   output for create, append, edit and delete. For list and read it keeps
+   `MAX_TOOL_OUTPUT_BYTES + 1` bytes (64 KiB and one byte, from `tool_approval.rs`),
+   so the limit is one value. The Daemon already cuts every tool result at
+   `MAX_TOOL_OUTPUT_BYTES` and adds `[output truncated]` (`truncate_output` in
+   `providers/mod.rs`), so a longer list or read is cut and marked there and the
+   provider adds no marker of its own. The extra byte makes sure that `truncate_output`
+   sees a result that is too long, because the provider drops the rest of the
+   pipe. The provider also drains the rest of each pipe, so a long output cannot
+   block `osascript`. A list of 100 notes fits in the limit unless the notes have
+   very long ids and titles, and a read of 20,000 characters can pass it when the
+   text has many 4-byte characters (80,000 bytes). Both cases are cut and marked.
+   It keeps 4096 bytes of standard error. The text from `osascript` is read as UTF-8
+   and bad bytes are replaced. `read_capped` sets `truncated` only when the output
+   is longer than its limit, and the provider uses that flag.
 8. Success is exit status 0. Failure is decided by the kept standard error: a
    refusal by macOS contains `(-1743)`, a missing note or a note outside the
    folder contains `(-1728)` or `(9001)`, and a wrong title contains `(9002)`.
@@ -608,6 +625,8 @@ sets the program path in `nook-core`. Release builds of `nookd` use no feature.
 | The program writes more than the output limit | The provider keeps the limit, drains the rest and judges only the exit status. A list or a read shows the kept part. |
 | The call is cancelled | The drop guard kills the process group. A change can still exist if the script had finished. |
 | The folder changes while a call waits for approval | The Daemon denies the approval with `The Notes folder changed`. |
+| A decision arrives for a card that names the old folder | The Daemon denies the call with `The Notes folder changed` and records no grant. |
+| `set_notes_folder` cannot write `config.toml` | The Daemon answers with a fixed `error` (`The folder could not be saved`) and changes nothing, as `folders.rs` does. |
 
 ### Tests
 
@@ -631,10 +650,17 @@ sets the program path in `nook-core`. Release builds of `nookd` use no feature.
   tools".
 - Policy store: `GrantStore::remove_tools` removes the chat grants of the given
   tool ids and no other grant.
+- Folder change, races: a pending approval of another tool stays open and a grant
+  of another tool stays after a folder change. A decision that arrives for a card
+  with the old folder is denied and records no grant. A decision that was already
+  claimed before the change runs with the old folder. A failed write of
+  `config.toml` returns the fixed error and leaves the registry, the approvals and
+  the grants as they were.
 - Folder setting, through the real socket: `get_notes_settings` returns the
   folder, `supported` and `reason`. A bad folder name in `config.toml` gives the
-  stored value, `supported` true and a `reason`, and `set_notes_folder` with a
-  good name repairs it. `set_notes_folder` writes `config.toml`, keeps its
+  stored value, `supported` true and the fixed `reason`, and `set_notes_folder`
+  with a good name repairs it. With the program path `None`, `supported` is
+  false. `set_notes_folder` writes `config.toml`, keeps its
   comments, rebuilds the tools, sends a new catalog and denies every waiting
   approval of a Notes tool with `The Notes folder changed`, also when `facts`
   would succeed with the new folder. A chat grant of a Notes tool does not
@@ -675,10 +701,11 @@ sets the program path in `nook-core`. Release builds of `nookd` use no feature.
     is killed by a signal, gives the general failure. A path to a file that is not
     executable gives the cannot-start failure.
   - A fake that prints 1 MiB and exits 0 is a success for create, append, edit
-    and delete, and a list or a read shows only the kept part and the last line
-    `[Cut]`. A list with 101
-    lines shows 100 and `More notes exist.` A read over 20,000 characters shows
-    the cut line.
+    and delete. A list or a read of exactly `MAX_TOOL_OUTPUT_BYTES` shows no
+    marker, one byte more ends with `[output truncated]`, and a four-byte
+    character at the cut leaves valid UTF-8. A list with 101 lines shows 100 and
+    `More notes exist.` A read over 20,000 characters shows the cut line of the
+    script.
   - A slow fake is killed at the limit and gives the timeout message, and its
     process group is gone. A cancel kills the process group.
   - Two parallel calls never run the fake at the same time, also when a folder
@@ -715,7 +742,8 @@ sets the program path in `nook-core`. Release builds of `nookd` use no feature.
   Notes keeps the note in Recently Deleted), a title that starts with `-`, a
   folder name with non-ASCII characters or a leading `-`, a body of 20,000 line
   breaks, a note over 20,000 characters, append to a note that has a list or an
-  image, a wrong title, a note in another folder, a locked note, the run with the
+  image, a title with a line break that was typed with Shift and Return, a wrong
+  title, a note in another folder, a locked note, the run with the
   environment of rule 4, the refusal path, the Settings field, and the signing
   result from the "Signing check" section. No automated test touches the real
   Notes app.
@@ -798,9 +826,9 @@ None. This task changes no file under `.agents/rules/`, `AGENTS.md`,
 
 ## Open gaps
 
-`open-gaps.md` holds five questions, each with options and a recommendation. G1
+`open-gaps.md` holds six questions, each with options and a recommendation. G1
 to G3 come from the draft. G4 came from spec review round 1. The owner decided
-all five on November 14, 2026.
+all six on November 14, 2026.
 
 1. G1: which folder the tools use. Decided by the owner: the user chooses it in
    a Settings field, and the value is `[tools.notes] folder` in `config.toml`.
@@ -811,6 +839,8 @@ all five on November 14, 2026.
    outside the sandbox.
 5. G5: where the approval rules live. Decided by the owner: in `tools.yaml` and
    Cedar, as for every tool today.
+6. G6: which Notes tools offer `allow_for_chat`. Decided by the owner: every tool
+   except delete.
 
 ## Risks
 
@@ -854,9 +884,8 @@ all five on November 14, 2026.
    no new approval and no count limit, except for delete, which always asks. A
    chat grant for edit lets a steered model replace notes in the folder with no
    new approval, and an edit can lose a list or an image (Risk 10). The owner
-   accepted this by choosing the approval table. The owner can take
-   `allow_for_chat` from edit and append in `tools.yaml` without a Rust change
-   (gap G5).
+   chose this in gap G6. The owner can take `allow_for_chat` from edit and append
+   in `tools.yaml` without a Rust change (gap G5).
 9. A note can hold text that tries to give the model an instruction (prompt
    injection). A read or a list puts that text in front of the model. The tool
    descriptions say that note text is data. A delete always asks. The other

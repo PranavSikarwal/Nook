@@ -80,3 +80,19 @@ The owner's words: "I want deamon to be core system controlling everything panel
 - Status: decided by owner
 
 The owner's words: "isn't the recommended approval like delete is approval required is it maintained in config or in code directly i want them to be maintained in some config or so?", "not only for this for all the tools", and "works keep following this".
+
+## G6. Which Notes tools offer "allow for this chat"
+
+- Stage: 3 spec review (found by round 11, as the open part of S30)
+- Question: Does each Notes tool offer the action `allow_for_chat`, which lets the model call the tool for the rest of the chat with no new approval?
+- Options:
+  1. Every tool except delete offers `allow_once`, `allow_for_chat` and `deny`. Delete offers `allow_once` and `deny` only. The model can then change and replace notes in the folder for the rest of a chat after one click, and a steered model could do harm with a chat grant for edit.
+  2. List and read offer `allow_for_chat`. Create, append, edit and delete offer `allow_once` and `deny` only. Every change asks.
+  3. Only list and read and create offer `allow_for_chat`. Append, edit and delete ask every time.
+- Recommendation: Option 1, because it is the least friction and the approval card shows the folder and the note title. Option 3 is the safer middle choice if the owner worries about a chat grant for edit. The choice is a change in `tools.yaml` and Cedar only, with no Rust change (gap G5).
+- Decision: Option 1.
+- Decided by: owner
+- Date: 2026-11-14
+- Status: decided by owner
+
+The owner's words, to the proposal "I recommend that delete asks every time (allow once or deny only), and the other operations also offer allow for this chat": "works". The owner can change this at gate 1.

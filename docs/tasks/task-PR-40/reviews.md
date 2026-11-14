@@ -158,8 +158,24 @@
 
 ## Round 11 (spec)
 
+- Head: `03dbb2947696d7bcfaadcee9fc35b8e3bfd6a2da`
+- Reviewer: the T3 reviewer, follow-up of round 10. Verdict: REQUEST_CHANGES (P0: 0, P1: 1, P2: 2, P3: 1). It closed S26 to S29, S31 and S32, and it read the six scripts as text with no problem.
+- SonarCloud: Quality Gate passed.
+- Checks: pending when the reviewer read them. See "Round 12" for the state on the next head.
+- Gaps closed by recommendation: none
+
+| # | Finding | Action | Where |
+| --- | --- | --- | --- |
+| S33 (P1) | The list and read caps ignore `MAX_TOOL_OUTPUT_BYTES` (64 KiB), which cuts every tool result and adds `[output truncated]`. The `[Cut]` line and the 128 KiB and 96 KiB caps cannot happen. | fix | `specs/design.md` rule 7: one limit, `MAX_TOOL_OUTPUT_BYTES`. The provider keeps one byte more, so `truncate_output` cuts and marks. No `[Cut]`. Boundary tests: the cap, the cap plus one, and a four-byte character at the cut. |
+| S34 (P2) | The folder change leaves a window: a claimed decision runs in the new folder, a card built from the old registry can be added after the pass, and a grant for the old folder can match. The text says "never". | fix | `specs/design.md` "The folder setting": the whole sequence runs inside the write lock of `state.config`, each pending approval stores its folder, and a decision compares it under the read lock before it records a grant. Race tests added. |
+| S30 (P2, open part) | The owner's choice of `allow_for_chat` is in no gap. | fix | `open-gaps.md` G6 records the options and the owner's earlier word "works" to the proposal. `specs/design.md` Risk 8 and "Open gaps". |
+| S35 (P3) | No row for a failed write of `config.toml`, no tests that another tool keeps its approval and grant, no `supported` false test and no fixed reason texts. | fix | `specs/design.md` "Failure behavior" and "Tests": the rows, the tests, and the two fixed `reason` texts. |
+| Residual | A note title with a line break could add a false row to a list. | fix (small) | `specs/design.md` manual test: a title typed with Shift and Return. |
+
+## Round 12 (spec)
+
 - Head: pending (the commit that adds this heading)
-- Reviewer: the T3 reviewer, follow-up of round 10.
+- Reviewer: the T3 reviewer, follow-up of round 11.
 - SonarCloud: pending
 - Checks: pending
 - Gaps closed by recommendation: none
