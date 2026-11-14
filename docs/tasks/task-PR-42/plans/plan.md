@@ -112,7 +112,7 @@ Tasks 6 to 10 touch `daemon/`. Their checks are `cd daemon && cargo fmt --check`
   the test that uses `kill -0`. Check: `cd daemon && cargo test -p nook-core
   --test supervisor_tests` passes ten times in a row, and the three daemon checks
   pass. Commit: `test(daemon): pass the fake Worker flags in the command`.
-- [ ] **8. Finding #19: `TestDaemon::drop` kills the Worker.** In
+- [x] **8. Finding #19: `TestDaemon::drop` kills the Worker.** In
   `daemon/crates/nookd/tests/signal_shutdown_tests.rs`, make `drop` read
   `worker.pid` and send SIGKILL to that PID after it kills the Daemon. Ignore a
   missing file and a dead PID. Check: `cd daemon && cargo test -p nookd --test
