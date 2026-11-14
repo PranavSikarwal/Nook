@@ -51,7 +51,7 @@ Rules for every task:
   `an_env_secrets_field_in_config_toml_is_read_by_the_real_parser` (the struct
   has no `deny_unknown_fields`, so assert the parsed value). It fails first
   because the field does not exist. Check: Daemon `rtk cargo test` and clippy.
-- [ ] **3. The `docs` mode of the fake server and the tests that need no
+- [x] **3. The `docs` mode of the fake server and the tests that need no
   secret.** `daemon/crates/nook-core/examples/fake_mcp_server.rs`,
   `daemon/crates/nook-core/tests/mcp_tool_tests.rs`. The fake gets the mode
   `docs` with the tools `readGoogleDoc`, `insertText` (appends a line to

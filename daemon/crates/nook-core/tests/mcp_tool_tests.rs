@@ -43,6 +43,21 @@ fn server(name: &str, mode: &str) -> McpServerConfig {
     }
 }
 
+fn docs_server(record_dir: &std::path::Path) -> McpServerConfig {
+    let mut config = server("google-docs", "docs");
+    config.network = true;
+    config.write_paths = vec![record_dir.display().to_string()];
+    config.env.insert(
+        "FAKE_DOCS_RECORD_DIR".to_string(),
+        record_dir.display().to_string(),
+    );
+    config
+}
+
+fn inserted_log_path(record_dir: &std::path::Path) -> PathBuf {
+    record_dir.join("inserted.log")
+}
+
 async fn sandbox() -> Option<Sandbox> {
     match Sandbox::detect().await {
         Ok(sandbox) => Some(sandbox),
@@ -133,6 +148,174 @@ async fn only_valid_tools_are_offered_with_clean_names() {
     for skipped in ["bad_schema", "no_schema", "has:colon"] {
         assert!(!h.state.providers.contains(&format!("mcp:fake:{skipped}")));
     }
+}
+
+#[tokio::test]
+async fn a_docs_style_tool_is_listed_under_the_hyphenated_server_name() {
+    let record_dir = tempfile::tempdir().unwrap();
+    let record_path = record_dir.path().canonicalize().unwrap();
+    let Some(h) = harness(&[docs_server(&record_path)]).await else {
+        return;
+    };
+    let mut names: Vec<_> = h
+        .state
+        .providers
+        .descriptors()
+        .iter()
+        .map(|tool| tool.name.clone())
+        .collect();
+    names.sort();
+    assert_eq!(
+        names,
+        [
+            "mcp__google-docs__checkEnv",
+            "mcp__google-docs__connect",
+            "mcp__google-docs__echoEnv",
+            "mcp__google-docs__insertText",
+            "mcp__google-docs__readGoogleDoc",
+        ]
+    );
+    let doc = h
+        .state
+        .providers
+        .descriptor("mcp:google-docs:readGoogleDoc")
+        .unwrap();
+    assert!(
+        doc.description.ends_with("(MCP server: google-docs)"),
+        "expected description to end with (MCP server: google-docs), got: {}",
+        doc.description
+    );
+}
+
+#[tokio::test]
+async fn a_docs_style_call_asks_first_and_shows_the_server_tool_and_arguments() {
+    let record_dir = tempfile::tempdir().unwrap();
+    let record_path = record_dir.path().canonicalize().unwrap();
+    let Some(mut h) = harness(&[docs_server(&record_path)]).await else {
+        return;
+    };
+    let chat = Uuid::new_v4();
+    let args = json!({
+        "documentId": "doc-123",
+        "text": "hello world",
+    });
+    let _call = h
+        .execute(chat, "c1", "mcp:google-docs:insertText", &args.to_string())
+        .await;
+
+    let DaemonMessage::ApprovalRequested {
+        resource_summary,
+        actions,
+        tool_name,
+        ..
+    } = h.panel().await
+    else {
+        panic!("Expected an approval request");
+    };
+
+    assert_eq!(tool_name, "mcp:google-docs:insertText");
+    assert_eq!(
+        resource_summary,
+        "Call insertText on MCP server google-docs with {\"documentId\":\"doc-123\",\"text\":\"hello world\"}"
+    );
+    assert!(resource_summary.contains("google-docs"));
+    assert!(resource_summary.contains("insertText"));
+    assert!(resource_summary.contains("doc-123") && resource_summary.contains("hello world"));
+    let ids: Vec<&str> = actions.iter().map(|a| a.id.as_str()).collect();
+    assert_eq!(
+        ids,
+        ["allow_once", "allow_for_chat", "always_allow", "deny"]
+    );
+
+    let pending = h.state.pending_approvals.lock().await;
+    let entry = pending.get("c1").expect("pending approval for c1");
+    assert_eq!(
+        entry.request.facts.get("server").map(String::as_str),
+        Some("google-docs")
+    );
+    assert_eq!(
+        entry.request.facts.get("tool").map(String::as_str),
+        Some("insertText")
+    );
+}
+
+#[tokio::test]
+async fn an_approved_docs_write_reaches_the_server() {
+    let record_dir = tempfile::tempdir().unwrap();
+    let record_path = record_dir.path().canonicalize().unwrap();
+    let Some(mut h) = harness(&[docs_server(&record_path)]).await else {
+        return;
+    };
+    let chat = Uuid::new_v4();
+    let args = json!({
+        "documentId": "doc-123",
+        "text": "first line of text",
+    });
+    let result = run(&mut h, chat, "c1", "mcp:google-docs:insertText", args).await;
+
+    assert_eq!(result["status"], "ok");
+    assert_eq!(result["output"], "ok");
+
+    let log_file = inserted_log_path(&record_path);
+    assert!(log_file.exists(), "inserted.log should exist after write");
+    let content = std::fs::read_to_string(&log_file).unwrap();
+    assert_eq!(content.trim(), "first line of text");
+}
+
+#[tokio::test]
+async fn a_denied_docs_write_never_reaches_the_server() {
+    let record_dir = tempfile::tempdir().unwrap();
+    let record_path = record_dir.path().canonicalize().unwrap();
+    let Some(mut h) = harness(&[docs_server(&record_path)]).await else {
+        return;
+    };
+    let chat = Uuid::new_v4();
+    let args = json!({
+        "documentId": "doc-123",
+        "text": "should not be written",
+    });
+    let mut call = h
+        .execute(chat, "c1", "mcp:google-docs:insertText", &args.to_string())
+        .await;
+    h.panel().await;
+
+    h.decide(chat, "c1", "deny").await;
+
+    let result = tool_result(&mut call).await;
+    assert_eq!(result["status"], "denied");
+    assert_eq!(result["output"], "Denied by the user");
+    h.assert_panel_silent();
+
+    let log_file = inserted_log_path(&record_path);
+    assert!(
+        !log_file.exists(),
+        "inserted.log must not exist after deny: {}",
+        log_file.display()
+    );
+}
+
+#[tokio::test]
+async fn a_docs_server_with_network_true_can_connect_out() {
+    let record_dir = tempfile::tempdir().unwrap();
+    let record_path = record_dir.path().canonicalize().unwrap();
+    let Some(mut h) = harness(&[docs_server(&record_path)]).await else {
+        return;
+    };
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let chat = Uuid::new_v4();
+
+    let result = run(
+        &mut h,
+        chat,
+        "c1",
+        "mcp:google-docs:connect",
+        json!({ "port": port }),
+    )
+    .await;
+
+    assert_eq!(result["status"], "ok");
+    assert_eq!(result["output"], "connected");
 }
 
 #[tokio::test]
