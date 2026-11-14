@@ -39,6 +39,30 @@ The review makes four notes for the plan, not findings:
 | N3 | The fake `connect` tool uses `TcpStream::connect_timeout`. | plan | Plan task for the fake server. |
 | N4 | Tests 3 and 4 share the helper that builds the `inserted.log` path. | plan | Plan task for the tests. |
 
+## Round 3 (spec)
+
+- Head: `a11df5d9df070d2dff2bec44288685083cd1e384`
+- Reviewer: the T3 reviewer ("Review Pull Requests"). The owner decided G1 to G7 and the spec changed to add the secret store, so this round reviews the new design.
+- Verdict: `Verdict: REQUEST_CHANGES (P0: 0, P1: 2, P2: 7, P3: 3)` (review 5901338192)
+- SonarCloud: Quality Gate passed.
+- Checks: `Code Quality and Tests` pass, `SonarCloud Code Analysis` pass, `Windows named-pipe IPC` pending and `Native Tauri E2E Gate` not listed when recorded. Run the CI gate check again on the final head.
+- Gaps closed by recommendation: none. G8 is new and decided by the owner.
+
+| # | Finding | Action | Where |
+| --- | --- | --- | --- |
+| S9 (P1) | The mask list is built by the Panel, so the plan to add resolved secrets in `daemon_log.rs` fails. | fix | `specs/design.md` "The `env_secrets` setting" 4: a redacting writer in `nookd` over a shared list, and the server stderr line goes through it. Test 5 of the unit tests. |
+| S10 (P1) | On Linux each env value is a `bwrap` argument that any user can read. | fix (owner decided, G8) | `specs/design.md` "The `env_secrets` setting" 6, Risk 11, new `sandbox_tests.rs` tests. |
+| S11 (P2) | `keyring` 4.2.0 has no mock and links the real store. | fix | `specs/design.md` "The secret store" 3: `keyring-core` and three store crates behind the feature `os-store`, mock store `keyring_core::mock::Store`. |
+| S12 (P2) | A store read can block the Daemon. | fix | `specs/design.md` "The secret store": `spawn_blocking` with a 10 second timeout. Test 8. Restart in "The `env_secrets` setting" 3 and test 9. |
+| S13 (P2) | The new store shares the namespace of the model key. | fix | `specs/design.md` "The secret store" 1 and 3: service `Nook MCP`, the name `model-api-key` is refused. |
+| S14 (P2) | `nookctl secret` needs the Daemon socket, echo-off is unnamed, `\r\n` is not trimmed, and `nookctl` has no download place. | fix | `specs/design.md` "The secret store" and "The steps for the owner" 11. |
+| S15 (P2) | A refusal at load time fails the whole file. | fix | `specs/design.md` "The `env_secrets` setting" 2: the check runs in `start_reporting` and skips one server. Test 11. |
+| S16 (P2) | The error text of a failing store can hold the secret. | fix | `specs/design.md` "The secret store" 2: `SecretError` with fixed texts. Test 7. |
+| S17 (P2) | A secret can leave in a tool result. | fix | `specs/design.md` "The `env_secrets` setting" 5: scrub, and the fake `checkEnv` and `echoEnv`. Tests 5 and 10. Risk 12. |
+| S18 (P3) | Two passages of `docs/mcp-servers.md` and a place for `nookctl` are missing from the docs list. | fix | `specs/design.md` "Central docs that change" 1.7, 1.8 and 1.10. |
+| S19 (P3) | In external mode the Drive tools fail inside the server. | fix | `specs/design.md` "The server" 5 and "What the model sees". `open-gaps.md` G2 and G5. |
+| S20 (P3) | The state block and `reviews.md` did not show the round. | fix | The state block is `Stage: 3 spec review`, and this heading exists. |
+
 ## Commands run
 
 This task adds no named check to a rule or a document.

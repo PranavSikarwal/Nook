@@ -19,7 +19,7 @@
 - Stage: 2 spec
 - Question: Which scopes does the sample ask Google for? The owner pastes the same value into the consent screen and into `GOOGLE_DRIVE_MCP_SCOPES`.
 - Options:
-  1. `documents` only (`https://www.googleapis.com/auth/documents`). Read and edit an existing Google Doc. In version 2.13.0 (read from the source, not run), `readGoogleDoc` and `insertText` work, and `createGoogleDoc` fails, because it calls `drive.files.create`. The Drive tools (list, search, share, delete, upload) fail at Google. The owner gives the model the document address. Google's pages that were read do not say whether this scope is marked sensitive (see G3).
+  1. `documents` only (`https://www.googleapis.com/auth/documents`). Read and edit an existing Google Doc. In version 2.13.0 (read from the source, not run), `readGoogleDoc` and `insertText` work, and `createGoogleDoc` fails, because it calls `drive.files.create`. The Drive tools (list, search, share, delete, upload) fail inside the server, which refuses a tool whose scope the env value does not cover (read from the source by the round 3 reviewer). The owner gives the model the document address. Google's pages that were read do not say whether this scope is marked sensitive (see G3).
   2. `documents.readonly` (full URL, not a short alias of the server). The assistant can read Docs and cannot write. This does not meet "write to online documents" and is the safest start.
   3. `documents` and `drive.file`. Adds Drive access to files that this app created or opened. It lets `createGoogleDoc` work. It adds a second scope to approve. `uploadFile` takes a local path, so with a Drive scope the server could upload any file that it can read, including the credentials file. The approval card shows the path. G5 must be decided again with this option.
   4. The server default: eight scopes, including all of Drive and Calendar. Nook does not need this.
@@ -61,7 +61,7 @@
 - Stage: 2 spec
 - Question: Nook offers the first 64 tools of a server. The recommended server lists 130, and no setting of that server filters them. How does the sample deal with the extra Drive and Sheets tools?
 - Options:
-  1. Accept it. The narrow scope blocks the Drive calls at Google, every call asks first, and the page names the effect (context cost, a few failed calls).
+  1. Accept it. The narrow scope blocks the Drive calls (the server refuses them), every call asks first, and the page names the effect (context cost, a few failed calls).
   2. Add a per-server tool allowlist to Nook (`tools = [...]` in the server block). This is a code change in `config.rs`, `mcp.rs` and the docs. It is a separate task with its own spec, and it needs a decision on its own gate 1.
   3. Use a server that can filter its tool list (option 2 of G1). It gives up the narrow scope.
 - Recommendation: Option 1 for this task, with the scope of G2 option 1. If G2 picks a Drive scope, decide this gap again, because the scope is then no longer a guard. Record option 2 as a follow-up task if the extra tools cost too much in use.
@@ -100,6 +100,19 @@
   3. Without the `keyring` crate: write the abstraction by hand over `security-framework` and the Windows and Linux libraries. The owner declined per-system code in G4.
 - Recommendation: Option 1, because the owner wants the Docs sample to use the store and the Docs sample is the first user. It needs a second spec review round and a new gate 1 for the changed spec. If the owner prefers smaller reviews, choose option 2. Moving the model API key onto the store is a separate follow-up.
 - Decision: Option 1: build it in this task, with the `keyring` crate. "In this task, with keyring crate (Recommended)." The spec now holds the secret store, the `env_secrets` setting and `nookctl secret`. The model API key stays on its current code.
+- Decided by: owner
+- Date: 2026-11-14
+- Status: decided by owner
+
+## G8. Pass the Linux sandbox environment without a command line
+
+- Stage: 3 spec review (found by the round 3 reviewer, finding S10)
+- Question: On Linux, `sandbox.rs` passes each `env` value of a server to `bwrap` as `--setenv <name> <value>`. Any user of the machine can read these arguments from `/proc/<pid>/cmdline` while the server runs. That includes the new secrets. Does this task fix it? The fix changes the sandbox code for every MCP server and terminal command on Linux.
+- Options:
+  1. Fix it in this task. Set the environment with `command.envs(...)` on the `bwrap` process (it already starts with `env_clear()`), and drop `--clearenv` and `--setenv`. `/proc/<pid>/environ` is readable by the owner of the process only. The sandbox limits stay the same. `sandbox_tests.rs` changes, and a new Linux test checks that the command line holds no value. macOS does not change.
+  2. Keep it and document it. The page and Risk 11 say that any user of a Linux machine can read the secrets while the server runs.
+- Recommendation: Option 1. The task exists to keep these values private, and the change is small.
+- Decision: Option 1: fix it in this task. "Fix it in this task (Recommended)."
 - Decided by: owner
 - Date: 2026-11-14
 - Status: decided by owner
