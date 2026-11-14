@@ -80,7 +80,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     }
 
     // 6. Start Worker supervisor
-    let registry = build_registry(&config.tools).await;
+    let registry =
+        build_registry(&config.tools, nook_core::secrets::SecretContext::default()).await;
     let descriptors = registry.descriptors().to_vec();
     let providers = ProviderHandle::new(registry);
     let supervisor =

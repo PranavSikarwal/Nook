@@ -5,6 +5,7 @@ use super::{
 use crate::config::McpServerConfig;
 use crate::protocol::{ToolDescriptor, ToolSourceInfo, ToolSourceState};
 use crate::sandbox::{Sandbox, SandboxProcess, SandboxSpec};
+use crate::secrets::SecretContext;
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -382,7 +383,12 @@ impl ServerSlot {
     /// Returns the running server. A server that has stopped is started again
     /// first, unless it was started less than `restart_interval` ago. The call
     /// that found the server stopped is never repeated by the Daemon.
-    async fn live(&self, sandbox: &Sandbox, limits: StartupLimits) -> Arc<McpServer> {
+    async fn live(
+        &self,
+        sandbox: &Sandbox,
+        limits: StartupLimits,
+        secrets: &SecretContext,
+    ) -> Arc<McpServer> {
         let current = self.current.read().await.clone();
         if !current.client.is_closed() {
             return current;
@@ -398,7 +404,7 @@ impl ServerSlot {
             }
             *started = Instant::now();
         }
-        match start_server(&self.config, sandbox, limits).await {
+        match start_server(&self.config, sandbox, limits, secrets).await {
             Ok((server, _)) => {
                 info!(server = %self.name, "MCP server restarted");
                 *guard = Arc::new(server);
@@ -414,6 +420,7 @@ pub struct McpProvider {
     tools: BTreeMap<String, ToolEntry>,
     sandbox: Sandbox,
     limits: StartupLimits,
+    secrets: SecretContext,
 }
 
 fn valid_server_name(name: &str) -> bool {
@@ -449,6 +456,7 @@ async fn start_server(
     config: &McpServerConfig,
     sandbox: &Sandbox,
     limits: StartupLimits,
+    _secrets: &SecretContext,
 ) -> Result<(McpServer, Vec<McpTool>), String> {
     let home = tempfile::tempdir().map_err(|e| e.to_string())?;
     let home_path = home.path().canonicalize().map_err(|e| e.to_string())?;
@@ -523,8 +531,11 @@ impl McpProvider {
         configs: &[McpServerConfig],
         sandbox: &Sandbox,
         limits: StartupLimits,
+        secrets: SecretContext,
     ) -> Option<Self> {
-        Self::start_reporting(configs, sandbox, limits).await.0
+        Self::start_reporting(configs, sandbox, limits, secrets)
+            .await
+            .0
     }
 
     /// Like `start`, and also returns one entry for each server that is not
@@ -533,6 +544,7 @@ impl McpProvider {
         configs: &[McpServerConfig],
         sandbox: &Sandbox,
         limits: StartupLimits,
+        secrets: SecretContext,
     ) -> (Option<Self>, Vec<ToolSourceInfo>) {
         let mut failed: Vec<ToolSourceInfo> = Vec::new();
         let mut accepted: Vec<&McpServerConfig> = Vec::new();
@@ -564,8 +576,13 @@ impl McpProvider {
         for (position, config) in accepted.iter().enumerate() {
             let config = (*config).clone();
             let sandbox = sandbox.clone();
-            starting
-                .spawn(async move { (position, start_server(&config, &sandbox, limits).await) });
+            let secrets = secrets.clone();
+            starting.spawn(async move {
+                (
+                    position,
+                    start_server(&config, &sandbox, limits, &secrets).await,
+                )
+            });
         }
         let mut started: Vec<(usize, McpServer, Vec<McpTool>)> = Vec::new();
         let started_at = Instant::now();
@@ -625,6 +642,7 @@ impl McpProvider {
             tools,
             sandbox: sandbox.clone(),
             limits,
+            secrets,
         };
         (Some(provider), failed)
     }
@@ -744,7 +762,7 @@ impl Provider for McpProvider {
             return ToolOutput::error("Error: unknown tool");
         };
         let server = self.servers[entry.server]
-            .live(&self.sandbox, self.limits)
+            .live(&self.sandbox, self.limits, &self.secrets)
             .await;
         match server
             .client

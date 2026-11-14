@@ -166,6 +166,7 @@ mod tests {
                 ("TOKEN".to_string(), "tok-12345".to_string()),
                 ("MODE".to_string(), "on".to_string()),
             ]),
+            env_secrets: BTreeMap::new(),
             network: false,
             read_paths: vec![],
             write_paths: vec![],

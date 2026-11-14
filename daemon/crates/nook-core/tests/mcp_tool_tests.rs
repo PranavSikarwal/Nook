@@ -35,6 +35,7 @@ fn server(name: &str, mode: &str) -> McpServerConfig {
         command: binary.display().to_string(),
         args: vec![mode.to_string()],
         env: BTreeMap::new(),
+        env_secrets: BTreeMap::new(),
         network: false,
         read_paths: vec![binary.parent().unwrap().display().to_string()],
         write_paths: vec![],
@@ -66,7 +67,13 @@ fn quick() -> StartupLimits {
 
 async fn provider(configs: &[McpServerConfig], limits: StartupLimits) -> Option<McpProvider> {
     let sandbox = sandbox().await?;
-    McpProvider::start(configs, &sandbox, limits).await
+    McpProvider::start(
+        configs,
+        &sandbox,
+        limits,
+        nook_core::secrets::SecretContext::default(),
+    )
+    .await
 }
 
 async fn harness(configs: &[McpServerConfig]) -> Option<Harness> {
@@ -538,7 +545,13 @@ async fn sources_list_each_server_as_ready_or_off_with_a_reason() {
         server("bad name", "normal"),
     ];
 
-    let (provider, failed) = McpProvider::start_reporting(&configs, &sandbox, quick()).await;
+    let (provider, failed) = McpProvider::start_reporting(
+        &configs,
+        &sandbox,
+        quick(),
+        nook_core::secrets::SecretContext::default(),
+    )
+    .await;
 
     let ready = provider.expect("one server runs").sources();
     assert_eq!(ready.len(), 1);
@@ -577,9 +590,14 @@ async fn a_stopped_server_shows_as_stopped_until_a_call_starts_it() {
     let Some(sandbox) = sandbox().await else {
         return;
     };
-    let provider = McpProvider::start(&[server("fake", "normal")], &sandbox, limits)
-        .await
-        .unwrap();
+    let provider = McpProvider::start(
+        &[server("fake", "normal")],
+        &sandbox,
+        limits,
+        nook_core::secrets::SecretContext::default(),
+    )
+    .await
+    .unwrap();
     let mut h = Harness::new(vec![Arc::new(provider)]).await;
 
     run(&mut h, Uuid::new_v4(), "c1", "mcp:fake:die", json!({})).await;

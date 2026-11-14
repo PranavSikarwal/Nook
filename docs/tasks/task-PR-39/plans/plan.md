@@ -32,7 +32,7 @@ Rules for every task:
   `set_from_reader_trims_one_trailing_newline_or_crlf_and_refuses_an_empty_value`,
   `the_model_key_name_is_refused_by_every_store_call`. Each fails first because
   the module does not exist. Check: Daemon `rtk cargo test` and clippy.
-- [ ] **2. The `env_secrets` field and the store reach the MCP code.**
+- [x] **2. The `env_secrets` field and the store reach the MCP code.**
   `daemon/crates/nook-core/src/config.rs`,
   `daemon/crates/nook-core/src/providers/mcp.rs`,
   `daemon/crates/nook-core/src/providers/mod.rs`,

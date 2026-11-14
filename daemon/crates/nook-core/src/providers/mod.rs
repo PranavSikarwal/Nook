@@ -369,7 +369,10 @@ struct Carry {
     mcp_report: Vec<ToolSourceInfo>,
 }
 
-pub async fn build_registry(tools: &crate::config::ToolsConfig) -> ProviderRegistry {
+pub async fn build_registry(
+    tools: &crate::config::ToolsConfig,
+    secrets: crate::secrets::SecretContext,
+) -> ProviderRegistry {
     let mut carry = Carry::default();
     let needs_sandbox = tools.terminal.enabled || !tools.mcp_servers.is_empty();
     if needs_sandbox {
@@ -382,6 +385,7 @@ pub async fn build_registry(tools: &crate::config::ToolsConfig) -> ProviderRegis
                         &tools.mcp_servers,
                         &sandbox,
                         mcp::StartupLimits::default(),
+                        secrets.clone(),
                     )
                     .await;
                     carry.mcp_report.extend(failed);
@@ -644,7 +648,11 @@ mod tests {
 
     #[tokio::test]
     async fn the_builder_offers_nothing_without_roots() {
-        let registry = build_registry(&ToolsConfig::default()).await;
+        let registry = build_registry(
+            &ToolsConfig::default(),
+            crate::secrets::SecretContext::default(),
+        )
+        .await;
 
         assert!(registry.is_empty());
     }
@@ -666,7 +674,7 @@ mod tests {
             ..ToolsConfig::default()
         };
 
-        let registry = build_registry(&tools).await;
+        let registry = build_registry(&tools, crate::secrets::SecretContext::default()).await;
 
         assert!(registry.contains("nook:read_local_file"));
         assert!(!registry.contains("nook:write_local_file"));
@@ -674,7 +682,11 @@ mod tests {
 
     #[tokio::test]
     async fn nothing_is_configured_so_no_source_is_listed() {
-        let registry = build_registry(&ToolsConfig::default()).await;
+        let registry = build_registry(
+            &ToolsConfig::default(),
+            crate::secrets::SecretContext::default(),
+        )
+        .await;
 
         assert!(registry.sources().is_empty());
     }
@@ -696,7 +708,9 @@ mod tests {
             ..ToolsConfig::default()
         };
 
-        let sources = build_registry(&tools).await.sources();
+        let sources = build_registry(&tools, crate::secrets::SecretContext::default())
+            .await
+            .sources();
 
         assert_eq!(sources.len(), 1);
         assert_eq!(sources[0].source_id, "filesystem");
@@ -721,7 +735,9 @@ mod tests {
             ..ToolsConfig::default()
         };
 
-        let sources = build_registry(&tools).await.sources();
+        let sources = build_registry(&tools, crate::secrets::SecretContext::default())
+            .await
+            .sources();
 
         assert_eq!(sources.len(), 1);
         assert_eq!(sources[0].state, ToolSourceState::Off);
@@ -734,7 +750,9 @@ mod tests {
         let mut tools = ToolsConfig::default();
         tools.terminal.enabled = true;
 
-        let sources = build_registry(&tools).await.sources();
+        let sources = build_registry(&tools, crate::secrets::SecretContext::default())
+            .await
+            .sources();
 
         assert_eq!(sources.len(), 1);
         assert_eq!(sources[0].source_id, "terminal");
