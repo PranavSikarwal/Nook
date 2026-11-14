@@ -2,6 +2,7 @@ use nook_core::config::Config;
 use nook_core::protocol::{AuthorizationDecision, DaemonWorkerEvent, DaemonWorkerRequest};
 use nook_core::supervisor::WorkerSupervisor;
 use std::path::PathBuf;
+#[cfg(unix)]
 use std::time::{Duration, Instant};
 use uuid::Uuid;
 
