@@ -175,7 +175,7 @@ Rules for every task:
   "value is empty" text and does not print the "Is nookd running?" text). No
   test writes to a real store. It fails first because the subcommand does not
   exist. Check: Daemon `rtk cargo test` and clippy.
-- [ ] **10. Docs: `docs/mcp-servers.md`.** `docs/mcp-servers.md`. All the page
+- [x] **10. Docs: `docs/mcp-servers.md`.** `docs/mcp-servers.md`. All the page
   changes of the spec ("Central docs that change" 1.1 to 1.11): the `env_secrets`
   row and a section on the secret store and `nookctl secret` (with where to get
   `nookctl`); the section "Example: Google Docs" with the sample block, the 15

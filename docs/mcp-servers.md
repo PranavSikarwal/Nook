@@ -55,7 +55,8 @@ timeout_seconds = 60
 | `name` | Yes | A short id. Letters, digits, `_` and `-`, up to 32 characters. Each name is used once. The model sees tools as `mcp__<name>__<tool>`. |
 | `command` | Yes | The program to start. Use an absolute path, or a program on the sandbox `PATH` (see below). |
 | `args` | No | Arguments for the program. Default: none. |
-| `env` | No | Environment variables for the server. Default: none. |
+| `env` | No | Environment variables for the server. Default: none. A name that starts with `LD_` or `DYLD_` is refused in `env` and in `env_secrets`. |
+| `env_secrets` | No | Maps an environment variable name to a secret name in the secret store. Default: none. A name that starts with `LD_` or `DYLD_` is refused in `env` and in `env_secrets`. |
 | `network` | No | `true` lets the server use the network. Default: `false`. |
 | `read_paths` | No | Absolute paths the server may read. Default: none. |
 | `write_paths` | No | Absolute paths the server may read and write. Default: none. |
@@ -63,6 +64,18 @@ timeout_seconds = 60
 
 A path in `read_paths` or `write_paths` must be absolute and must exist. The
 Daemon ignores any other path and logs `ignored path`.
+
+## Secret store
+
+Nook keeps sensitive values in the operating system secret store. On macOS it uses Keychain. On Windows it uses Credential Manager. On Linux it uses Secret Service. The service name in the secret store is `Nook MCP`. A headless Linux Daemon cannot use the secret store because Secret Service requires a desktop session.
+
+Manage secrets with `nookctl`:
+- To store a secret, run `nookctl secret set <name>`. The command reads the value from standard input and never from an argument. When you run the command on a terminal, echo is off.
+- To delete a secret, run `nookctl secret delete <name>`.
+
+The name `model-api-key` is refused for every secret command and for `env_secrets`.
+
+The `nookctl` binary is a separate asset of the release. Download the `nookctl` binary of the release from the Releases page of the Nook repository at `https://github.com/PranavSikarwal/Nook/releases`.
 
 ## What the server can see
 
@@ -78,9 +91,9 @@ The Daemon starts the server inside the same sandbox as the command tool.
 - **Home folder.** `HOME` and `TMPDIR` point to a new empty folder. Nook deletes
   it when the server stops. Anything the server saves there is gone at the next
   start.
-- **Environment.** The server gets `PATH`, `HOME`, `TMPDIR`, `LANG=C.UTF-8`, and
-  your `env` entries. It does not get the Daemon's environment, your shell
-  variables, or your API key.
+- **Environment.** The server gets `PATH`, `HOME`, `TMPDIR`, `LANG=C.UTF-8`,
+  your `env` entries, and your resolved `env_secrets` values. It does not get the
+  Daemon environment, your shell variables, or your API key.
 - **Network.** Off unless `network = true`.
 - **Processes.** The Daemon stops the server and everything it started when the
   server stops or the Daemon exits.
@@ -152,8 +165,13 @@ stays stopped for that time.
   JXA fails with a privilege error. No setting fixes this. See
   `plans/app-integrations.md`.
 - **A login in a browser.** A server that opens a browser for a sign-in has no
-  window or default browser in the sandbox. Sign in once outside Nook and put
-  the token file in a folder that you list in `read_paths`.
+  window or default browser in the sandbox. Sign in once outside Nook. Store a
+  refresh token or client secret in the secret store and pass it with
+  `env_secrets`. If a server rewrites its token file, list the folder in
+  `write_paths`.
+- **A server that needs a variable that starts with `LD_` or `DYLD_`.** The
+  Daemon refuses any variable name in `env` or `env_secrets` that begins with
+  `LD_` or `DYLD_`. A server that needs such a variable cannot start.
 - **Servers on a network port.** Only stdio works.
 - **Files outside the paths you list.** The server cannot read your documents or
   your credentials unless you list the folder.
@@ -166,8 +184,9 @@ stays stopped for that time.
 - Keep `network = false`. A server with the network and a readable folder can
   send what it reads to anyone.
 - Give `write_paths` one data folder, not a folder that holds your work.
-- Put a secret in `env` only when the server needs it. `config.toml` stores
-  `env` values as plain text.
+- Store secrets in `env_secrets` instead of `env`. The `config.toml` file stores
+  `env` values as plain text. The `env_secrets` setting reads values from the
+  operating system secret store.
 - Treat the tool descriptions and the results as untrusted text. A malicious
   server can write instructions into them. The approval prompt still shows what
   is about to run.
@@ -194,10 +213,11 @@ For more detail, read the Daemon log.
 When Nook starts the Daemon, the Panel keeps its log in `daemon.log` in the Nook
 application folder. The file is private to your user (mode `0600` on macOS and
 Linux). When it reaches 1 MiB, it becomes `daemon.log.1`, and Nook keeps no older
-file. Nook removes these values from every line before it writes it: the
-database password, the API key in the environment, and the `env` values of your
-MCP servers. If you start `nookd` yourself, the log goes to the terminal, and
-you must quit Nook first because two Daemons cannot share one socket.
+file. The Daemon masks these values from every log line itself, also when started
+by hand: the database password, the API key in the environment, `env` values of
+4 or more characters, and resolved secrets from `env_secrets`. If you start
+`nookd` yourself, the log goes to the terminal, and you must quit Nook first
+because two Daemons cannot share one socket.
 
 These lines matter:
 
@@ -214,14 +234,104 @@ These lines matter:
 If no server starts, Nook offers no MCP tool. If the model does not see a tool,
 read these lines first.
 
+## Example: Google Docs
+
+```toml
+[[tools.mcp_servers]]
+name = "google-docs"
+command = "/usr/local/bin/node"
+args = ["/Users/me/tools/google-docs-mcp/node_modules/@piotr-agier/google-drive-mcp/dist/index.js"]
+env = { GOOGLE_DRIVE_MCP_CLIENT_ID = "123456789-abc.apps.googleusercontent.com", GOOGLE_DRIVE_MCP_SCOPES = "documents" }
+env_secrets = { GOOGLE_DRIVE_MCP_CLIENT_SECRET = "google-docs-client-secret", GOOGLE_DRIVE_MCP_REFRESH_TOKEN = "google-docs-refresh-token" }
+network = true
+read_paths = ["/Users/me/tools/google-docs-mcp"]
+timeout_seconds = 120
+```
+
+Why each value is set:
+- `command` is the absolute path of `node`, and `args` holds the script path. The sandbox `PATH` does not hold a version manager. A script with `#!/usr/bin/env node` can fail. If `node` lies outside the system folders, add its folder to `read_paths`.
+- `network = true` is required because the server calls Google APIs.
+- There is no `write_paths`. In external token mode, the server writes no token file. Its home folder is a temporary folder that Nook removes on exit.
+- `env` holds the client ID and the scope name. The client ID is not a secret.
+- `env_secrets` maps the client secret and the refresh token to items in the secret store. The `config.toml` file never stores their values.
+- `timeout_seconds = 120` gives Google calls time to complete. The server retries up to 3 times on transient failures.
+
+Setup steps:
+
+These steps were written on 2026-11-14 from the Google and package pages. Nobody has followed all of them in Google yet, because CI cannot sign in to Google. The Google Cloud Console changes menus over time. Look for matching labels if console text differs. Steps 1 to 9 are Google steps. Steps 10 to 15 are Nook steps.
+
+1. Open `https://console.cloud.google.com` in your browser. Sign in with the Google account that owns the documents.
+2. Open the project picker. Choose **New project**. Enter the project name `Nook Google Docs`. Choose **Create**.
+3. Open **APIs & Services**, then choose **Library**. Search for **Google Docs API**. Choose **Enable**.
+4. Open **Google Auth Platform** (or **APIs & Services**, then **OAuth consent screen**). Choose **Get started**. Set the application name to `Nook`. Enter a support email and a contact email. Choose the audience **External**.
+5. Open **Data Access**. Choose **Add or remove scopes**. Add `https://www.googleapis.com/auth/documents`. Save the change.
+6. Open **Audience**. Keep the status as **Testing**. Under **Test users**, choose **Add users**. Add the Google account from step 1.
+7. Open **Clients**. Choose **Create client**. Set the application type to **Desktop app**. Set the name to `Nook`. Choose **Create**. Copy the client ID. Choose **Download JSON** and keep the file for step 12. This file holds the client secret.
+8. Install the server in a folder that you control:
+   `npm install --prefix ~/tools/google-docs-mcp @piotr-agier/google-drive-mcp@2.13.0`
+9. Sign in once in a terminal outside Nook with the downloaded file and the narrow scope:
+   `GOOGLE_DRIVE_OAUTH_CREDENTIALS=<downloaded file> GOOGLE_DRIVE_MCP_TOKEN_PATH=<a temporary file> GOOGLE_DRIVE_MCP_SCOPES=documents node <install folder>/node_modules/@piotr-agier/google-drive-mcp/dist/index.js auth`
+   The browser opens. Approve the access. The temporary token file appears.
+10. Open the temporary token file. Copy the value of `refreshToken` from the account record (`accounts.<alias>.refreshToken`, read from the package source and not from a live run).
+11. To store the refresh token in the secret store, run `nookctl secret set google-docs-refresh-token`. Paste the value at the prompt. The terminal displays no characters. Nook does not need to run for this command.
+12. To store the client secret in the secret store, run `nookctl secret set google-docs-client-secret`. The value is the `client_secret` field in the downloaded JSON file.
+13. Delete the downloaded JSON file and the temporary token file. Both files hold secrets that now live in the secret store.
+14. Add the configuration block to `config.toml` with your client ID and your paths. Restart Nook. Look for `MCP server is ready` in `daemon.log`.
+15. Ask the model to read a document. Give the model the document address. Approve the call on the approval card.
+
+Tool behavior under the narrow scope:
+
+With the scope `documents` only (read from the package source and not from a live run):
+- `readGoogleDoc` works. It calls only the Docs API.
+- `insertText` works. It checks Drive first and falls back to the Docs API.
+- `createGoogleDoc` fails because it calls `drive.files.create`. Creating a document requires a Drive scope.
+- Drive tools fail inside the server. The server returns an error result to the model.
+
+Scope behavior:
+
+In external token mode, the server takes account scopes from `GOOGLE_DRIVE_MCP_SCOPES` (or the eight defaults), not from the token (read from the package source). The server refuses a tool itself before any Google call when that scope does not cover the tool. Its error text then tells the model to run `manage_accounts add`, which the server refuses in this mode. Without `GOOGLE_DRIVE_MCP_SCOPES`, the server gates nothing, and Google refuses calls. The sample block always sets this variable.
+
+Network risk:
+
+Setting `network = true` lets the server contact any host on the network. Nook has no per-host network filter. A malicious server with network access and secrets in its environment can send secrets out. Pin the package version to `2.13.0` and set the narrow scope `documents` to reduce this risk.
+
+Tool cap:
+
+The server offers 130 tools. Nook offers the first 64 tools and ignores the rest. In version 2.13.0, these 64 tools include all Docs tools except `readSmartChips` and `createFootnote`. They also include Drive tools such as `deleteItem`, `shareFile`, `addPermission`, and `uploadFile`. These Drive tools remain safe because the narrow scope blocks them inside the server before any Google call, and each call asks for your approval first.
+
+Live check status:
+
+CI did not run the live path (sign-in, token refresh, real Docs calls, and macOS socket checks), and that path waits for the live check by the owner.
+
+Warnings:
+
+Document text is untrusted text. A document can contain text that attempts to steer the model. Treat every document result as untrusted input.
+
+The approval card displays only the first 300 characters of arguments. A long write operation is cut. Choose **Deny** when the approval card ends with `...`. Use **Always allow this tool** only for tools that read.
+
+## When Google Docs stops working
+
+1. The refresh token expired. An External application in Testing status expires its refresh token after 7 days. If the token expires, run steps 9 to 11 again, and restart Nook.
+2. The scope changed. A new scope requires a new sign-in. If the scope changes, run steps 9 to 11 again.
+3. A secret is missing or the secret store is locked. The server stays off, and the report names the secret. A restart shows only `Error: the MCP server stopped`, so check `daemon.log`. Run the `nookctl secret set` command that the report shows. On Linux, the secret store requires a running Secret Service and an unlocked keyring. On macOS, the first read by `nookd` of an item that `nookctl` created can show a Keychain prompt (not verified). Choose **Always Allow**.
+4. The call timed out. Raise `timeout_seconds` in `config.toml`, up to 600.
+5. The server did not start. The Daemon allows a server 10 seconds each for `initialize` and `tools/list`. A server that exceeds this limit stays off for the session. A cold start of a large Node package in the sandbox can be slow. Start the server by hand in a terminal to measure the start time, and read `daemon.log`.
+6. The log shows `***` where a value is expected. The Daemon replaces every `env` value of 4 or more characters, and every secret, with `***` in `daemon.log`. The Daemon masks these values itself, also when started by hand. The client ID and the scope name stay hidden in the log. Read `config.toml` to inspect those values.
+
+## Next steps for Google Workspace
+
+1. Full Google Workspace. When `documents` works well, widen the scope step by step to Sheets, Slides, Calendar, and Drive, so that Nook works as an assistant for the whole Workspace. Each added scope needs a new sign-in, a change on the consent screen, and a new review of the risk of the tools that it opens (such as `uploadFile` with a Drive scope).
+2. All 130 tools. Remove the narrow scope and the 64-tool cap (through a per-server tool filter or a higher cap) so that all tools work. This step requires Nook code in `mcp.rs` and `config.rs`, with its own spec.
+3. The model API key on the secret store. Move `keychain.rs` onto the secret store, so that Linux and Windows also keep the model API key in the system store.
+
 ## For developers
 
 - `daemon/crates/nook-core/src/providers/mcp.rs` holds the client and the
   provider.
 - `daemon/crates/nook-core/examples/fake_mcp_server.rs` is a small stdio server
   with modes for a normal server, a chatty server, a hang, a crash, an old
-  protocol and a paged tool list. The tests in `tests/mcp_tool_tests.rs` start
-  it inside the sandbox and drive the full approval flow.
+  protocol, a paged tool list, and docs. The tests in `tests/mcp_tool_tests.rs`
+  start it inside the sandbox and drive the full approval flow.
 - `panel/e2e/specs/mcp-tool.spec.mjs` covers the approval flow in the native
   Panel with the same fake server.
 - To test a new server, add a case to the fake server instead of starting a real
