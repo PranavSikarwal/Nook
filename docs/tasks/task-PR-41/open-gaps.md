@@ -33,16 +33,18 @@ Each entry records one question and its decision. The format is in
 - Question: how does the Worker tell a folder-rule denial from another denial?
 - Options:
   (a) The Worker matches the fixed reason text that the Daemon already sends.
-  `docs/contracts.md` lists the texts as part of the contract. An unknown text
-  falls back to "Request denied. I stopped here." No file in `contracts/`
-  changes.
+  An unknown text falls back to "Request denied. I stopped here." A Worker test
+  reads the two Daemon constants from the Daemon source and checks them against
+  the table keys, so a changed Daemon text fails a test. No file in
+  `contracts/` changes.
   (b) Add a `reason_code` field to the `authorization_result` and `tool_result`
   messages. The Daemon sets it and the Worker reads it. This changes both
   schemas, their examples, the contract test, the Daemon and the Worker. It
   is a task of its own.
-- Recommendation: (a). The change stays small and inside the Worker. The risk of
-  a changed text is a fallback to the old notice, and the Daemon tests pin the
-  texts. Use (b) only if the owner wants the Worker to hold no Daemon text.
+- Recommendation: (a). The change stays small and inside the Worker. The test
+  that reads the Daemon constants catches a changed text. That test works only
+  in a full checkout. Use (b) only if the owner wants the Worker to hold no
+  Daemon text.
 - Decision:
 - Decided by:
 - Date:
@@ -60,6 +62,30 @@ Each entry records one question and its decision. The format is in
   `docs/tools-and-authorization.md`, and it needs its own spec.
 - Recommendation: (a). Item 11 is about the wrong notice. Option (b) is a new
   behavior and a possible later task.
+- Decision:
+- Decided by:
+- Date:
+- Status: open
+
+## G4. Other refusals that keep the wrong notice
+
+- Stage: 3 spec review (found by the round 1 review, finding S2)
+- Question: the file and command tools refuse some calls for reasons other than
+  a folder rule: `Path must be absolute`, `Path must not contain ..`, `Path is
+  not valid`, `Content is larger than the write limit`, and the argument errors
+  of the command tool. The user denied none of them, and each ends with
+  "Request denied. I stopped here." Does this task fix them?
+- Options:
+  (a) Out of scope. They keep the current notice. They are mistakes of the
+  model, not a rule that the user can change. A later task can handle them,
+  with G3 (b), which lets the model correct the call.
+  (b) Add them to the table with one notice such as "I stopped here. The model
+  sent a path that Nook cannot use." This adds a third message and the exact
+  reason list to the Worker.
+  (c) Use the generic notice of G1 (c) for these reasons only.
+- Recommendation: (a). The user cannot fix these in Settings, so a fixed
+  message cannot name a next step. The real fix is to let the model retry,
+  which is G3 (b).
 - Decision:
 - Decided by:
 - Date:
