@@ -256,7 +256,7 @@ Rules for every task:
   `NOOK_TEST_LEAK`), run `env` in the sandbox, and assert that the spec
   variables are present and that the marker and the host `HOME` are absent. It
   must not depend on `USER`. Check: Daemon `rtk cargo test` and clippy.
-- [ ] **R1-3. MCP start path (C3, C7 test, C10).**
+- [x] **R1-3. MCP start path (C3, C7 test, C10).**
   `daemon/crates/nook-core/src/providers/mcp.rs`,
   `daemon/crates/nook-core/tests/mcp_tool_tests.rs`. An empty value from the
   store is treated as `SecretError::Missing` in `start_server`. The startup

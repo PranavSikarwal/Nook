@@ -359,14 +359,19 @@ impl Default for StartupLimits {
     }
 }
 
+fn reject_loader_variable(server: &str, key: &str) -> Result<(), String> {
+    if key.starts_with("LD_") || key.starts_with("DYLD_") {
+        return Err(format!(
+            "Server \"{server}\": the variable \"{key}\" cannot start with LD_ or DYLD_"
+        ));
+    }
+    Ok(())
+}
+
+/// Checks one server's `env` and `env_secrets`. The error is the reason the server stays off.
 pub fn check_server_settings(config: &McpServerConfig) -> Result<(), String> {
     for key in config.env.keys() {
-        if key.starts_with("LD_") || key.starts_with("DYLD_") {
-            return Err(format!(
-                "Server \"{}\": the variable \"{key}\" cannot start with LD_ or DYLD_",
-                config.name
-            ));
-        }
+        reject_loader_variable(&config.name, key)?;
     }
     for (key, secret_name) in &config.env_secrets {
         if config.env.contains_key(key) {
@@ -375,12 +380,7 @@ pub fn check_server_settings(config: &McpServerConfig) -> Result<(), String> {
                 config.name
             ));
         }
-        if key.starts_with("LD_") || key.starts_with("DYLD_") {
-            return Err(format!(
-                "Server \"{}\": the variable \"{key}\" cannot start with LD_ or DYLD_",
-                config.name
-            ));
-        }
+        reject_loader_variable(&config.name, key)?;
         if secret_name.is_empty() {
             return Err(format!(
                 "Server \"{}\": the secret name for \"{key}\" is empty",
@@ -492,6 +492,21 @@ fn sandbox_path() -> String {
     path
 }
 
+/// An empty stored value counts as missing, so the server never starts with an empty secret.
+fn present_secret(stored: Result<String, SecretError>) -> Result<String, SecretError> {
+    match stored {
+        Ok(value) if value.is_empty() => Err(SecretError::Missing),
+        other => other,
+    }
+}
+
+/// Report entry for a server that did not start. The error is scrubbed before it is logged or reported.
+fn startup_failure(name: &str, error: &str, secrets: &SecretContext) -> ToolSourceInfo {
+    let error = secrets.mask.scrub(error);
+    warn!("MCP server {name} is off: {error}");
+    super::mcp_off(name, &error)
+}
+
 async fn start_server(
     config: &McpServerConfig,
     sandbox: &Sandbox,
@@ -525,15 +540,15 @@ async fn start_server(
                     "The secret \"{secret_name}\": Secret cannot be read"
                 ))
             }
-            Ok(Ok(Ok(val))) => val,
-            Ok(Ok(Err(SecretError::Missing))) => {
-                return Err(format!(
-                    "The secret \"{secret_name}\" is not in the secret store. Run: nookctl secret set {secret_name}"
-                ));
-            }
-            Ok(Ok(Err(err))) => {
-                return Err(format!("The secret \"{secret_name}\": {err}"));
-            }
+            Ok(Ok(stored)) => match present_secret(stored) {
+                Ok(val) => val,
+                Err(SecretError::Missing) => {
+                    return Err(format!(
+                        "The secret \"{secret_name}\" is not in the secret store. Run: nookctl secret set {secret_name}"
+                    ));
+                }
+                Err(err) => return Err(format!("The secret \"{secret_name}\": {err}")),
+            },
         };
 
         secrets.mask.add(&secret_value);
@@ -669,8 +684,7 @@ impl McpProvider {
             match outcome {
                 Ok((server, tools)) => started.push((position, server, tools)),
                 Err(error) => {
-                    warn!("MCP server {} is off: {error}", accepted[position].name);
-                    failed.push(super::mcp_off(&accepted[position].name, &error));
+                    failed.push(startup_failure(&accepted[position].name, &error, &secrets));
                 }
             }
         }
@@ -1296,5 +1310,30 @@ mod tests {
         mask.add("sh"); // < 4 characters, not added
         let out = mask.scrub("Result: super-secret-1234 and sh");
         assert_eq!(out, "Result: *** and sh");
+    }
+
+    #[test]
+    fn an_empty_stored_value_counts_as_missing() {
+        assert_eq!(present_secret(Ok(String::new())), Err(SecretError::Missing));
+        assert_eq!(present_secret(Ok("value".into())), Ok("value".to_string()));
+        assert_eq!(
+            present_secret(Err(SecretError::Unavailable)),
+            Err(SecretError::Unavailable)
+        );
+    }
+
+    #[test]
+    fn a_startup_error_that_holds_a_secret_value_is_scrubbed_in_the_report() {
+        let secrets = SecretContext::default();
+        secrets.mask.add("startup-secret-value");
+
+        let report = startup_failure(
+            "svc",
+            "unsupported protocol version startup-secret-value",
+            &secrets,
+        );
+
+        let reason = report.reason.expect("failure reason");
+        assert_eq!(reason, "unsupported protocol version ***");
     }
 }

@@ -59,6 +59,32 @@ fn inserted_log_path(record_dir: &std::path::Path) -> PathBuf {
     record_dir.join("inserted.log")
 }
 
+type LogBuffer = Arc<std::sync::Mutex<Vec<u8>>>;
+
+/// Writes this thread's tracing output to a buffer until the guard drops.
+fn capture_log() -> (LogBuffer, tracing::subscriber::DefaultGuard) {
+    struct LogCapture(LogBuffer);
+    impl std::io::Write for LogCapture {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let buffer: LogBuffer = Arc::default();
+    let writer = buffer.clone();
+    let subscriber = tracing_subscriber::fmt()
+        .with_writer(move || LogCapture(writer.clone()))
+        .finish();
+    (buffer, tracing::subscriber::set_default(subscriber))
+}
+
+fn log_text(buffer: &LogBuffer) -> String {
+    String::from_utf8_lossy(&buffer.lock().unwrap()).to_string()
+}
+
 async fn sandbox() -> Option<Sandbox> {
     match Sandbox::detect().await {
         Ok(sandbox) => Some(sandbox),
@@ -560,6 +586,7 @@ async fn a_restart_with_a_missing_secret_logs_a_fixed_text_and_the_call_fails() 
     let Some(sandbox) = sandbox().await else {
         return;
     };
+    let (log, _guard) = capture_log();
     let store = Arc::new(nook_core::secrets::MemorySecretStore::default());
     store.set("restart-secret", "initial-value").unwrap();
     let secrets = nook_core::secrets::SecretContext {
@@ -582,6 +609,50 @@ async fn a_restart_with_a_missing_secret_logs_a_fixed_text_and_the_call_fails() 
     let result = run(&mut h, Uuid::new_v4(), "c2", ECHO, json!({ "text": "hi" })).await;
     assert_eq!(result["status"], "error");
     assert_eq!(result["output"], "Error: the MCP server stopped");
+
+    let logged = log_text(&log);
+    assert!(
+        logged.contains("The secret \"restart-secret\" is not in the secret store."),
+        "expected the fixed missing-secret text in the log: {logged}"
+    );
+    assert!(
+        !logged.contains("initial-value"),
+        "captured log must not contain the secret value: {logged}"
+    );
+}
+
+#[tokio::test]
+async fn an_empty_stored_secret_keeps_the_server_off_and_names_the_secret() {
+    let record_dir = tempfile::tempdir().unwrap();
+    let record_path = record_dir.path().canonicalize().unwrap();
+    let mut config = docs_server(&record_path);
+    config.env_secrets.insert(
+        "GOOGLE_DRIVE_MCP_CLIENT_SECRET".to_string(),
+        "google-docs-client-secret".to_string(),
+    );
+    let store = Arc::new(nook_core::secrets::MemorySecretStore::default());
+    store.set("google-docs-client-secret", "").unwrap();
+    let secrets = nook_core::secrets::SecretContext {
+        store,
+        mask: Arc::default(),
+    };
+    let Some(sandbox) = sandbox().await else {
+        return;
+    };
+    let (provider, failed) =
+        McpProvider::start_reporting(&[config], &sandbox, quick(), secrets).await;
+    assert!(provider.is_none());
+    assert_eq!(failed.len(), 1);
+    assert_eq!(failed[0].state, ToolSourceState::Off);
+    let reason = failed[0].reason.as_ref().expect("failure reason");
+    assert!(
+        reason.contains("google-docs-client-secret"),
+        "expected reason to name secret: {reason}"
+    );
+    assert!(
+        reason.contains("nookctl secret set google-docs-client-secret"),
+        "expected reason to contain nookctl secret set: {reason}"
+    );
 }
 
 #[tokio::test]
@@ -1269,7 +1340,6 @@ async fn a_stopped_server_shows_as_stopped_until_a_call_starts_it() {
 async fn a_store_error_that_holds_the_secret_bytes_never_reaches_a_report_or_the_log() {
     use keyring_core::api::CredentialStoreApi;
     use nook_core::secrets::{OsSecretStore, SecretContext};
-    use std::sync::Mutex;
 
     let record_dir = tempfile::tempdir().unwrap();
     let record_path = record_dir.path().canonicalize().unwrap();
@@ -1297,22 +1367,7 @@ async fn a_store_error_that_holds_the_secret_bytes_never_reaches_a_report_or_the
         "google-docs-client-secret".to_string(),
     );
 
-    let log_buffer = Arc::new(Mutex::new(Vec::new()));
-    let buffer_clone = log_buffer.clone();
-    struct LogCapture(Arc<Mutex<Vec<u8>>>);
-    impl std::io::Write for LogCapture {
-        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-            self.0.lock().unwrap().extend_from_slice(buf);
-            Ok(buf.len())
-        }
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
-    let subscriber = tracing_subscriber::fmt()
-        .with_writer(move || LogCapture(buffer_clone.clone()))
-        .finish();
-    let _guard = tracing::subscriber::set_default(subscriber);
+    let (log_buffer, _guard) = capture_log();
 
     let (provider, failed) =
         McpProvider::start_reporting(&[config], &sandbox, quick(), secrets).await;
@@ -1327,7 +1382,7 @@ async fn a_store_error_that_holds_the_secret_bytes_never_reaches_a_report_or_the
         "failure report must not contain secret bytes: {reason}"
     );
 
-    let logged = String::from_utf8_lossy(&log_buffer.lock().unwrap()).to_string();
+    let logged = log_text(&log_buffer);
     assert!(
         !logged.contains(secret_text),
         "captured log must not contain secret bytes: {logged}"
