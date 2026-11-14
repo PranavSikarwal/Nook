@@ -174,6 +174,15 @@ pub struct ProviderRegistry {
     carry: Carry,
 }
 
+impl std::fmt::Debug for ProviderRegistry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let tools: Vec<&str> = self.index.keys().map(String::as_str).collect();
+        f.debug_struct("ProviderRegistry")
+            .field("tools", &tools)
+            .finish()
+    }
+}
+
 impl ProviderRegistry {
     pub fn empty() -> Self {
         Self::default()
@@ -927,5 +936,19 @@ mod tests {
         let source = off("x", "X", "r".repeat(1000));
 
         assert_eq!(source.reason.unwrap().chars().count(), MAX_REASON_CHARS);
+    }
+
+    #[test]
+    fn registry_debug_prints_tool_ids() {
+        let registry = registry(vec![
+            descriptor("nook:tool_b", "tool_b"),
+            descriptor("nook:tool_a", "tool_a"),
+        ])
+        .unwrap();
+        let debug = format!("{registry:?}");
+        assert_eq!(
+            debug,
+            "ProviderRegistry { tools: [\"nook:tool_a\", \"nook:tool_b\"] }"
+        );
     }
 }

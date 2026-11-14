@@ -4,7 +4,9 @@ use crate::policy_assets::approval_action_scope;
 use crate::protocol::{
     AuthorizationDecision, DaemonMessage, DaemonWorkerRequest, ErrorCode, ErrorInfo, ToolStatus,
 };
-use crate::providers::{roots::OUTSIDE_ROOTS, truncate_output, CallContext, ProviderError};
+use crate::providers::{
+    roots::OUTSIDE_ROOTS, truncate_output, CallContext, ProviderError, ProviderRegistry,
+};
 use crate::server::{
     claim_pending_approval, forward_unless_cancelled, AppState, PendingApprovalEntry,
 };
@@ -42,6 +44,7 @@ pub struct Execution {
     pub tool_name: String,
     pub arguments: String,
     pub tx_out: mpsc::Sender<DaemonMessage>,
+    pub registry: Arc<ProviderRegistry>,
 }
 
 /// Where the verdict for one call goes.
@@ -183,8 +186,8 @@ async fn start_execution(state: &Arc<AppState>, delivery: &Delivery, execution: 
     let task_execution = execution.clone();
     let handle = tokio::spawn(async move {
         let arguments = serde_json::from_str(&task_execution.arguments).unwrap_or_default();
-        let output = task_state
-            .providers
+        let output = task_execution
+            .registry
             .call(
                 &task_execution.tool_name,
                 arguments,
@@ -350,6 +353,8 @@ pub async fn handle_authorize_tool(
     tx_out: &mpsc::Sender<DaemonMessage>,
 ) {
     let call_id = call.call_id.clone();
+    let registry = state.providers.current();
+    let runs_in_daemon = registry.contains(&call.tool_name);
     let execution = call.execute.then(|| Execution {
         client_request_id: ctx.client_request_id,
         message_id: call.message_id,
@@ -357,6 +362,7 @@ pub async fn handle_authorize_tool(
         tool_name: call.tool_name.clone(),
         arguments: call.arguments.clone(),
         tx_out: tx_out.clone(),
+        registry: registry.clone(),
     });
     let delivery = Delivery {
         worker_request_id: ctx.worker_request_id,
@@ -367,7 +373,6 @@ pub async fn handle_authorize_tool(
         let verdict = deny("Request does not match the running chat");
         return deliver_logged(state, &delivery, verdict).await;
     }
-    let runs_in_daemon = state.providers.contains(&call.tool_name);
     if call.execute != runs_in_daemon && state.policy.catalog.resolve(&call.tool_name).is_some() {
         let reason = if runs_in_daemon {
             "Tool runs in the Daemon"
@@ -378,7 +383,7 @@ pub async fn handle_authorize_tool(
     }
     let mut request = match AuthorizationRequest::normalize_with(
         &state.policy.catalog,
-        Some(&state.providers.current()),
+        Some(&registry),
         ctx.chat_id,
         &call.call_id,
         &call.tool_name,
@@ -587,5 +592,111 @@ pub async fn deny_pending_for_request(
     for (call_id, entry) in dropped {
         let delivery = delivery_for(&call_id, &entry);
         deliver_logged(state, &delivery, deny(reason)).await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::Config;
+    use crate::policy_assets::PolicyAssets;
+    use crate::protocol::ToolDescriptor;
+    use crate::providers::{Provider, ToolFacts, ToolOutput};
+    use async_trait::async_trait;
+    use serde_json::json;
+    use std::collections::{HashMap, HashSet};
+    use std::path::PathBuf;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use tokio::sync::{mpsc, Mutex, RwLock};
+
+    struct TestProvider(AtomicUsize);
+
+    #[async_trait]
+    impl Provider for TestProvider {
+        fn descriptors(&self) -> Vec<ToolDescriptor> {
+            vec![ToolDescriptor {
+                id: "nook:test_tool".to_string(),
+                name: "test_tool".to_string(),
+                description: "Test tool.".to_string(),
+                input_schema: json!({ "type": "object" }),
+            }]
+        }
+
+        fn facts(
+            &self,
+            _id: &str,
+            _arguments: &serde_json::Value,
+        ) -> Result<ToolFacts, ProviderError> {
+            Ok(ToolFacts::default())
+        }
+
+        async fn call(
+            &self,
+            _id: &str,
+            _arguments: serde_json::Value,
+            _context: CallContext,
+        ) -> ToolOutput {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            ToolOutput::ok("done")
+        }
+    }
+
+    const SCHEMA: &str = include_str!("../../../../policy/cedar/schema.cedarschema");
+    const POLICIES: &str = include_str!("../../../../policy/cedar/policies.cedar");
+    const TOOLS: &str = include_str!("../../../../policy/tools.yaml");
+
+    #[tokio::test]
+    async fn execution_keeps_using_its_registry_after_handle_is_replaced() {
+        let provider = Arc::new(TestProvider(AtomicUsize::new(0)));
+        let registry = Arc::new(ProviderRegistry::new(vec![provider.clone()]).unwrap());
+        let (tx_out, mut rx_out) = mpsc::channel(16);
+        let client_id = Uuid::new_v4();
+        let message_id = Uuid::new_v4();
+        let chat_id = Uuid::new_v4();
+
+        let execution = Execution {
+            client_request_id: client_id,
+            message_id,
+            chat_id,
+            tool_name: "nook:test_tool".to_string(),
+            arguments: "{}".to_string(),
+            tx_out,
+            registry: registry.clone(),
+        };
+
+        let delivery = Delivery {
+            worker_request_id: Uuid::new_v4(),
+            call_id: "call_1".to_string(),
+            execution: Some(execution.clone()),
+        };
+
+        let state = Arc::new(AppState {
+            config: RwLock::new(Config::default()),
+            config_path: PathBuf::from("/tmp/nook-test-config.toml"),
+            pool: crate::server::DbPool::default(),
+            supervisor: Mutex::new(None),
+            preserve_worker_on_settings_update: false,
+            open_requests: Mutex::new(HashMap::new()),
+            pending_approvals: Mutex::new(HashMap::new()),
+            cancelled_requests: Mutex::new(HashSet::new()),
+            approval_timeout: Duration::from_secs(5),
+            providers: crate::providers::ProviderHandle::new(ProviderRegistry::empty()),
+            running_tools: Mutex::new(HashMap::new()),
+            policy: Arc::new(PolicyAssets::from_sources(TOOLS, SCHEMA, POLICIES).unwrap()),
+        });
+
+        start_execution(&state, &delivery, &execution).await;
+
+        let started = rx_out.recv().await.unwrap();
+        assert!(matches!(started, DaemonMessage::ToolCallStarted { .. }));
+
+        let finished = rx_out.recv().await.unwrap();
+        match finished {
+            DaemonMessage::ToolCallFinished { result, .. } => {
+                assert_eq!(result, "done");
+            }
+            other => panic!("expected ToolCallFinished, got {other:?}"),
+        }
+        assert_eq!(provider.0.load(Ordering::SeqCst), 1);
     }
 }
