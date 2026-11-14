@@ -3,4 +3,3 @@
 Spec: `docs/tasks/task-PR-40/specs/design.md`.
 
 ## Tasks
-
