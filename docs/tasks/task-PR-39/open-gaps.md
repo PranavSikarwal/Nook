@@ -8,7 +8,7 @@
   1. `@piotr-agier/google-drive-mcp`, pinned to `2.13.0`. MIT license, last release 2026-10-15, Node 18 or newer. It covers Drive, Docs, Sheets, Slides and Calendar (130 tools). The scopes can be narrowed with `GOOGLE_DRIVE_MCP_SCOPES`. The credentials path and the token path are settings. Checked on 2026-11-14: it starts and lists tools with no token.
   2. `@a-bonus/google-docs-mcp`, version `1.11.3`. Its tool list is closer to Docs, and `MCP_TOOL_GROUPS` may filter tools (the README lists it only under remote deployment, so stdio is not confirmed). Its scopes are fixed in code and include `gmail.modify`, `drive`, `calendar.events` and `script.projects`. They cannot be narrowed. The README says MIT and the npm record says ISC. Its README starts the server with `npx`, which `docs/mcp-servers.md` forbids.
   3. Name no package. The page lists the requirements and the settings only. The owner chooses the server.
-- Recommendation: Option 1. It is the only checked option whose scopes the owner can narrow to one Docs scope. Option 2 asks Google for Gmail access that Nook does not need. Option 3 leaves the owner with no tested sample.
+- Recommendation: Option 1. It is the only checked option whose scopes the owner can narrow to one Docs scope. Option 2 asks Google for Gmail access that Nook does not need. Option 3 leaves the owner with no tested sample. With any option, the owner also accepts `network = true` for a third-party server that can read the token and the client secret. No Nook setting limits the hosts.
 - Decision:
 - Decided by:
 - Date:
@@ -19,11 +19,11 @@
 - Stage: 2 spec
 - Question: Which scopes does the sample ask Google for? The owner pastes the same value into the consent screen and into `GOOGLE_DRIVE_MCP_SCOPES`.
 - Options:
-  1. `documents` only (`https://www.googleapis.com/auth/documents`). Read, edit and create Google Docs. Drive tools (list, search, share, delete) fail at Google. The owner gives the model the document address. Google's pages that were read do not say whether this scope is marked sensitive (see G3).
+  1. `documents` only (`https://www.googleapis.com/auth/documents`). Read and edit an existing Google Doc. In version 2.13.0 (read from the source, not run), `readGoogleDoc` and `insertText` work, and `createGoogleDoc` fails, because it calls `drive.files.create`. The Drive tools (list, search, share, delete, upload) fail at Google. The owner gives the model the document address. Google's pages that were read do not say whether this scope is marked sensitive (see G3).
   2. `documents.readonly` (full URL, not a short alias of the server). The assistant can read Docs and cannot write. This does not meet "write to online documents" and is the safest start.
-  3. `documents` and `drive.file`. Adds Drive access to files that Nook created or opened through this app. It lets the assistant create a new document in Drive. It adds a second scope to approve.
+  3. `documents` and `drive.file`. Adds Drive access to files that this app created or opened. It lets `createGoogleDoc` work. It adds a second scope to approve. `uploadFile` takes a local path, so with a Drive scope the server could upload any file that it can read, including the credentials file. The approval card shows the path. G5 must be decided again with this option.
   4. The server default: eight scopes, including all of Drive and Calendar. Nook does not need this.
-- Recommendation: Option 1. It matches the goal (write to Docs) with the smallest scope. The page shows option 2 as a variant for a read-only start.
+- Recommendation: Option 1. It matches the goal (write to Docs) with the smallest scope, and it cannot create a new document. The owner who needs a new document chooses option 3. The page shows option 2 as a variant for a read-only start.
 - Decision:
 - Decided by:
 - Date:
@@ -50,7 +50,7 @@
 - Options:
   1. In the downloaded JSON file in a private folder (`chmod 700`, file `chmod 600`) that is in `write_paths`. The sample `env` holds only the path (`GOOGLE_DRIVE_OAUTH_CREDENTIALS`).
   2. In `env` of `config.toml` as `GOOGLE_DRIVE_MCP_CLIENT_SECRET`. The server needs a refresh token in `env` for this mode, and `config.toml` stores `env` as plain text.
-- Recommendation: Option 1. The secret stays out of `config.toml`, which the owner may share while asking for help. The repository holds no secret in either option.
+- Recommendation: Option 1. The secret stays out of `config.toml`, which the owner may share while asking for help. On Linux, Nook passes each `env` value to the sandbox on a command line, so another process of the same user can read it with `ps`. The repository holds no secret in either option.
 - Decision:
 - Decided by:
 - Date:
@@ -64,7 +64,7 @@
   1. Accept it. The narrow scope blocks the Drive calls at Google, every call asks first, and the page names the effect (context cost, a few failed calls).
   2. Add a per-server tool allowlist to Nook (`tools = [...]` in the server block). This is a code change in `config.rs`, `mcp.rs` and the docs. It is a separate task with its own spec, and it needs a decision on its own gate 1.
   3. Use a server that can filter its tool list (option 2 of G1). It gives up the narrow scope.
-- Recommendation: Option 1 for this task. Record option 2 as a follow-up task if the extra tools cost too much in use.
+- Recommendation: Option 1 for this task, with the scope of G2 option 1. If G2 picks a Drive scope, decide this gap again, because the scope is then no longer a guard. Record option 2 as a follow-up task if the extra tools cost too much in use.
 - Decision:
 - Decided by:
 - Date:

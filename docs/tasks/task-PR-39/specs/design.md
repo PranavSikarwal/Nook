@@ -105,14 +105,29 @@ Why each value:
 The model sees the tools as `mcp__google-docs__<tool>`, for example
 `mcp__google-docs__readGoogleDoc`. Each call asks the owner first. The
 approval card names the server, the tool and the first 300 characters of the
-arguments. The page tells the owner to use **Always allow this tool** only for
-tools that read.
+arguments. The card cuts a longer argument, so it does not always show a whole
+write. The page tells the owner to choose **Deny** when the card ends with
+`...`, and to use **Always allow this tool** only for tools that read.
 
 The server lists 130 tools, and Nook offers the first 64 (gap G5). In
-version 2.13.0, these 64 hold most of the Docs tools and many Drive tools.
-With the scope `documents` only, a Drive tool fails at Google, and the failure
-returns to the model as an error result. The page lists which tools work with
-the scope and which do not, from the checked server list.
+version 2.13.0, these 64 hold all Docs tools except `readSmartChips` and
+`createFootnote`, and many Drive tools such as `deleteItem`, `shareFile`,
+`addPermission` and `uploadFile`. They are safe only because the scope blocks
+them at Google and each call asks first. If gap G2 picks a Drive scope, gap G5
+must be decided again.
+
+With the scope `documents` only (read from the package source, not run):
+
+1. `readGoogleDoc` works. It calls only the Docs API.
+2. `insertText` works. It tries Drive first and falls back to the Docs API.
+3. `createGoogleDoc` fails, because it calls `drive.files.create`. Creating a
+   document needs a Drive scope (gap G2, option 3).
+4. The Drive tools fail at Google, and the failure returns to the model as an
+   error result.
+
+The page lists these cases and says that they come from the source of
+version 2.13.0 and not from a live run. The owner's live check (G6) confirms
+or corrects the list.
 
 ### The steps for the owner
 
@@ -163,48 +178,91 @@ The page adds one section, "When Google Docs stops working", with these causes:
 3. The token file is missing. Without a token, a call fails, because the sandbox
    has no browser. Run step 10.
 4. The call timed out. Raise `timeout_seconds`, up to 600.
+5. The server did not start. The Daemon gives a server 10 seconds each for
+   `initialize` and `tools/list`, and a server that misses this is off for the
+   session. A cold start of a large Node package in the sandbox can be slow.
+   Start the server by hand to see how long it takes, and read `daemon.log`.
+6. The log shows `***` where a value should be. The Daemon replaces every `env`
+   value of 4 or more characters with `***` in `daemon.log`, so the paths and
+   the scope name are hidden there. Read the `config.toml` file for the values.
 
 ### The fake server and the tests
 
 The fake server gets a `docs` mode. In this mode it lists only Docs-style tools,
-named like the real server: `readGoogleDoc` (arguments `documentId`) and
-`insertText` (arguments `documentId`, `text`, `index`), and a Drive-style tool
-`listFolder` that returns an error result, as a Drive call does when the scope
-is missing. The `normal` mode stays as it is, so the existing exact-list test
-does not change.
+named like the real server where a real tool exists. `normal` mode and its
+exact-list test do not change. Each tool is stateless except for the files that
+it writes in the token folder (the folder of `GOOGLE_DRIVE_MCP_TOKEN_PATH`).
 
-New tests in `mcp_tool_tests.rs`. Each test checks one behavior, and each uses
-a server named `google-docs`, built like the sample block (with
-`network = true` and a temporary token folder in `write_paths`):
+1. `readGoogleDoc` (argument `documentId`): returns a fixed document text.
+2. `insertText` (arguments `documentId`, `text`): appends one line to
+   `inserted.log` in the token folder, and returns `ok`. The file is the record
+   that the server received the call.
+3. `refreshToken` (no arguments): rewrites the file at
+   `GOOGLE_DRIVE_MCP_TOKEN_PATH`, as the real server does when it refreshes a
+   token. `readTokenFile` (no arguments) returns the text of that file.
+4. `exportDocument` (argument `path`): writes the document text to `path`, as
+   the real `downloadFile` writes to disk.
+5. `connect` (argument `port`): opens a TCP connection to `127.0.0.1:<port>`, as
+   a Google call opens one, and returns `connected` or an error result.
 
-1. `a_docs_style_tool_is_listed_under_the_server_name`: the listed names are
-   `mcp__google-docs__readGoogleDoc`, `mcp__google-docs__insertText` and
-   `mcp__google-docs__listFolder`. The description ends with
-   `(MCP server: google-docs)`.
-2. `a_docs_style_call_asks_first_and_shows_the_document_id`: the approval card
-   shows the server, the tool and the arguments, with the four actions.
-3. `an_approved_docs_style_call_returns_the_document_text`: after **Allow
-   once**, the result is the text of the fake document.
-4. `a_denied_docs_write_never_reaches_the_server`: after **Deny** on
-   `insertText`, the fake server records no call.
-5. `a_docs_style_scope_error_comes_back_as_an_error_result`: the `listFolder`
-   error returns with `status` `error`.
+The tests go into `mcp_tool_tests.rs`. Each checks one behavior. Each uses a
+server named `google-docs`, built like the sample block: `network = true`, a
+temporary token folder in `write_paths`, and `GOOGLE_DRIVE_MCP_TOKEN_PATH` in
+`env`. The tests use the real policy files, the real sandbox and the fake
+Worker, as the suite does. In CI they fail instead of skip, because `ci.yml`
+sets `NOOK_REQUIRE_SANDBOX`. Elsewhere they skip with a message when the
+sandbox is missing, as the other MCP tests do.
 
-One more test in `daemon/crates/nook-core/src/config.rs` or in a test file
-that reads `docs/mcp-servers.md` (the plan names the place):
-`the_google_docs_sample_block_loads_as_a_valid_server`. It takes the first
-`toml` block under the heading "Example: Google Docs", loads it with the real
-config loader, and checks the name, `network`, the three `env` keys, and that
-every path is absolute.
+1. `a_docs_style_tool_is_listed_under_the_hyphenated_server_name`: the listed
+   names are `mcp__google-docs__readGoogleDoc`, `mcp__google-docs__insertText`,
+   `mcp__google-docs__refreshToken`, `mcp__google-docs__readTokenFile`,
+   `mcp__google-docs__exportDocument` and `mcp__google-docs__connect`. The
+   description of `readGoogleDoc` ends with `(MCP server: google-docs)`.
+2. `a_docs_style_call_asks_first_and_shows_the_server_tool_and_arguments`: the
+   approval card names `google-docs`, `insertText` and the arguments, with the
+   four actions. The Cedar context carries `server` and `tool`.
+3. `an_approved_docs_write_reaches_the_server`: after **Allow once**, `inserted.log`
+   holds the line. This proves the call, and that the token folder is writable.
+4. `a_denied_docs_write_never_reaches_the_server`: after **Deny**, `inserted.log`
+   does not exist.
+5. `a_token_refresh_is_kept_in_the_write_path_for_the_next_call`: `refreshToken`
+   rewrites the token file, and `readTokenFile` in a second call returns the new
+   text.
+6. `a_docs_export_outside_the_write_paths_fails`: `exportDocument` to a path
+   outside the token folder returns an error result, and to a path inside it
+   works.
+7. `a_docs_server_with_network_true_can_connect_out`: `connect` to a local
+   listener returns `connected` (pattern: `terminal_tool_tests.rs:411-433`).
 
-The tests use the real policy files, the real sandbox and the fake Worker, as
-the suite does. They skip with a message when the sandbox is missing, as the
-other MCP tests do.
+These tests check code that already exists, so each fails first for one reason:
+the `docs` mode does not exist. The plan writes each test, runs it, sees that
+failure, and then adds the fake tool.
+
+The sample test is `the_google_docs_sample_block_loads_as_a_valid_server`. It is
+in a new file, `daemon/crates/nook-core/tests/docs_sample_tests.rs`, because no
+test reads `docs/` today. It:
+
+1. Finds `docs/mcp-servers.md` from `CARGO_MANIFEST_DIR` and takes the first
+   `toml` block under the heading "Example: Google Docs".
+2. Wraps the block with `base_url` and `model`, because `Config` has no default
+   for them and the block alone does not parse.
+3. Parses it with `toml::from_str::<Config>`, the check that the loader makes.
+4. Asserts the name itself with the name rule in the settings table of the page
+   (the loader does not check it, and `valid_server_name` is private), the
+   value of `network`, the three `env` keys, and that every path is absolute.
+5. Has `#[cfg(unix)]`, because `/Users/me/...` is not absolute on Windows.
 
 ## Central docs that change
 
-1. `docs/mcp-servers.md`: the section "Example: Google Docs" (sample block, the
-   owner's steps, the limits) and the section "When Google Docs stops working".
+1. `docs/mcp-servers.md`:
+   1. The new section "Example: Google Docs" (sample block, the owner's steps,
+      the limits, the tool list for the narrow scope).
+   2. The new section "When Google Docs stops working".
+   3. The passage "A login in a browser" (under "What cannot work"). It tells the
+      owner to put the token in a folder in `read_paths`. A server that rewrites
+      its token needs `write_paths`. The passage must say both.
+   4. The bullet list under "For developers". It lists the fake server modes and
+      must name `docs`.
 2. `docs/testing.md`: one paragraph on the Docs-style MCP tests and the sample
    test.
 3. `CHANGELOG.md`: one line under "Unreleased".
@@ -221,17 +279,25 @@ documents above.
 ## Risks
 
 1. **The live path is untested.** The sign-in, the token refresh and a real Docs
-   call do not run in CI. The docs say so. The owner's live check (G6)
-   reduces the risk. The sample can be wrong in a detail that only a live run
-   shows, for example a path the sandbox does not allow.
+   call do not run in CI. The tool list for the narrow scope comes from the
+   source of version 2.13.0 and not from a live run. The docs say so. The
+   owner's live check (G6) reduces the risk. The sample can be wrong in a
+   detail that only a live run shows, for example a path that the sandbox does
+   not allow. The owner also reports the `node` path, the start time and the
+   `daemon.log` lines. On macOS, `(allow network*)` may also allow a connection
+   to the Daemon's Unix socket (mode `0600`, same user). Nobody tested this, and
+   the live check on macOS is the first look at it.
 2. **A broad network.** `network = true` lets the server reach any host. A
-   server with the network and a readable token can send the token out. The
-   page tells the owner to pin the version, to use the narrow scope, and to
-   keep the token folder small.
+   server with the network and a readable file can send that file out. The
+   readable files are the token and the client secret, which sits in the
+   credentials file. G1 asks the owner to accept this for a third-party server.
+   The page tells the owner to pin the version, to use the narrow scope, and to
+   keep the credentials folder small.
 3. **The 64-tool cap.** Nook offers the first 64 of 130 tools. The model gets
    Drive tools that the narrow scope blocks. This costs context and a few
    failed calls. It does not cost safety, because each call asks first and the
-   scope limits Google's answer.
+   scope limits Google's answer. A Drive scope (G2, options 3 and 4) removes
+   that protection, and then G5 must be decided again.
 4. **A moving package.** The server is a third-party program. The pin
    `2.13.0` and the "checked on" date are the guard. A newer version needs a
    new check.
@@ -240,6 +306,15 @@ documents above.
 6. **Two licenses for one package family.** The `@a-bonus/google-docs-mcp`
    README says MIT and its npm record says ISC. This matters only if the owner
    picks that server (G1).
-7. **Prompt injection.** A document can hold text that tries to steer the
-   model. The page says that document text is untrusted, as it says for every
-   tool result. The approval card still shows each write.
+7. **Prompt injection and cut cards.** A document can hold text that tries to
+   steer the model. The page says that document text is untrusted, as it says
+   for every tool result. The approval card shows only the first 300
+   characters of the arguments, so a long write is cut. The page tells the
+   owner to choose **Deny** when the card ends with `...`.
+8. **A slow start.** The Daemon gives a server 10 seconds each for `initialize`
+   and `tools/list`. A cold start of a large Node package in the sandbox may
+   miss this, and the server is then off for the session. The spec did not
+   measure the start time in the sandbox. The owner's live check does.
+9. **Masked log values.** The Daemon log replaces each `env` value of 4 or more
+   characters with `***`. The page says so, so that the owner does not look for
+   the paths in `daemon.log`.
