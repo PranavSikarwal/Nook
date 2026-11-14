@@ -290,6 +290,36 @@ Rules for every task:
   --format-version 1 > /dev/null` still passes. Check: that command, and
   `git diff --check origin/main HEAD` prints nothing.
 
+## Round 2
+
+- [ ] **R2-1. The page and the ADR state what the mask does (C11).**
+  `docs/mcp-servers.md`, `docs/adr/0009-secrets-live-in-the-operating-system-secret-store.md`.
+  In `docs/mcp-servers.md` ("When Google Docs stops working" cause 6, and any
+  other sentence that says the Daemon masks "every" value or secret), change
+  "every secret" to "every secret of 4 or more characters", and add one
+  sentence: the mask replaces exact text, so a server that encodes or splits a
+  value, or two secrets that overlap, can show a part of it. In ADR 0009 add
+  the overlap case to the consequence about the best-effort scrub (for example
+  `abcX` and `Xdef` in `abcXdef` leave `def`). Writing rules: plain English,
+  short sentences, no semicolons, no em-dashes. Check:
+  `git diff --check origin/main HEAD` prints nothing.
+- [ ] **R2-2. Test the startup-error scrub through `start_reporting` (C12).**
+  `daemon/crates/nook-core/examples/fake_mcp_server.rs`,
+  `daemon/crates/nook-core/tests/mcp_tool_tests.rs`,
+  `daemon/crates/nook-core/src/providers/mcp.rs` (only the unit test).
+  Add a fake server mode (for example `leak_init_error`) whose `initialize`
+  answers with a JSON-RPC error whose message holds the value of the
+  environment variable `LEAK_VALUE`. Test
+  `a_startup_error_that_holds_a_secret_is_scrubbed_in_the_report`: a server in
+  that mode with `env_secrets = { LEAK_VALUE = "leak-secret-name" }` and a
+  `MemorySecretStore` that holds a value (4 or more characters) under that
+  name; call `McpProvider::start_reporting`; assert that the report reason
+  holds `***` and does not hold the value. In `mcp.rs` split the unit test
+  `an_empty_stored_value_counts_as_missing` into one test for each case (empty
+  becomes `Missing`, a value stays, another error stays). Check: Daemon
+  `rtk cargo test` and clippy. The MCP test skips locally without a sandbox;
+  CI runs it.
+
 ## Order and why
 
 1. Tasks 1 and 2 come first, as the spec asks: the signature change reaches

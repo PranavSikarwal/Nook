@@ -138,16 +138,18 @@ No findings. The spec went through rounds 1 to 6 with the owner's decisions G1 t
 
 ## Round 2 (code)
 
-- Head: pending (the commit that adds this heading)
+- Head: `1ee5ee1caf42f3ae9b90b0b04b49efc7333b4249`
 - Reviewer: the T3 reviewer ("Review Pull Requests"), follow-up of round 1.
-- Verdict:
-- SonarCloud:
-- Checks:
+- Verdict: `Verdict: COMMENT (P0: 0, P1: 0, P2: 0, P3: 2)` (review 5904434533). The reviewer closed C1 to C10 and resolved their threads. 2 threads (the new findings) are open.
+- SonarCloud: Quality Gate passed.
+- Checks: all four pass on the head. The CI gate check printed `GATE_PASS` (reviewer).
 - Gaps closed by recommendation since round 1: G10 (extra variant `SecretError::Empty`), G11 (overlapping secrets in the mask are accepted as best effort).
 - Fix commits for round 1: R1-1 `0f5ed7a`, R1-2 `9ffa939`, R1-3 `cc20f1b`, R1-4 `4f570a2`, R1-5 `7cb811f`. CI passed on `9ffa939`.
 
 | # | Finding | Action | Where |
 | --- | --- | --- | --- |
+| C11 (P3) | The page promises more than the mask does ("every secret"), and G11 rests on that. | fix | plan R2-1 |
+| C12 (P3) | No test reaches the startup-error scrub through `start_reporting`; one unit test holds three cases. | fix | plan R2-2 |
 
 ## Commands run
 
