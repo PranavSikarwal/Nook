@@ -367,7 +367,9 @@ registers the desktop link on every platform, so the native tests run on Ubuntu.
   fails the waiting call and denies a waiting approval with its own reason. A
   second registration gets an `error` and the first link stays. A timeout
   returns the fixed error. A cancel removes the waiting record. A folder change
-  while the link is up keeps the tool.
+  while the link is up keeps the tool. A call for the tool after the link closed
+  and the registry changed is denied with `Tool runs in the Worker`, and the
+  reply ends.
 - Panel: an operation outside the list is refused. A repeated nonce is refused.
   Arguments that are not exactly a valid `title` and `body` start no process.
   The HTML conversion escapes `&`, `<` and `>`. A body with quotes, backslashes
@@ -412,7 +414,8 @@ apply.
 2. `docs/contracts.md`: a "Desktop link" section with the four messages and the
    nonce rule. The schemas and examples change in the same commit as the code.
 3. `docs/tools-and-authorization.md`: a "Desktop tools" section with the Notes
-   tool, its approval actions, the Cedar action and the failure messages.
+   tool, its approval actions, the Cedar action and the failure messages. It
+   names the denial `Tool runs in the Worker` for a call after the link closed.
 4. `docs/testing.md`: the new Daemon, Panel and native tests, the Panel Rust
    commands, and the fake `osascript` setting of the `e2e` build.
 5. `docs/release.md`: the Automation usage description and entitlement, and the

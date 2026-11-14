@@ -38,8 +38,20 @@
 
 ## Round 3 (spec)
 
+- Head: `b9a08632a3f55ca85e4a0e68c2a2e86e0337e479`
+- Reviewer: the T3 reviewer, follow-up of round 2. Verdict: COMMENT (P0: 0, P1: 0, P2: 0, P3: 1). It resolved the thread of S2.
+- SonarCloud: Quality Gate passed.
+- Checks: all four pass. The CI gate check passes.
+- Gaps closed by recommendation: none
+
+| # | Finding | Action | Where |
+| --- | --- | --- | --- |
+| S7 (P3) | The spec says a test pins the post-swap denial, but the Tests list has none. | fix | `specs/design.md` "Tests" (Daemon bullet) and "Central docs that change" item 3. |
+
+## Round 4 (spec)
+
 - Head: pending
-- Reviewer: the T3 reviewer, follow-up of round 2
+- Reviewer: the T3 reviewer, follow-up of round 3
 - SonarCloud:
 - Checks:
 - Gaps closed by recommendation: none
