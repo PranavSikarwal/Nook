@@ -51,12 +51,20 @@
   or facts contradict each other."
 - Cause: 1 and 2.
 
+Owner: accepted
+
+Owner's words: "works merge" at gate 2, then "Accept all six (Recommended)".
+
 ### P2. Check each fact about GitHub with a command
 
 - File: `.agents/rules/sdlc-work-standard.md`, stage 5.
 - New text: "A fact about another pull request, a release or a date comes from
   a `scripts/gh` command. Write the command next to the fact in the plan."
 - Cause: 4.
+
+Owner: accepted
+
+Owner's words: "works merge" at gate 2, then "Accept all six (Recommended)".
 
 ### P3. A child ends a run only after a commit or a blocker
 
@@ -66,12 +74,20 @@
   message."
 - Cause: 3.
 
+Owner: accepted
+
+Owner's words: "works merge" at gate 2, then "Accept all six (Recommended)".
+
 ### P4. Say how to call `scripts/gh` in a worktree
 
 - File: `AGENTS.md`, "GitHub CLI and commit rules".
 - New text: "`scripts/gh` is not in git. In a worktree where it is missing, call
   the copy in the main checkout of the repository."
 - Cause: 5.
+
+Owner: accepted
+
+Owner's words: "works merge" at gate 2, then "Accept all six (Recommended)".
 
 ### P5. Compare only what a child can change in the boundary check
 
@@ -81,9 +97,17 @@
   state again after each push of the orchestrator.
 - Cause: 6.
 
+Owner: accepted
+
+Owner's words: "works merge" at gate 2, then "Accept all six (Recommended)".
+
 ### P6. A central doc names files and tests, never plan tasks
 
 - File: `.agents/rules/delegation-standard.md`, "Implementer rules".
 - New text: add to the brief rules: "A central doc and a doc comment name files,
   functions and tests. They never name a plan task or a pull request."
 - Cause: 7.
+
+Owner: accepted
+
+Owner's words: "works merge" at gate 2, then "Accept all six (Recommended)".

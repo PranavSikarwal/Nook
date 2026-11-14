@@ -119,3 +119,75 @@
 - Decided by: orchestrator by recommendation
 - Date: 2026-11-14
 - Status: closed by recommendation
+
+## G9. Retro proposal P1: read the code before the plan promises a fix
+
+- Stage: 8 gate 2
+- Question: apply retro proposal P1 of PR 42 (`retro.md`)? The rule file and
+  the new text are in the proposal. File: `.agents/rules/sdlc-work-standard.md`, stage 5.
+- Options: (a) apply it in a later small-change task. (b) reject it.
+- Recommendation: (a).
+- Decision: (a). Apply it after the G11 task of PR 38, in the order of this file.
+- Decided by: owner ("works merge" at gate 2, then "Accept all six (Recommended)")
+- Date: 2026-11-14
+- Status: deferred
+
+## G10. Retro proposal P2: check each fact about GitHub with a command
+
+- Stage: 8 gate 2
+- Question: apply retro proposal P2 of PR 42 (`retro.md`)? The rule file and
+  the new text are in the proposal. File: `.agents/rules/sdlc-work-standard.md`, stage 5.
+- Options: (a) apply it in a later small-change task. (b) reject it.
+- Recommendation: (a).
+- Decision: (a). Apply it after the G11 task of PR 38, in the order of this file.
+- Decided by: owner ("works merge" at gate 2, then "Accept all six (Recommended)")
+- Date: 2026-11-14
+- Status: deferred
+
+## G11. Retro proposal P3: a child ends a run only after a commit or a blocker
+
+- Stage: 8 gate 2
+- Question: apply retro proposal P3 of PR 42 (`retro.md`)? The rule file and
+  the new text are in the proposal. File: `.agents/rules/delegation-standard.md`, "Implementer rules".
+- Options: (a) apply it in a later small-change task. (b) reject it.
+- Recommendation: (a).
+- Decision: (a). Apply it after the G11 task of PR 38, in the order of this file.
+- Decided by: owner ("works merge" at gate 2, then "Accept all six (Recommended)")
+- Date: 2026-11-14
+- Status: deferred
+
+## G12. Retro proposal P4: say how to call `scripts/gh` in a worktree
+
+- Stage: 8 gate 2
+- Question: apply retro proposal P4 of PR 42 (`retro.md`)? The rule file and
+  the new text are in the proposal. File: `AGENTS.md`, "GitHub CLI and commit rules".
+- Options: (a) apply it in a later small-change task. (b) reject it.
+- Recommendation: (a).
+- Decision: (a). Apply it after the G11 task of PR 38, in the order of this file.
+- Decided by: owner ("works merge" at gate 2, then "Accept all six (Recommended)")
+- Date: 2026-11-14
+- Status: deferred
+
+## G13. Retro proposal P5: compare only what a child can change in the boundary check
+
+- Stage: 8 gate 2
+- Question: apply retro proposal P5 of PR 42 (`retro.md`)? The rule file and
+  the new text are in the proposal. File: `.agents/rules/delegation-standard.md`, "Boundary check".
+- Options: (a) apply it in a later small-change task. (b) reject it.
+- Recommendation: (a).
+- Decision: (a). Apply it after the G11 task of PR 38, in the order of this file.
+- Decided by: owner ("works merge" at gate 2, then "Accept all six (Recommended)")
+- Date: 2026-11-14
+- Status: deferred
+
+## G14. Retro proposal P6: a central doc names files and tests, never plan tasks
+
+- Stage: 8 gate 2
+- Question: apply retro proposal P6 of PR 42 (`retro.md`)? The rule file and
+  the new text are in the proposal. File: `.agents/rules/delegation-standard.md`, "Implementer rules".
+- Options: (a) apply it in a later small-change task. (b) reject it.
+- Recommendation: (a).
+- Decision: (a). Apply it after the G11 task of PR 38, in the order of this file.
+- Decided by: owner ("works merge" at gate 2, then "Accept all six (Recommended)")
+- Date: 2026-11-14
+- Status: deferred
