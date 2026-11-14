@@ -86,7 +86,7 @@ Tasks 6 to 10 touch `daemon/`. Their checks are `cd daemon && cargo fmt --check`
   CHECKLIST.md docs/plan.md` shows the new text, and
   `/usr/bin/grep -c -E '^- \[ \]' CHECKLIST.md` prints 1. Commit:
   `docs: align the checklist and the plan with the real state`.
-- [ ] **5. Fix the stage 8 wording.** In
+- [x] **5. Fix the stage 8 wording.** In
   `.agents/rules/sdlc-work-standard.md`, stage 8 step 5, replace "the review
   exit check still holds" with "the round exit check still holds", the heading
   of `.agents/rules/review-standard.md` "Round exit check". Change nothing
