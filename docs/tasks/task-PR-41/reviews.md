@@ -44,6 +44,17 @@
 | --- | --- | --- | --- |
 | S6 | G5 states a conflict with PR #42 that does not exist, and leaves out the stale line in `docs/plans/README.md` (P3). | fix: conflict claim removed, ownership given as the reason, README line added, assumption stated | `open-gaps.md` G5; `specs/design.md` Scope |
 
+## Round 4 (spec)
+
+- Head: (the commit that adds this heading)
+- Reviewer: the T3 reviewer (follow-up of round 3)
+- SonarCloud: not applicable to a docs-only head
+- Checks: not applicable to a docs-only head
+- Gaps closed by recommendation: none
+
+| # | Finding | Action | Where |
+| --- | --- | --- | --- |
+
 ## Commands run
 
 This task adds no named check to a rule or a document.
