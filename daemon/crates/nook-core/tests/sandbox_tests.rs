@@ -474,24 +474,30 @@ async fn a_sandboxed_command_sees_its_environment_and_no_host_variables() {
     let Some(sandbox) = sandbox().await else {
         return;
     };
+    std::env::set_var("NOOK_TEST_LEAK", "leaked");
     let area = area();
-    let mut custom_spec = spec(
-        &area,
-        &[
-            "/bin/sh",
-            "-c",
-            "echo val=$GOOGLE_DRIVE_MCP_CLIENT_SECRET; echo user=$USER",
-        ],
-    );
-    custom_spec.env.insert(
+    let sandbox_home = path_text(&area.allowed);
+    let mut env_spec = spec(&area, &["/usr/bin/env"]);
+    env_spec.env.insert(
         "GOOGLE_DRIVE_MCP_CLIENT_SECRET".to_string(),
         "my-secret-client-value".to_string(),
     );
-    let output = run(&sandbox, custom_spec).await;
+    env_spec
+        .env
+        .insert("HOME".to_string(), sandbox_home.clone());
+
+    let output = run(&sandbox, env_spec).await;
+
     assert_eq!(output.exit_code, Some(0), "{}", output.stderr);
-    assert!(output.stdout.contains("val=my-secret-client-value"));
-    assert!(!output.stdout.contains(&format!(
-        "user={}",
-        std::env::var("USER").unwrap_or_default()
-    )));
+    let lines: Vec<&str> = output.stdout.lines().collect();
+    let secret_line = "GOOGLE_DRIVE_MCP_CLIENT_SECRET=my-secret-client-value";
+    let home_line = format!("HOME={sandbox_home}");
+    assert!(lines.contains(&secret_line), "{lines:?}");
+    assert!(lines.contains(&"PATH=/usr/bin:/bin"), "{lines:?}");
+    assert!(lines.contains(&home_line.as_str()), "{lines:?}");
+    assert!(!output.stdout.contains("NOOK_TEST_LEAK"), "{lines:?}");
+    let host_home = std::env::var("HOME").unwrap_or_default();
+    assert_ne!(host_home, sandbox_home);
+    let host_home_line = format!("HOME={host_home}");
+    assert!(!lines.contains(&host_home_line.as_str()), "{lines:?}");
 }

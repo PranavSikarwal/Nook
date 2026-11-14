@@ -246,7 +246,7 @@ Rules for every task:
   `abcd-REFRESH-9z`, scrub text with the long value, assert that no part of the
   long value remains) and a test that a poisoned lock still scrubs. Each fails
   first. Check: Daemon `rtk cargo test` and clippy.
-- [ ] **R1-2. Sandbox test and `Debug` of the spec (C2, C4).**
+- [x] **R1-2. Sandbox test and `Debug` of the spec (C2, C4).**
   `daemon/crates/nook-core/src/sandbox.rs`,
   `daemon/crates/nook-core/tests/sandbox_tests.rs`. Replace `#[derive(Debug)]` on
   `SandboxSpec` with a manual `Debug` that prints the `env` names only, with a
