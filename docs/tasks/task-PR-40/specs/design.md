@@ -156,21 +156,26 @@ Steps 2 and 3 alone leave races, because a call can read the registry, the
 grants and the approvals between them. Four rules close them:
 
 1. Both paths that start a Notes call take the read lock of `state.config`:
-   `handle_authorize_tool` (and `execute_tool`) from `normalize_with` until the
-   call has its approval entry or, when a chat grant allows it, until it is
-   delivered, and the decision path from the comparison of step 2 until the
-   `Execution` is stored. Under the lock they read the registry once, build the
-   facts and the Cedar answer from that registry, check the grants, and store
-   that registry in the `Execution`. The change holds the write lock for its
-   whole sequence, so each call sees either the old registry with the old grants,
-   or the new registry with the grants dropped. The read lock is released before
-   the Daemon waits for the user or runs the tool. No code under the read lock may
-   read `state.config` again, because a tokio lock is not re-entrant and a waiting
-   writer would then deadlock it.
+   `handle_authorize_tool` (and `execute_tool`), and the decision path. Each one
+   takes the lock at its start, before the code builds the `Execution`, reads the
+   registry once, and uses that one registry for the check `contains`, for
+   `normalize_with` and for the `Execution`. Under the lock it also builds the
+   facts and the Cedar answer and checks the grants. It releases the lock as soon
+   as the `Execution` holds the registry and the grants are checked, or the
+   pending entry is stored. The delivery and the tool run happen after the
+   release. So the lock never covers a send to the Panel, a wait for the user or
+   the tool run, and a slow Panel cannot hold up a waiting writer or the calls
+   behind it. The change holds the write lock for its whole sequence, so each call
+   sees either the old registry with the old grants, or the new registry with the
+   grants dropped. No code under the read lock may read `state.config` again,
+   because a tokio lock is not re-entrant and a waiting writer would then
+   deadlock it.
 2. `Execution` gets a field `registry: Arc<ProviderRegistry>`, and
    `start_execution` calls that registry. Today it calls `state.providers.call`,
    which reads the current registry again after the lock is gone, so a change in
-   between would run the call in the new folder.
+   between would run the call in the new folder. `Execution`, `Delivery` and
+   `PendingApprovalEntry` derive `Debug`, and `ProviderRegistry` does not, so
+   `ProviderRegistry` gets a manual `Debug` that prints only the tool ids.
 3. Each pending Notes approval stores the folder that its card showed. When a
    decision arrives, under the read lock the Daemon compares the stored folder
    with the folder of the current registry, records the grant and stores the
@@ -179,10 +184,10 @@ grants and the approvals between them. Four rules close them:
 4. The new function that denies pending Notes approvals skips an entry that has
    `decision_in_flight`, as `deny_stale_approvals` does, because that decision
    compares the folder itself under the read lock. Denying it would send the
-   Worker two results for one call. A decision that is already claimed holds the
-   read lock until its `Execution` has the registry, so the change waits for it,
-   and the call that follows runs with the old registry and the old folder, as its
-   card said.
+   Worker two results for one call. The claim of a decision comes before the
+   lock. A claimed decision that gets the read lock before the change runs with
+   the old registry and the old folder, as its card said. A claimed decision that
+   waits behind the writer is denied by the comparison, and it records no grant.
 
 A call that already runs finishes with the folder it started with.
 

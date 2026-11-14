@@ -189,8 +189,21 @@
 
 ## Round 13 (spec)
 
+- Head: `7eb0283a2593681fb9b550f4d35f1cc40d4f9aa1`
+- Reviewer: the T3 reviewer, follow-up of round 12. Verdict: COMMENT (P0: 0, P1: 0, P2: 1, P3: 1). It closed S36 to S39 and found the four rules sound against the real lock use.
+- SonarCloud: Quality Gate passed.
+- Checks: pending when the reviewer read them. See "Round 14" for the state on the next head.
+- Gaps closed by recommendation: none
+
+| # | Finding | Action | Where |
+| --- | --- | --- | --- |
+| S40 (P2) | Rule 1 holds the read lock across the delivery and the tool run, and starts it too late, after the `Execution` is built and the registry is read twice. | fix | `specs/design.md` "The folder setting" rule 1: the lock starts at the beginning of both paths, the registry is read once, and the lock ends when the `Execution` holds it and the grants are checked. Delivery and run are after the release. |
+| S41 (P3) | `Arc<ProviderRegistry>` does not compile with `derive(Debug)`, and a claimed decision comes before the lock. | fix | `specs/design.md` rules 2 and 4: a manual `Debug` for `ProviderRegistry`, and a claimed decision that waits behind the writer is denied by the comparison. |
+
+## Round 14 (spec)
+
 - Head: pending (the commit that adds this heading)
-- Reviewer: the T3 reviewer, follow-up of round 12.
+- Reviewer: the T3 reviewer, follow-up of round 13.
 - SonarCloud: pending
 - Checks: pending
 - Gaps closed by recommendation: none
