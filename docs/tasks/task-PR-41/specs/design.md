@@ -52,9 +52,10 @@ Out of scope:
    over the size limit, and the argument errors of the command tool keep their
    current text (gap G4).
 4. `docs/plans/open-items-fixes.md` and `CHECKLIST.md` belong to the
-   housekeeping task. This task does not edit them. The row of item 11 in
-   `docs/plans/open-items-fixes.md` is stale after the merge, and the owner
-   hears this at gate 1 and gate 2.
+   housekeeping task (PR #42, branch `chore/plans-housekeeping`). This task does
+   not edit them. PR #42 does not change the row of item 11 in
+   `docs/plans/open-items-fixes.md`, so the row is stale after this merge. Gap
+   G5 says who changes it.
 
 ## Design
 

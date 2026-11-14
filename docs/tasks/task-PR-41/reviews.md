@@ -20,14 +20,16 @@
 
 ## Round 2 (spec)
 
-- Head: (the commit that adds this heading)
+- Head: fb136785e479eb5b7901cb281ddf23e48322b3de (the commit that adds this heading)
 - Reviewer: the T3 reviewer (follow-up of round 1)
 - SonarCloud: not applicable to a docs-only head
 - Checks: not applicable to a docs-only head
 - Gaps closed by recommendation: none
+- Review: `Verdict: COMMENT (P0: 0, P1: 0, P2: 0, P3: 1)` from `PranavSikarwal`, on this head. S1, S2, S3 and S5 are fixed. S4 is partly fixed.
 
 | # | Finding | Action | Where |
 | --- | --- | --- | --- |
+| S4 | The spec names no owner for the stale row of item 11 in `docs/plans/open-items-fixes.md` (P3). | fix: PR #42 named, new gap G5 asks the owner | `specs/design.md` Scope; `open-gaps.md` G5 |
 
 ## Commands run
 
