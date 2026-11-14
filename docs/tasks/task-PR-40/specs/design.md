@@ -1,7 +1,7 @@
-# Spec: Notes tool run by the Daemon outside the sandbox
+# Spec: Notes tools run by the Daemon outside the sandbox
 
 ```
-Stage: 4 gate 1
+Stage: 3 spec review
 Gate 1: pending
 Gate 2: pending
 ```
@@ -9,42 +9,62 @@ Gate 2: pending
 Branch: `feat/notes-tool`. Pull request: #40.
 
 This spec replaces the draft `docs/design/desktop-app-tools.md` of October 17,
-2026, and this task deletes that file. The draft and the first version of this
-spec had the Panel run the tool, and the owner chose that route on October 17,
-2026 (see `docs/plans/app-integrations.md`, option 2). On November 14, 2026 the
-owner changed the route: the Daemon runs the tool itself, outside the command
-sandbox, because the Daemon is the core of Nook and the Panel is only the view
-(gap G4). ADR 0008 records the decision, and this task rewrites it and changes
-its status to Accepted.
+2026, and this task deletes that file. The draft and the first versions of this
+spec had the Panel run one tool that only creates a note. The owner changed the
+design on November 14, 2026 in three steps:
+
+1. The Daemon runs the operations itself, outside the command sandbox, because
+   the Daemon is the core of Nook and the Panel is only the view (gap G4).
+2. The tools create, list, read, append to, edit and delete notes inside one
+   Notes folder (gap G2).
+3. The user chooses that folder in the Settings tab (gap G1).
+
+ADR 0008 records the decision, and this task rewrites it and changes its status
+to Accepted.
 
 ## Why
 
-The owner wants the assistant to write to the Notes app. A Notes server from the
+The owner wants the assistant to work with the Notes app: write notes and keep
+them up to date in a folder that the user chose. A Notes server from the
 internet cannot do this inside the command sandbox, because macOS refuses Apple
 events (the messages that one Mac app sends to another) from any process that
-runs under a sandbox profile. So the tool cannot use the sandbox that the
+runs under a sandbox profile. So these tools cannot use the sandbox that the
 command tool and the MCP servers use.
 
 The Daemon already owns every tool call: it checks the arguments, asks Cedar,
 shows the approval and runs the tool. This design keeps that whole path in the
 Daemon. The Daemon starts `/usr/bin/osascript` itself, as a plain child process
-with one fixed script. The Panel code does not change.
+with one fixed script for each operation. The Panel gets only a Settings field
+for the folder name.
 
 The draft before this one had clipboard, notification and open-link tools. The
 owner removed them because the user can do each of them without the assistant.
 
 ## Scope
 
-In scope: one tool, `nook:notes_create_note`. It creates a new note in a folder
-named `Nook` in the default Notes account. It works on macOS only.
+In scope: six tools, in the one Notes folder that the user chose (default
+`Nook`) in the default Notes account. They work on macOS only.
 
-Not in scope: reading, searching, editing, moving or deleting notes, other
-folders, other accounts, Reminders, Calendar, Mail, Messages, the clipboard,
-screen capture and any other app. Each of those needs its own design, because
-reading a note shows private data and a delete cannot be undone.
+| Tool | What it does | Arguments |
+| --- | --- | --- |
+| `nook:notes_create_note` | Creates a note. It makes the folder when it is missing. | `title`, `body` |
+| `nook:notes_list_notes` | Lists the notes of the folder: id and title. At most 100. | none |
+| `nook:notes_read_note` | Returns the title and the plain text of one note. | `note_id` |
+| `nook:notes_append_note` | Adds text at the end of a note. | `note_id`, `note_title`, `text` |
+| `nook:notes_edit_note` | Replaces the title and the text of a note. | `note_id`, `note_title`, `title`, `body` |
+| `nook:notes_delete_note` | Deletes one note. | `note_id`, `note_title` |
+
+`note_title` is the title that the model believes the note has. The approval
+card shows it, because an id means nothing to the user, and the script refuses
+the call when the real title differs.
+
+Not in scope: notes outside the chosen folder, other accounts, moving a note,
+creating or deleting folders (except that a create makes a missing folder),
+attachments, checklists, tags, locked notes, Reminders, Calendar, Mail,
+Messages, the clipboard, screen capture and any other app.
 
 The Panel starts the Daemon. A Daemon that something else starts, such as
-`nookctl` or a person in a terminal, is not a supported case for this tool.
+`nookctl` or a person in a terminal, is not a supported case for these tools.
 
 This is not a release. No version file changes. The change adds one line under
 "Unreleased" in `CHANGELOG.md`.
@@ -56,205 +76,356 @@ This is not a release. No version file changes. The change adds one line under
 | Platform | Support | Reason |
 | --- | --- | --- |
 | macOS | Yes | Notes and Apple events exist. |
-| Linux | No | No Notes app. The tool is not offered. |
-| Windows | No | No Notes app. The tool is not offered. |
+| Linux | No | No Notes app. The tools are not offered. |
+| Windows | No | No Notes app. The tools are not offered. |
 
 ### Where each tool runs
 
-This design needs an accurate picture of the sandbox, because the Notes tool is
-the first tool that starts a program outside it.
+This design needs an accurate picture of the sandbox, because the Notes tools
+are the first tools that start a program outside it.
 
 | Tool | Runs in | OS sandbox |
 | --- | --- | --- |
 | File tools | The Daemon, in process | No. The allowed folders and Cedar limit them. |
 | Command tool and MCP servers | The Daemon, as a child process | Yes. Seatbelt on macOS, bubblewrap on Linux. |
 | Web, news, video and book search, and web fetch | The Worker | No. |
-| Notes tool (new) | The Daemon, as a child process | No. macOS refuses Apple events from a sandboxed process. |
+| Notes tools (new) | The Daemon, as a child process | No. macOS refuses Apple events from a sandboxed process. |
 
 The Daemon builds its tool list from a `ProviderRegistry` and sends it to the
 Worker as `tool_catalog`. A tool that the Daemon owns reaches the Daemon as
-`execute_tool`. The Notes tool is one more `Provider` in that registry, so the
-Worker, the Panel code and the message schemas do not change.
+`execute_tool`. The Notes tools are one more `Provider` in that registry, so the
+Worker and the Worker schemas do not change.
 
 ### The call, step by step
 
 A tool that the Daemon owns never uses `authorize_tool`. The Daemon denies that
 message for such a tool with `Tool runs in the Daemon`.
 
-1. The model calls `nook:notes_create_note`. The Worker checks the arguments
-   against the descriptor schema and sends `execute_tool`.
+1. The model calls a Notes tool. The Worker checks the arguments against the
+   descriptor schema and sends `execute_tool`.
 2. The Daemon checks the schema again, builds the facts, asks Cedar and shows
    the approval to the user. A deny ends the call with a fixed denial reason, as
    for any Daemon tool.
 3. After an allow, the Daemon sends `tool_call_started`, runs
    `NotesProvider::call`, then sends `tool_call_finished` and `tool_result`.
 
-### Offering the tool
+### The folder setting
+
+The folder name is `[tools.notes] folder` in `config.toml`, and the default is
+`Nook`. The user changes it in the Settings, Tools tab, in a field that sits with
+the `notes` source. The Daemon owns the value, and the Panel only shows it.
+
+Three new messages in `contracts/panel-daemon.schema.json`, with examples and the
+contract test, in the way of the folder list (`list_roots`, `add_root`):
+
+1. `get_notes_settings` (Panel to Daemon) carries `id`. The answer is
+   `notes_settings`.
+2. `set_notes_folder` (Panel to Daemon) carries `id` and `folder`. The answer is
+   `notes_settings`, or an `error` with the code `invalid_request` and a fixed
+   message.
+3. `notes_settings` (Daemon to Panel) carries `id`, `folder` and `available`.
+   `available` is true when the Notes tools are offered, so the Panel hides the
+   field on a platform without Notes.
+
+A change takes effect at once and does not need a restart, as for the folders of
+the file tools. It follows the same path as `folders.rs`, under the same write
+lock of `state.config`:
+
+1. The Daemon checks the name, writes it to `config.toml` and keeps the comments
+   and the other settings.
+2. The Daemon builds the Notes tools again with `rebuilt`, and sends the Worker
+   a new tool catalog. The tool descriptions name the folder, so the model sees
+   the new one.
+3. The Daemon denies each waiting approval of a Notes tool, with the reason `The
+   Notes folder changed`, and it drops every chat grant of a Notes tool. A grant
+   for the old folder must not apply to the new one. A call that already runs
+   finishes with the folder it started with.
+
+The folder name is valid when, after the Daemon removes spaces at both ends, it
+has 1 to 100 characters, no control character and no `:`, and it is not `Recently
+Deleted` in any letter case. The same check runs when the Daemon reads
+`config.toml`. A name that is not valid leaves the Notes tools off, and the
+source `notes` shows the reason `The Notes folder name is not valid`. The Daemon
+never falls back to the default, because it must fail closed. The user can point
+the tools at the main `Notes` folder. That is the user's choice, and the approval
+card names the folder for every call.
+
+### Offering the tools
 
 `providers/notes.rs` holds `NotesProvider`, a `Provider` behind
-`ProviderRegistry`. Its constructor takes the path of the program to run.
+`ProviderRegistry`. Its constructor takes the path of the program to run and the
+folder name.
 
 `nookd` decides whether the platform has Notes, and `nook-core` has no platform
 or feature test for it:
 
 1. `build_registry(tools, notes_program: Option<PathBuf>)` gets a new parameter.
+   The folder comes from `tools.notes.folder`.
 2. `nookd` passes `Some("/usr/bin/osascript")` on macOS. In an `e2e` build it
    passes the path in `NOOK_E2E_OSASCRIPT` on every platform. Anywhere else it
    passes `None`.
 3. `Carry` in `providers/mod.rs` holds a clone of `notes_program`, so `rebuilt`
-   after a folder change keeps the tool.
-4. `assemble` adds `NotesProvider` when the path is `Some` and the file exists.
-   When the path is `Some` and the file is missing, the registry reports the
-   source as `off` with a reason, so the Tools tab says why, and the Daemon logs
-   it once. The Daemon never runs `osascript` to test it, because a test run
-   would show the macOS prompt.
+   after a folder change keeps the tools.
+4. `assemble` adds `NotesProvider` when the path is `Some`, the file exists and
+   the folder name is valid. When the path is `Some` and the file is missing, or
+   the name is not valid, the registry reports the source as `off` with a
+   reason, so the Tools tab says why, and the Daemon logs it once. The Daemon
+   never runs `osascript` to test it, because a test run would show the macOS
+   prompt.
 5. `mod notes` has the same `#[cfg(unix)]` gate as `mcp` in `providers/mod.rs`,
    because the Windows job compiles the whole workspace.
 
-The provider reports its own source: id `notes`, display name "Notes tool", state
-`ready`, one tool. `ToolSourceInfo.source_id` is any non-empty string in the
-schema, so no schema changes. `docs/contracts.md` lists the ids in one sentence,
-and that sentence gets the new id.
+The provider reports its own source: id `notes`, display name "Notes tools",
+state `ready`, six tools. `ToolSourceInfo.source_id` is any non-empty string in
+the schema, so no schema changes for it. `docs/contracts.md` lists the ids in one
+sentence, and that sentence gets the new id.
 
-`tools.yaml` lists the tool on every platform, but the registry holds it only
-where the path is `Some`. A call for it elsewhere is denied with `Tool runs in
-the Worker` (the check at `tool_approval.rs`), and a denial ends the reply. The
-model never sees the tool there, so the call needs a forged message. The docs
-say this.
+`tools.yaml` lists the tools on every platform, but the registry holds them only
+where the path is `Some`. A call for one of them elsewhere is denied with `Tool
+runs in the Worker` (the check at `tool_approval.rs`), and a denial ends the
+reply. The model never sees the tools there, so the call needs a forged message.
+The docs say this.
 
-### The tool
+### The tools
 
-`nook:notes_create_note` takes two arguments. The descriptor schema in the
-Daemon checks the types and the sizes before Cedar:
+Each tool is its own entry in `tools.yaml` and its own Cedar action. The
+descriptor schema in the Daemon checks the types and the sizes before Cedar.
+Every tool sets `required` for its arguments and `additionalProperties: false`.
+The schemas have no `pattern`. The Worker checks arguments with Python
+`jsonschema`, where `$` also matches before a final line feed, and the Daemon
+uses the Rust crate, where it does not. So one set of functions in `notes.rs`
+checks the content, in Rust only, and `facts` and `call` both use them:
 
-- `title`: a string of 1 to 200 characters.
-- `body`: a string of up to 20,000 characters of plain text. It may be empty.
-- Both are required (`required`), and no other argument is allowed
-  (`additionalProperties: false`).
-
-The schema has no `pattern`. The Worker checks arguments with Python
-`jsonschema`, where `$` also matches before a final line feed. The Daemon uses the
-Rust crate, where it does not. A title that ends with a line feed would pass the
-Worker and fail the Daemon, and a refusal ends the reply. So one function in
-`notes.rs` checks the content, in Rust only. `facts` and `call` both use it:
-
-1. Remove one trailing line break from the title (`\n` or `\r\n`).
-2. Refuse a title that is now empty or that still has a line break (`\r` or
-   `\n`).
-3. Refuse a NUL character in the title or the body. A NUL passes JSON and the
-   schema, but it cannot go into a process argument.
+1. `title` and `note_title`: 1 to 200 characters. Remove one trailing line break
+   (`\n` or `\r\n`). Refuse a value that is now empty or that still has a line
+   break (`\r` or `\n`).
+2. `body`: up to 20,000 characters of plain text. It may be empty.
+3. `text`: 1 to 20,000 characters of plain text.
+4. `note_id`: 14 to 300 characters. It starts with `x-coredata://` and holds
+   only letters, digits and `:/._%-`. A value that starts with another character
+   could be read as an option by `osascript`.
+5. A NUL character in any value is refused. It passes JSON and the schema, but it
+   cannot go into a process argument.
 
 A refusal gives the fixed reason `Invalid arguments`, before any approval is
 shown.
 
-It returns `Created the note "<title>" in the Nook folder` or an error.
+Each tool returns a fixed text with the facts of the call, or an error:
 
-The tool description tells the model that it creates a new note in the `Nook`
-folder, cannot read or change a note, exists on macOS only, and that the title
-is one line. The sentence is `The title is one line.`, and it is a constant in
-`notes.rs`. Without the old `pattern`, the description is the only place that
-tells the model, and a title with an inner line break ends the reply. A test in
-the "Tests" list checks that the description holds the constant.
+| Tool | Result |
+| --- | --- |
+| create | `Created the note "<title>" in the Notes folder "<folder>". Its id is <id>.` The id comes from the output of the script and must pass the `note_id` check, or the text leaves it out. |
+| list | `Notes in the folder "<folder>":` and one line for each note, the id, a tab and the title. `No notes` for an empty or missing folder. At most 100 lines, and a last line `More notes exist.` when it cuts. |
+| read | The title, an empty line and the plain text. A note over 20,000 characters is cut with a last line `[Cut at 20000 characters]`. |
+| append | `Added the text to the note "<note_title>".` |
+| edit | `Changed the note "<note_title>".` |
+| delete | `Deleted the note "<note_title>".` |
+
+The text from Notes in the list and read results is data and is never an
+instruction. Each tool description tells the model so, and says that the title is
+one line (the constant `The title is one line.` in `notes.rs`, used by the
+create and edit tools). The descriptions also name the folder and say that the
+tools exist on macOS only. A test checks the constant in the descriptors.
 
 ### Run in the Daemon
 
-The same function runs at the start of `NotesProvider::call`, because `call` is
-the last step before a process starts. If it refuses, `call` returns `Error: the
+The check functions run at the start of `NotesProvider::call`, because `call` is
+the last step before a process starts. If one refuses, `call` returns `Error: the
 arguments are not valid` and starts no process.
 
 The provider builds the HTML next, in one small function that tests call
 directly. It escapes `&`, `<` and `>`, and it puts each line in a `div`. Notes
-takes the title of a note from the first line of its body, so the first `div`
-holds the escaped title as a heading, and the body lines follow. The manual test
-checks the title in the Notes list.
+takes the title of a note from the first line of its body, so for create and edit
+the first `div` holds the escaped title as a heading, and the body lines follow.
+For append the HTML holds only the lines of `text`. The manual test checks the
+title in the Notes list.
 
-The process gets exactly these arguments:
+The process gets these arguments, with one script for each operation:
 
 ```
-/usr/bin/osascript -e <SCRIPT> <HTML>
+/usr/bin/osascript -e <SCRIPT> <ARG> ...
 ```
 
-`SCRIPT` is this constant in `notes.rs`:
+Every `ARG` is a data value with one `:` in front of it. The script removes the
+first character. So no value can start with `-` and be read as an option, and the
+HTML needs no special first character. The data arguments of each tool are:
+
+| Tool | Arguments after the script |
+| --- | --- |
+| create | folder, html |
+| list | folder |
+| read | folder, note id |
+| append | folder, note id, note title, html |
+| edit | folder, note id, note title, html |
+| delete | folder, note id, note title |
+
+The scripts are these constants in `notes.rs`. The plan copies them exactly. They
+use `item n of argv` as string values, with no `do shell script`, `run script`,
+`load script` or `System Events`. The Mac test runs each one, and a script can
+change only after a review of this spec.
+
+Create:
 
 ```
 on run argv
-  set noteHtml to item 1 of argv
+  set folderName to text 2 thru -1 of (item 1 of argv)
+  set noteHtml to text 2 thru -1 of (item 2 of argv)
   tell application "Notes"
     tell default account
-      if not (exists folder "Nook") then make new folder with properties {name:"Nook"}
-      make new note at folder "Nook" with properties {body:noteHtml}
+      if not (exists folder folderName) then make new folder with properties {name:folderName}
+      set newNote to make new note at folder folderName with properties {body:noteHtml}
+      return id of newNote
     end tell
   end tell
 end run
 ```
 
-The script makes the `Nook` folder in the default account when it is missing,
-and then the note. It uses `item 1 of argv` as a string value, with no `do shell
-script`, `run script`, `load script` or `System Events`. The Mac test runs this
-script, and it can change only after a review of this spec.
+List:
 
-Eight rules keep the operation closed. The model supplies data and never code or
+```
+on run argv
+  set folderName to text 2 thru -1 of (item 1 of argv)
+  set rows to {}
+  tell application "Notes"
+    tell default account
+      if not (exists folder folderName) then return ""
+      set theNotes to notes of folder folderName
+      set n to count of theNotes
+      if n > 100 then set n to 101
+      repeat with i from 1 to n
+        set theNote to item i of theNotes
+        set end of rows to (id of theNote) & tab & (name of theNote)
+      end repeat
+    end tell
+  end tell
+  set AppleScript's text item delimiters to linefeed
+  set out to rows as text
+  set AppleScript's text item delimiters to ""
+  return out
+end run
+```
+
+The list script asks for 101 notes. The Daemon keeps 100 lines, and a 101st line
+makes it add `More notes exist.`.
+
+Read, append, edit and delete share one lookup, shown here for read. For append,
+edit and delete the lookup also compares the title (`noteTitle` is the next
+argument, and the HTML is the last one) and then runs the one line of the tool:
+
+```
+on run argv
+  set folderName to text 2 thru -1 of (item 1 of argv)
+  set noteId to text 2 thru -1 of (item 2 of argv)
+  tell application "Notes"
+    tell default account
+      if not (exists folder folderName) then error "no folder" number 9001
+      set theNote to note id noteId
+      if (id of container of theNote) is not (id of folder folderName) then error "not in folder" number 9001
+      set t to plaintext of theNote
+      if (length of t) > 20000 then set t to (text 1 thru 20000 of t) & linefeed & "[Cut at 20000 characters]"
+      return (name of theNote) & linefeed & linefeed & t
+    end tell
+  end tell
+end run
+```
+
+The title check, for append, edit and delete, goes after the folder check:
+
+```
+      considering case
+        if (name of theNote) is not noteTitle then error "title" number 9002
+      end considering
+```
+
+and then the one line of each tool, with `return "ok"` after it:
+
+```
+      set body of theNote to (body of theNote) & addHtml     -- append
+      set body of theNote to newHtml                         -- edit
+      delete theNote                                         -- delete
+```
+
+Eight rules keep the operations closed. The model supplies data and never code or
 an option.
 
 1. The program is the path that the constructor got. A release build gets
    `/usr/bin/osascript` from `nookd`.
-2. The arguments are the list above. The script is a constant and the text of
-   the model is never part of it.
-3. The HTML always starts with `<`, so `osascript` cannot read it as an option.
-   The provider passes no raw title and no raw body on the command line.
+2. The arguments are the list above. The scripts are constants, and the text of
+   the model is never part of a script.
+3. Every data argument has the `:` prefix, so `osascript` cannot read it as an
+   option. The provider passes no raw value on the command line.
 4. The environment holds only `LANG=en_US.UTF-8`, so `osascript` reads a title
    with non-ASCII characters as UTF-8. The working directory is `/`. There is no
    standard input.
-5. The provider runs one `osascript` at a time, so two parallel first calls
-   cannot both create the `Nook` folder. The lock is one `Arc<tokio::sync::Mutex<()>>`
-   in `Carry`, which `assemble` gives to each new `NotesProvider`. A lock inside
-   the provider would be new after each folder change, and a call that started
-   on the old registry could then run next to a call on the new one.
+5. The provider runs one `osascript` at a time, for every operation, so two
+   parallel first calls cannot both create the folder. The lock is one
+   `Arc<tokio::sync::Mutex<()>>` in `Carry`, which `assemble` gives to each new
+   `NotesProvider`. A lock inside the provider would be new after each folder
+   change, and a call that started on the old registry could then run next to a
+   call on the new one.
 6. The process runs in its own process group (`process_group(0)`). The provider
    reuses `GroupKill`, `read_capped` and `join_reader` from `sandbox.rs`, which
    become `pub(crate)` and `#[cfg(unix)]`. `GroupKill` is a tuple struct with a
    private field, so its field becomes `pub(crate)` too. The code in `assemble`
    that builds `NotesProvider` has the same `#[cfg(unix)]` gate as the code for
-   MCP. The provider does not copy the timeout and read loop. A cancel aborts the task, so no code after an `await` runs, and the
-   group kill sits in the `GroupKill` drop guard.
-7. The limit is 60 seconds. The provider reads at most 4096 bytes of standard
-   output and of standard error, and it drains the rest of each pipe, so a long
-   output cannot block `osascript`.
-8. Success is exit status 0. A refusal by macOS is a kept standard error that
-   contains `(-1743)`. Every other result is a failure. The model sees only the
-   fixed texts of the failure table. The Daemon logs the exit status and the
-   AppleScript error number, never the output text, because a script error can
-   contain part of the note.
+   MCP. The provider does not copy the timeout and read loop. A cancel aborts the
+   task, so no code after an `await` runs, and the group kill sits in the
+   `GroupKill` drop guard.
+7. The limit is 60 seconds. The provider keeps at most 4096 bytes of standard
+   output for create, append, edit and delete, 32 KiB for list and 96 KiB for
+   read, and it drains the rest of each pipe, so a long output cannot block
+   `osascript`. It keeps 4096 bytes of standard error. The text from `osascript`
+   is read as UTF-8 and bad bytes are replaced.
+8. Success is exit status 0. Failure is decided by the kept standard error: a
+   refusal by macOS contains `(-1743)`, a missing note or a note outside the
+   folder contains `(-1728)` or `(9001)`, and a wrong title contains `(9002)`.
+   Every other result is a failure. The model sees only the fixed texts of the
+   failure table, and the output of a list or a read. The Daemon logs the exit
+   status and the AppleScript error number, never the output text, because a
+   script error can contain part of a note.
 
 Cedar keeps its rule that forbids `osascript` for the command tool. The Notes
-tool does not use the command tool.
+tools do not use the command tool.
 
 ### Approval and policy
 
-`policy/tools.yaml` gets the entry `nook:notes_create_note` in the `ask` tier
-with the actions:
+The approval rules live in the policy files, not in Rust. Each Notes tool has an
+entry in `policy/tools.yaml` with its tier and its approval actions, and a Cedar
+action with its rules in `policy/cedar/`. Changing an approval later is a change
+to these files and needs no Rust change. The Panel draws its buttons from the
+YAML. The user can make a tool stricter in the Permissions tab, never looser.
 
-- `allow_once`: "Create this note one time."
-- `allow_for_chat`: "Allow this tool for the rest of this chat."
-- `deny`.
+| Tool | Tier | Actions in `tools.yaml` | Cedar permits a grant of scope |
+| --- | --- | --- | --- |
+| list, read, create, append, edit | `ask` | `allow_once`, `allow_for_chat`, `deny` | `once`, `chat` |
+| delete | `ask` | `allow_once`, `deny` | `once` |
 
-`APPROVAL_ACTIONS` in `policy_assets.rs` already holds these three ids, so that
-file does not change. There is no `always_allow`, because every note is new
-content in the account of the user. `allow_for_chat` has no count limit per
-chat (see Risk 8).
+There is no `always_allow`, because every call touches the account of the user.
+Delete has no `allow_for_chat`, so each delete asks. `APPROVAL_ACTIONS` in
+`policy_assets.rs` already holds these three ids, so that file does not change.
+`allow_for_chat` has no count limit per chat (see Risk 8).
 
-The approval shows the folder (`Nook`), the title, and the first 200 characters
-of the body with its total length. `NotesProvider::facts` builds this summary.
+The approval shows the operation and the folder, and then:
 
-Cedar gets the action `notes_create_note` with the context values `chat_id`,
-`folder`, `approval_tier`, `grant_scope` and `argument_digest`. The policy
-permits the call only when `folder` is `Nook` and the grant scope is `once` or
-`chat`. Any other case is a deny.
+| Tool | The approval shows |
+| --- | --- |
+| create | The title, and the first 200 characters of the body with its total length. |
+| list | Nothing more. |
+| read | The note id. |
+| append | The note title, and the first 200 characters of the text with its total length. |
+| edit | The note title, the new title, and the first 200 characters of the new body with its total length. |
+| delete | The note title. |
+
+`NotesProvider::facts` builds these summaries. Cedar gets the action of the tool
+with the context values `chat_id`, `folder`, `approval_tier`, `grant_scope` and
+`argument_digest`. The rules check the grant scope. They cannot compare `folder`
+with a constant, because the user sets it, so the Daemon checks the folder name
+when it is set and when it is read.
 
 The draft also had Cedar forbid a long body and a title with a line break. The
-schema and the check in `notes.rs` already refuse both before Cedar, and the
+schema and the checks in `notes.rs` already refuse both before Cedar, and the
 context of Cedar holds only strings. One check in one place is simpler, so Cedar
-keeps only the folder and grant rules.
+keeps only the grant rules.
 
 ### Permission from macOS
 
@@ -262,7 +433,7 @@ The first call makes macOS ask whether Nook may control Notes. The user can
 refuse. A refusal returns `Error: macOS did not allow Nook to control Notes`
 (AppleScript error -1743 in the standard error of `osascript`), and macOS does
 not ask again until the user changes the setting in System Settings, Privacy and
-Security, Automation.
+Security, Automation. The Settings field shows a line that says this.
 
 macOS shows the name of the responsible app in this prompt. The Panel starts the
 Daemon as a child process, so the responsible app should be Nook, and macOS
@@ -298,8 +469,9 @@ What this means:
 The task adds three things:
 
 1. `panel/src-tauri/Info.plist` with `NSAppleEventsUsageDescription` and the
-   text "Nook needs to control Notes so that the assistant can save a note that
-   you approve." Tauri merges a file with this name into the bundle `Info.plist`.
+   text "Nook needs to control Notes so that the assistant can work with the
+   notes that you approve." Tauri merges a file with this name into the bundle
+   `Info.plist`.
 2. `panel/src-tauri/entitlements.plist` with the key
    `com.apple.security.automation.apple-events`, and the setting
    `bundle.macOS.entitlements` in `tauri.conf.json` that points to it.
@@ -320,18 +492,18 @@ new gap for the owner (see Risk 1).
 
 ### Data handling
 
-The Daemon stores the title and the body only in the chat transcript, as for any
-tool argument. The provider writes them nowhere except the note. The Daemon logs
-the operation name and the status, never the title or the body.
+The Daemon stores the arguments of each call and the result in the chat
+transcript, as for any tool. A list or a read puts note text into the
+transcript, and the Daemon sends it to the model endpoint like any other text
+of the chat. That is why these tools ask before each use, and the approval names
+the folder. The Daemon logs the operation name and the status, never a title, a
+body, a note id or note text.
 
 One path logs a value today. `ProviderRegistry::facts` builds `Invalid
 arguments: {error}` from the `jsonschema` error, and that error text prints the
 refused value. `tool_approval.rs` logs it. This task changes that message so it
 names the keyword and the property and never the value. The change also protects
 the file tools. A test checks the message text.
-
-The tool cannot read a note, so the assistant never sees what is already in
-Notes.
 
 ### The test build
 
@@ -346,94 +518,125 @@ sets the program path in `nook-core`. Release builds of `nookd` use no feature.
 
 | Case | Result |
 | --- | --- |
-| Platform is not macOS (release build) | `nookd` passes `None`. The tool is not offered. |
-| `/usr/bin/osascript` does not exist | The tool is not offered. The Tools tab shows the source `notes` as `off` with a reason, and the Daemon logs it once. |
+| Platform is not macOS (release build) | `nookd` passes `None`. The tools are not offered. |
+| `/usr/bin/osascript` does not exist | The tools are not offered. The Tools tab shows the source `notes` as `off` with a reason, and the Daemon logs it once. |
+| The folder name in `config.toml` is not valid | The tools are not offered. The source shows `The Notes folder name is not valid`. |
+| `set_notes_folder` with an invalid name | The Daemon answers with an `error` and changes nothing. |
 | A call for a tool in `tools.yaml` that the registry lacks | The Daemon denies it with `Tool runs in the Worker`, and the reply ends. The docs say it. |
 | User denies the approval | A fixed denial reason, as for any tool. |
 | Arguments break the schema | The Daemon refuses the call before any prompt, with the fixed reason `Invalid arguments` and a log line without the value. |
-| The title ends with one line break | The provider removes it and goes on. |
-| The title is empty, has another line break, or the title or the body has a NUL | The provider refuses the call before any prompt, with `Invalid arguments`. |
+| A title ends with one line break | The provider removes it and goes on. |
+| A title is empty or has another line break, a `note_id` is not valid, or a value has a NUL | The provider refuses the call before any prompt, with `Invalid arguments`. |
 | `call` finds invalid arguments | `Error: the arguments are not valid`. No process starts. |
 | macOS refuses Automation | `Error: macOS did not allow Nook to control Notes`. |
+| The note does not exist or is not in the folder | `Error: that note was not found in the Notes folder`. |
+| The note title does not match | `Error: the note title does not match`. |
 | Notes does not answer within 60 seconds | `Error: Notes did not answer`. The Daemon kills the process group. |
-| `osascript` cannot start | `Error: Notes could not create the note`. |
-| Any other failure (non-zero exit, killed by a signal) | `Error: Notes could not create the note`. The Daemon logs the exit status and the error number. |
-| The program writes more than 4096 bytes | The provider keeps 4096 bytes, drains the rest and judges only the exit status. |
-| The call is cancelled | The drop guard kills the process group. A note can still exist if the script had finished. |
+| `osascript` cannot start | `Error: Notes could not complete the request`. |
+| Any other failure (non-zero exit, killed by a signal, a locked note) | `Error: Notes could not complete the request`. The Daemon logs the exit status and the error number. |
+| The program writes more than the output limit | The provider keeps the limit, drains the rest and judges only the exit status. A list or a read shows the kept part. |
+| The call is cancelled | The drop guard kills the process group. A change can still exist if the script had finished. |
+| The folder changes while a call waits for approval | The Daemon denies the approval with `The Notes folder changed`. |
 
 ### Tests
 
-- Policy: the tool needs a grant with scope `once` or `chat`. No permanent grant
-  is offered. A call that carries any other folder is denied. The real policy
-  files are used.
+- Policy: each tool needs a grant of scope `once` or `chat`, and delete needs
+  scope `once`. No permanent grant is offered, and delete offers no chat grant in
+  `tools.yaml`. The real policy files are used.
 - Registry, with a fake program path: `build_registry(tools, None)` has no Notes
-  tool. With a path to a fake program it has the tool and the source `notes`. A
-  path to a missing file gives the source `off` with a reason. `rebuilt` after a
-  folder change keeps the tool and the same lock.
+  tool. With a path to a fake program it has the six tools and the source `notes`.
+  A path to a missing file, or an invalid folder name, gives the source `off`
+  with a reason. `rebuilt` after a folder change keeps the tools and the same
+  lock.
 - Registry, schema message: the string that `ProviderRegistry::facts` returns for
   a refused schema holds the keyword and the property and never the value. The
-  test runs it for the Notes tool and for a second provider (the `Fixed`
-  provider of the unit tests), so the shared path is pinned. It uses the keyword
-  and the path of the error, and never its `kind`, because the `kind` of an extra
+  test runs it for a Notes tool and for a second provider (the `Fixed` provider
+  of the unit tests), so the shared path is pinned. It uses the keyword and the
+  path of the error, and never its `kind`, because the `kind` of an extra
   property holds the property name that the model chose.
 - Provider, called directly: `Provider::call` with invalid arguments returns
   `Error: the arguments are not valid` and starts no process, because the socket
-  tests stop at `facts`.
+  tests stop at `facts`. The check functions have tests for each rule of "The
+  tools".
+- Folder setting, through the real socket: `get_notes_settings` returns the
+  folder and `available`. `set_notes_folder` writes `config.toml`, keeps its
+  comments, rebuilds the tools, sends a new catalog and denies a waiting
+  approval with `The Notes folder changed`. A chat grant of a Notes tool does not
+  survive the change. An invalid name returns an `error` and changes nothing. A
+  second change while a call runs does not break that call.
 - Daemon, in the new file `daemon/crates/nook-core/tests/notes_tool_tests.rs`,
   which starts with `#![cfg(unix)]` like its sibling test files, so the Windows
   job still compiles. The tests use the real socket and the fake Worker, with a
   fake `osascript` (a script that writes its arguments, its working folder
-  (`pwd -P`) and its exit code to a file). They run on Linux and on macOS:
+  (`pwd -P`) and its exit code to a file, and prints a chosen output). They run on
+  Linux and on macOS:
   - The program runs only after an allow. A deny leaves the file empty. A cancel
     before the approval does not run it.
-  - The program gets exactly three arguments: `-e`, the script and the HTML. The
-    script is byte for byte the same for two calls with different titles. The
-    HTML starts with `<`. The working folder is `/`.
-  - The environment of the program is exactly `LANG=en_US.UTF-8`. This test has
-    its own `#[cfg(target_os = "linux")]`, because its fake reads
-    `/proc/$$/environ`. `Code Quality and Tests` runs it on Linux. A developer on
-    a Mac skips it, and the Mac test covers the environment.
-  - A title such as `-e` or `-l` arrives inside the HTML.
+  - Each tool gets the exact arguments of its row in "Run in the Daemon", each
+    with the `:` prefix, and the exact script constant. The script is byte for
+    byte the same for two calls with different values. The working folder is `/`.
+  - A folder, a title or a note id such as `-e` or `-l` arrives with the `:`
+    prefix and not as an option.
   - A body with quotes, backslashes, `$(...)` and a line break reaches the
     program as plain text in the HTML argument.
   - The HTML conversion escapes `&`, `<` and `>`.
   - The titles `Title\n` and `Title\r\n` become `Title`, and the trimmed title is
-    what the approval summary, the HTML and the result text `Created the note
-    "Title"` hold. The titles `\n`, `Title\n\n` and `Ti\ntle` start no process
-    and show no prompt. A NUL in the title or the body does the same. A body that
-    breaks the schema starts no process.
+    what the approval summary, the HTML and the result text hold. The titles
+    `\n`, `Title\n\n` and `Ti\ntle` start no process and show no prompt. A NUL in
+    any value does the same. A body that breaks the schema starts no process. A
+    `note_id` without the prefix `x-coredata://`, or with another character,
+    starts no process.
   - A body of 6,000 line breaks reaches the program in full. The HTML is under
     100,000 bytes, even at 15 bytes for each empty line, which is under the Linux
-    limit of 131,072 bytes for one argument. The macOS limit is higher (1 MiB for all arguments and the
-    environment, not checked), and the Mac test sends the largest body, 20,000
-    line breaks, which is about 220,000 bytes.
-  - The descriptor description of the tool contains the constant `The title is
-    one line.`
-  - A call for the tool in a registry built with `None` is denied with `Tool runs
-    in the Worker`, as in the Worker-tool test of `provider_execution_tests.rs`.
+    limit of 131,072 bytes for one argument. The macOS limit is higher (1 MiB for
+    all arguments and the environment, not checked), and the Mac test sends the
+    largest body, 20,000 line breaks, which is about 220,000 bytes.
+  - The descriptor descriptions contain the constant `The title is one line.` in
+    the create and edit tools, and they name the folder.
   - A fake that prints a full sentence ending in `(-1743)` gives the macOS
-    message. A fake that exits with another code, or is killed by a signal,
-    gives the general failure. A path to a file that is not executable gives the
-    cannot-start failure. A fake that prints 1 MiB and exits 0 is a success.
+    message. One that ends in `(-1728)` or `(9001)` gives the not-found message,
+    and `(9002)` gives the title message. A fake that exits with another code, or
+    is killed by a signal, gives the general failure. A path to a file that is not
+    executable gives the cannot-start failure.
+  - A fake that prints 1 MiB and exits 0 is a success for create, append, edit
+    and delete, and a list or a read shows only the kept part. A list with 101
+    lines shows 100 and `More notes exist.` A read over 20,000 characters shows
+    the cut line.
   - A slow fake is killed at the limit and gives the timeout message, and its
     process group is gone. A cancel kills the process group.
   - Two parallel calls never run the fake at the same time, also when a folder
     change replaces the registry between them.
   - The failure messages never contain the output text of the program.
+  - The environment of the program is exactly `LANG=en_US.UTF-8`. This test has
+    its own `#[cfg(target_os = "linux")]`, because its fake reads
+    `/proc/$$/environ`. `Code Quality and Tests` runs it on Linux. A developer on
+    a Mac skips it, and the Mac test covers the environment.
+- Contracts: the schema, the examples and `tests/contracts/test_contracts.py`
+  cover `get_notes_settings`, `set_notes_folder` and `notes_settings`.
+- Panel web view: `rtk npm run test:unit` covers the Notes folder field: it shows
+  the folder, saves a new one, shows the error of a refused name, and hides
+  itself when `available` is false. `panel/src/lib/daemon.ts` gets the browser
+  mock for the two requests.
 - Native flow: `panel/e2e/run.mjs` builds `nookd` with `--features e2e` already.
   It also sets `NOOK_E2E_OSASCRIPT` and writes the fake script. `panel/e2e/
-  fake_worker.py` gets a command that calls the tool, in the way of the file and
-  command tools. A new spec in `panel/e2e/specs/` checks that the program ran only
-  after Allow, that a deny leaves the file empty, and that a cancel before the
-  approval does not run it. `panel/e2e/specs/tools.spec.mjs` counts four tool
-  sources, and it counts five once the Notes source shows.
-  `panel/e2e/test_fake_worker.py` gets one test for the new fake Worker command,
-  as each of the other commands has one.
-- Manual, on a Mac: one real note, to check the macOS prompt and its app name,
-  the script, the title in the Notes list, the HTML, a title that starts with `-`,
-  a title with non-ASCII characters, a body of 20,000 line breaks, the run with
-  the environment of rule 4, the refusal path, and the signing result from the "Signing check" section. No
-  automated test touches the real Notes app.
+  fake_worker.py` gets a command that calls the create and delete tools, in the
+  way of the file and command tools. A new spec in `panel/e2e/specs/` checks that
+  the program ran only after Allow, that a deny leaves the file empty, that a
+  cancel before the approval does not run it, that the delete approval has no
+  chat button, and that a new folder from the Settings field reaches the next
+  call. `panel/e2e/specs/tools.spec.mjs` counts four tool sources, and it counts
+  five once the Notes source shows. `panel/e2e/test_fake_worker.py` gets one test
+  for the new fake Worker command, as each of the other commands has one.
+- Manual, on a Mac: each script on real notes, to check the macOS prompt and its
+  app name, the title in the Notes list, the HTML, the note ids (they start with
+  `x-coredata://`), list, read, append, edit and delete, a delete (and whether
+  Notes keeps the note in Recently Deleted), a title that starts with `-`, a
+  folder name with non-ASCII characters or a leading `-`, a body of 20,000 line
+  breaks, a note over 20,000 characters, append to a note that has a list or an
+  image, a wrong title, a note in another folder, a locked note, the run with the
+  environment of rule 4, the refusal path, the Settings field, and the signing
+  result from the "Signing check" section. No automated test touches the real
+  Notes app.
 
 ### Commands
 
@@ -442,28 +645,31 @@ Each changed component runs its commands from `docs/testing.md`:
 1. Daemon, from `daemon/`: `rtk cargo test` and `rtk cargo clippy --workspace
    --all-targets -- -D warnings`.
 2. Contracts: `rtk uv run --with pytest --with jsonschema pytest tests/contracts
-   panel/e2e/test_fake_worker.py`. No schema, example or message changes, so
-   these only have to keep passing, and the new test of the fake Worker command
-   in `panel/e2e/test_fake_worker.py` is part of them.
-3. Native: `rtk npm run test:e2e:deterministic` from `panel/`.
+   panel/e2e/test_fake_worker.py`. The new test of the fake Worker command in
+   `panel/e2e/test_fake_worker.py` is part of them.
+3. Panel web view, from `panel/`: `rtk npm run lint`, `rtk npm run test:unit` and
+   `rtk npm run build`.
+4. Native: `rtk npm run test:e2e:deterministic` from `panel/`.
 
-The Panel code and the web view do not change, so the Panel Rust commands and
-the npm lint, unit and build commands do not apply. The Panel bundle settings
-change, and the Mac build step checks them.
+The Panel Rust side gets two thin Tauri commands that call `ask_daemon`, and
+they hold no logic, as the other commands in the pattern. The job `Code Quality
+and Tests` already runs `cargo check` in `panel/src-tauri`, and it compiles them.
+No Panel Rust test is added.
 
 ## Central docs that change
 
-1. `docs/architecture.md`: the Notes tool runs in the Daemon as a child process
-   outside the sandbox. Add it to "Tool boundary".
-2. `docs/tools-and-authorization.md`: a "Notes tool" section with the tool, its
-   approval actions, the Cedar action, the failure messages and the denial
-   `Tool runs in the Worker` for a call where the tool is not offered. It also
-   corrects the section "Tools that run in the Daemon": the table in "Where each
-   tool runs" says which tools use the sandbox.
-3. `docs/contracts.md`: the sentence that lists the tool source ids gets `notes`.
-   No message changes.
-4. `docs/testing.md`: the new Daemon tests, the fake `osascript`, the
-   `NOOK_E2E_OSASCRIPT` setting of the `e2e` build and the new native spec.
+1. `docs/architecture.md`: the Notes tools run in the Daemon as a child process
+   outside the sandbox, and the Settings field. Add them to "Tool boundary".
+2. `docs/tools-and-authorization.md`: a "Notes tools" section with the six
+   tools, the folder setting, their approval actions, the Cedar actions and the
+   failure messages, and the denial `Tool runs in the Worker` for a call where
+   the tools are not offered. It also corrects the section "Tools that run in the
+   Daemon": the table in "Where each tool runs" says which tools use the sandbox.
+3. `docs/contracts.md`: the new messages `get_notes_settings`,
+   `set_notes_folder` and `notes_settings`, and the sentence that lists the tool
+   source ids gets `notes`.
+4. `docs/testing.md`: the new Daemon, Panel and native tests, the fake
+   `osascript` and the `NOOK_E2E_OSASCRIPT` setting of the `e2e` build.
 5. `docs/release.md`: the Automation usage description and entitlement, and the
    note that ad hoc builds may ask again after an update.
 
@@ -473,19 +679,28 @@ for this route, status Accepted, with its link to the draft removed; it keeps th
 old reason against the Daemon, that the prompt may name the Daemon binary, as a
 recorded consequence),
 `docs/adr/0007-daemon-runs-privileged-tools-in-a-native-sandbox.md` (one short
-paragraph that names the Notes tool as the exception), `CHANGELOG.md`
-("Unreleased"), `policy/tools.yaml`, `policy/cedar/` (schema and policies),
+paragraph that names the Notes tools as the exception), `CHANGELOG.md`
+("Unreleased"), `policy/tools.yaml` (six entries), `policy/cedar/` (schema and
+policies, six actions), `contracts/panel-daemon.schema.json` and
+`contracts/examples/panel-daemon.ndjson`, `tests/contracts/test_contracts.py` if
+it needs the new messages,
 `daemon/crates/nook-core/src/providers/` (`notes.rs`, and `mod.rs` for
 `build_registry`, `Carry`, `assemble` and the schema message),
-`daemon/crates/nook-core/src/sandbox.rs` (`GroupKill`, `read_capped` and
+`daemon/crates/nook-core/src/config.rs` (`[tools.notes]`),
+`daemon/crates/nook-core/src/protocol.rs` and `server.rs` (the two requests), a
+new `daemon/crates/nook-core/src/notes_folder.rs` in the way of `folders.rs`,
+`daemon/crates/nook-core/src/tool_approval.rs` (the stale reason and the grant
+drop), `daemon/crates/nook-core/src/sandbox.rs` (`GroupKill`, `read_capped` and
 `join_reader` become `pub(crate)`), `daemon/crates/nookd/src/main.rs` (the
 program path and the `e2e` setting), `daemon/crates/nook-core/tests/common/mod.rs`
 (the harness gets the new parameter), the new
-`daemon/crates/nook-core/tests/notes_tool_tests.rs`, `panel/e2e/run.mjs`,
-`panel/e2e/fake_worker.py`, `panel/e2e/test_fake_worker.py`, a new spec in
-`panel/e2e/specs/`, `panel/e2e/specs/tools.spec.mjs`, `panel/src-tauri/tauri.conf.json`,
-`panel/src-tauri/Info.plist`, `panel/src-tauri/entitlements.plist` and
-`scripts/bundle.sh`.
+`daemon/crates/nook-core/tests/notes_tool_tests.rs`, `panel/src/lib/daemon.ts`
+and `panel/src/lib/types.ts`, `panel/src/components/ToolsTab.tsx` (the field) and
+its unit tests, `panel/src-tauri/src/lib.rs` (two thin commands),
+`panel/e2e/run.mjs`, `panel/e2e/fake_worker.py`, `panel/e2e/test_fake_worker.py`,
+a new spec in `panel/e2e/specs/`, `panel/e2e/specs/tools.spec.mjs`,
+`panel/src-tauri/tauri.conf.json`, `panel/src-tauri/Info.plist`,
+`panel/src-tauri/entitlements.plist` and `scripts/bundle.sh`.
 
 `docs/mcp-servers.md` does not change. `docs/plan.md` does not change. The
 housekeeping task owns `CHECKLIST.md` and `docs/plans/`, so this task leaves
@@ -498,15 +713,19 @@ None. This task changes no file under `.agents/rules/`, `AGENTS.md`,
 
 ## Open gaps
 
-`open-gaps.md` holds four questions, each with options and a recommendation. G1
-to G3 come from the draft. G4 came from spec review round 1, and the owner
-decided it on November 14, 2026.
+`open-gaps.md` holds five questions, each with options and a recommendation. G1
+to G3 come from the draft. G4 came from spec review round 1. The owner decided
+all five on November 14, 2026.
 
-1. G1: a fixed `Nook` folder, or a folder set in `config.toml`.
-2. G2: append to an existing note, or not.
+1. G1: which folder the tools use. Decided by the owner: the user chooses it in
+   a Settings field, and the value is `[tools.notes] folder` in `config.toml`.
+2. G2: which operations the tools offer. Decided by the owner: list, read,
+   create, append, edit and delete, inside the chosen folder.
 3. G3: the Automation entitlement. The check is in "Signing check" above.
 4. G4: where the operation runs. Decided by the owner: the Daemon runs it,
    outside the sandbox.
+5. G5: where the approval rules live. Decided by the owner: in `tools.yaml` and
+   Cedar, as for every tool today.
 
 ## Risks
 
@@ -514,22 +733,26 @@ decided it on November 14, 2026.
    Daemon, so I expect the prompt to name Nook, but I cannot check it on Linux.
    If it names `nookd` or shows no prompt, the usage description must go into
    the `nookd` binary, which is a new gap. The owner tests this on a Mac. A
-   `nookd` that someone starts by hand still offers the tool on a Mac, and the
+   `nookd` that someone starts by hand still offers the tools on a Mac, and the
    prompt names another app. That case is out of scope.
 2. `osascript` may need an environment variable or a working folder that the
    closed environment of rule 4 removes. The manual test checks it. If it fails,
    the first fix is to add `HOME`, and that is a small fix to the provider.
-3. The tool runs a program outside the sandbox. A flaw in the argument handling
+3. The tools run a program outside the sandbox. A flaw in the argument handling
    or in the HTML would run in a process with the rights of the user. The
-   closed operation limits this: a fixed program, a constant script, one HTML
-   argument that starts with `<`, a schema and a second check, Cedar, and an
-   approval for every call. The tests use hostile titles and bodies.
-4. A cancel or a timeout can leave a note behind, because the script may have
+   closed operations limit this: a fixed program, constant scripts, data
+   arguments with a `:` prefix, a schema and a second check, Cedar, and an
+   approval for every call. The tests use hostile values.
+4. A cancel or a timeout can leave a change behind, because the script may have
    finished before the Daemon kills it. Killing `osascript` does not stop Notes.
-5. I cannot run Notes on Linux. The script, the HTML, the title rule, the
+5. I cannot run Notes on Linux. The scripts, the HTML, the title rule, the
    environment and the macOS prompt are checked only in the manual test on a
-   Mac. The owner will run it before the pull request merges. The reason that
-   macOS refuses Apple events from a sandboxed process is also not checked.
+   Mac. The owner will run it before the pull request merges. Several
+   AppleScript facts are not checked: that `plaintext` and `note id` work in the
+   places that the scripts use them, that `container of` gives the folder, that
+   `body` takes HTML, and that a `delete` moves the note to Recently Deleted. The
+   reason that macOS refuses Apple events from a sandboxed process is also not
+   checked.
 6. An ad hoc signature changes per build, so macOS may ask again after each
    update. A signed release removes this, and it needs its own task.
 7. The move of the draft leaves dangling paths to
@@ -542,5 +765,16 @@ decided it on November 14, 2026.
    one. The orchestrator tells the owner, and a later small change updates the
    paths to `docs/tasks/task-PR-40/specs/design.md` and the route. The list must
    be checked again against `main` when this branch merges it.
-8. `allow_for_chat` lets the model create notes for the rest of the chat with no
-   new approval and no count limit.
+8. `allow_for_chat` lets the model use the tools for the rest of the chat with
+   no new approval and no count limit, except for delete, which always asks.
+9. A note can hold text that tries to give the model an instruction (prompt
+   injection). A read or a list puts that text in front of the model. The tool
+   descriptions say that note text is data, and every later call still needs its
+   own approval, and a delete always asks.
+10. An edit replaces the whole note, so a list, an image or an attachment in it
+    can be lost, and an append rewrites the HTML of the note. The title check
+    and the approval limit a wrong target, but not a lost format. The Mac test
+    checks an append to a note that has a list or an image.
+11. The user can name the main `Notes` folder. Then the tools can read, change
+    and delete every note in it. That is the user's choice. The approval card
+    names the folder for each call, and a delete always asks.

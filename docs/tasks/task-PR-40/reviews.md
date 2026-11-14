@@ -138,6 +138,17 @@
 | --- | --- | --- | --- |
 | none | The review has no finding. | none | - |
 
+## Round 10 (spec)
+
+- Head: pending (the commit that adds this heading)
+- Reviewer: the T3 reviewer, follow-up of round 9. The owner widened the design after the approval of round 9: six tools in a folder that the user chooses in Settings (gaps G1, G2 and G5). This round reviews the whole new spec.
+- SonarCloud: pending
+- Checks: pending
+- Gaps closed by recommendation: none
+
+| # | Finding | Action | Where |
+| --- | --- | --- | --- |
+
 ## Commands run
 
 One row for each named check that the task adds to a rule or a document. A row lists the commands of its check.
