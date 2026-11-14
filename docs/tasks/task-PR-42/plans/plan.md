@@ -43,7 +43,7 @@ Tasks 6 to 10 touch `daemon/`. Their checks are `cd daemon && cargo fmt --check`
   `/usr/bin/grep -rn -E '(allowed-folders-hardening|pr32-sonar-gate-fixes|pr32-review-response|sonar-complexity-cleanup|node-24-upgrade|macos-runner-update)\.md' --include='*.md' . | /usr/bin/grep -v -e '^./docs/archive/' -e '^./docs/tasks/'`
   prints only lines of `docs/plans/README.md` (task 2 fixes them).
   Commit: `docs(plans): archive the six finished plans`.
-- [ ] **2. Fix `docs/plans/README.md`.** List under "Active plans" exactly the
+- [x] **2. Fix `docs/plans/README.md`.** List under "Active plans" exactly the
   files of `docs/plans/` after task 1: `allowed-folders-view.md`,
   `daemon-exit-after-panel-quit.md`, `tool-platform-closeout-and-next-phase.md`,
   `tool-platform-open-gaps.md`, `tp7-tp13-tool-providers.md`,
