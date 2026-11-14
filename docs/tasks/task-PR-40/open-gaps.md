@@ -6,7 +6,7 @@
 - Question: Which Notes folder gets the notes that the tool creates?
 - Options:
   1. A fixed folder named `Nook` in the default account. The user can move a note later.
-  2. A folder name set in `config.toml` (for example `[tools.notes] folder`). The Daemon must check the name and pass it to the Panel, and Cedar must check it.
+  2. A folder name set in `config.toml` (for example `[tools.notes] folder`). The Daemon must check the name and pass it to the provider, and Cedar must check it.
   3. The default folder of Notes. The tool needs no folder logic, but the assistant then writes into the main list of the user.
 - Recommendation: Option 1. One fixed folder keeps the Cedar rule, the approval text and the script simple, and it keeps the assistant's notes apart from the notes of the user. A setting can come later if a user needs it. Under option 1 the Cedar condition `folder == "Nook"` can never fail, because the Daemon sets `folder` to a constant. It stays as a guard that denies if the value is ever wrong. Under option 2 it becomes a real check.
 - Decision:
@@ -20,7 +20,7 @@
 - Question: Does the tool also append text to an existing note?
 - Options:
   1. No append. The tool only creates a new note.
-  2. Append to a note that the tool created. The Daemon or the Panel must store the note id, and the user can edit or delete the note in Notes, so the id can go stale.
+  2. Append to a note that the tool created. The Daemon must store the note id, and the user can edit or delete the note in Notes, so the id can go stale.
   3. Append to any note. The tool must find notes, which means it reads private data. This is out of scope of the design.
 - Recommendation: Option 1. Appending needs a way to find the note, and the first version has none. A later design can add it with its own review.
 - Decision:

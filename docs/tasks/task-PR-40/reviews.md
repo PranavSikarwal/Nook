@@ -62,8 +62,32 @@
 
 ## Round 5 (spec)
 
+- Head: `130dea7a30e587eaff8f53f5c5c82c06997e6f5e`
+- Reviewer: the T3 reviewer, follow-up of round 4. The spec changed after the owner decided G4 (the Daemon runs the tool), so this round reviewed the new design. Verdict: COMMENT (P0: 0, P1: 0, P2: 6, P3: 5). It closed S1 to S7 as moot or fixed, and it found no hole in the data path.
+- SonarCloud: Quality Gate passed, 0 new issues, 0 hotspots.
+- Checks: all four pass on the head (the reviewer read the native gate while it was still running). The CI gate check passes.
+- Gaps closed by recommendation: none
+
+| # | Finding | Action | Where |
+| --- | --- | --- | --- |
+| S8 (P2) | The step list sends `authorize_tool` for a Daemon tool, and the Daemon denies that message. | fix | `specs/design.md` "The call, step by step": `execute_tool`, then the Daemon asks Cedar and the user, then `tool_call_started`, the call, `tool_call_finished`, `tool_result`. |
+| S9 (P2) | No `osascript` argument list and no script, so the closed operation cannot be checked. | fix | `specs/design.md` "Run in the Daemon": the argument list `-e SCRIPT HTML`, the script text, the working folder `/`, `required` and `additionalProperties: false`, and tests for exactly three arguments and an identical script. |
+| S10 (P2) | No path from `nookd` to `assemble`, no `Carry` field, no `e2e` knowledge in `nook-core`, no `cfg(unix)` gate. | fix | `specs/design.md` "Offering the tool": `build_registry(tools, notes_program)`, `Carry` field, `nookd` decides, `#[cfg(unix)] mod notes`, tests. |
+| S11 (P2) | Missing failure rows and tests: success rule, `-1743` match, output drain, NUL, non-ASCII, not offered, cannot start. | fix | `specs/design.md` rules 7 and 8 of "Run in the Daemon", "Failure behavior" and "Tests". |
+| S12 (P2) | The title `pattern` behaves differently in the Worker (`re.search`) and the Daemon (Rust). | fix | `specs/design.md` "The tool": no `pattern`, one Rust check in `notes.rs` that trims one trailing line break. The reviewer recommended trim over refuse, because a refusal ends the reply. |
+| S13 (P2) | The log claim is false on the schema-refusal path, which prints the refused value. | fix | `specs/design.md` "Data handling": the message names the keyword and the property and never the value, with a test. |
+| S14 (P3) | The native test needs files that the spec does not list, and `e2e` is already on. | fix | `specs/design.md` "Tests" (native flow) and "Other files that change". The Notes source shows in the Tools tab, so the count in `tools.spec.mjs` changes. |
+| S15 (P3) | Reuse the helpers of `Sandbox::run`, and put the group kill in a drop guard. | fix | `specs/design.md` rule 6: reuse `GroupKill`, `read_capped` and `join_reader`. |
+| S16 (P3) | Three wrong sentences about existing code. | fix | `specs/design.md` "Where each tool runs", "The test build" and "Other files that change". |
+| S17 (P3) | Records and Risk 7 still carry the Panel design and an old count. | fix | `open-gaps.md` G1 and G2, `plans/plan.md` title, `specs/design.md` header and Risk 7 (five places, check again at merge). The PR title still says "run by the Panel" (small fix after this round). |
+| S18 (P3) | The file that holds the usage description is not named. | fix | `specs/design.md` "Signing check": `panel/src-tauri/Info.plist`, `panel/src-tauri/entitlements.plist`, the setting in `tauri.conf.json` and the text. |
+| Residual 2 | Two parallel first calls could both create the `Nook` folder. | fix | `specs/design.md` rule 5 (one `osascript` at a time) and a test. |
+| Residual 2 | `allow_for_chat` has no count limit. | no change | `specs/design.md` Risk 8 records it. The other tools have the same grant scope. |
+
+## Round 6 (spec)
+
 - Head: pending (the commit that adds this heading)
-- Reviewer: the T3 reviewer, follow-up of round 4. The spec changed after the owner decided G4 (the Daemon runs the tool), so this round reviews the new design.
+- Reviewer: the T3 reviewer, follow-up of round 5.
 - SonarCloud: pending
 - Checks: pending
 - Gaps closed by recommendation: none
