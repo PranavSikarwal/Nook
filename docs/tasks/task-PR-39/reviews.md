@@ -150,6 +150,19 @@ No findings. The spec went through rounds 1 to 6 with the owner's decisions G1 t
 | --- | --- | --- | --- |
 | C11 (P3) | The page promises more than the mask does ("every secret"), and G11 rests on that. | fix | plan R2-1 |
 | C12 (P3) | No test reaches the startup-error scrub through `start_reporting`; one unit test holds three cases. | fix | plan R2-2 |
+- Fix commits for round 2: R2-1 `89a8b7e`, R2-2 `8f10689`.
+
+## Round 3 (code)
+
+- Head: pending (the commit that adds this heading)
+- Reviewer: the T3 reviewer ("Review Pull Requests"), follow-up of review 5904434533.
+- Verdict:
+- SonarCloud:
+- Checks:
+- Open threads from round 2: C11 and C12.
+
+| # | Finding | Action | Where |
+| --- | --- | --- | --- |
 
 ## Commands run
 
