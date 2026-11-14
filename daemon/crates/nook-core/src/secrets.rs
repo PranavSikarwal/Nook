@@ -76,13 +76,30 @@ impl Default for SecretContext {
 
 pub trait SecretMaskExt {
     fn add(&self, value: &str);
+    fn scrub(&self, text: &str) -> String;
 }
 
 impl SecretMaskExt for SecretMask {
     fn add(&self, value: &str) {
         if value.chars().count() >= 4 {
-            self.write().unwrap().push(value.to_string());
+            let mut guard = self.write().unwrap();
+            if !guard.contains(&value.to_string()) {
+                guard.push(value.to_string());
+            }
         }
+    }
+
+    fn scrub(&self, text: &str) -> String {
+        let Ok(guard) = self.read() else {
+            return text.to_string();
+        };
+        let mut result = text.to_string();
+        for secret in guard.iter() {
+            if secret.chars().count() >= 4 {
+                result = result.replace(secret, "***");
+            }
+        }
+        result
     }
 }
 
@@ -140,5 +157,15 @@ mod tests {
         );
         assert_eq!(store.delete("model-api-key"), Err(SecretError::Unreadable));
         assert_eq!(store.get(""), Err(SecretError::Unreadable));
+    }
+    #[test]
+    fn secret_mask_adds_values_of_at_least_four_chars_and_scrubs_them() {
+        let mask = Arc::new(RwLock::new(Vec::new()));
+        mask.add("supersecret");
+        mask.add("abc"); // skipped because < 4 chars
+        assert_eq!(
+            mask.scrub("hello supersecret abc world"),
+            "hello *** abc world"
+        );
     }
 }

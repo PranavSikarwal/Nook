@@ -65,7 +65,7 @@ Rules for every task:
   for the path of `inserted.log`) and
   `a_docs_server_with_network_true_can_connect_out`. Each fails first because
   the `docs` mode does not exist. Check: Daemon `rtk cargo test` and clippy.
-- [ ] **4. Resolve and check `env_secrets` when a server starts.**
+- [x] **4. Resolve and check `env_secrets` when a server starts.**
   `daemon/crates/nook-core/src/providers/mcp.rs`,
   `daemon/crates/nook-core/src/secrets.rs`,
   `daemon/crates/nook-core/tests/mcp_tool_tests.rs`. In `start_reporting`, a

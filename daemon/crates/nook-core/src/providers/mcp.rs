@@ -5,7 +5,7 @@ use super::{
 use crate::config::McpServerConfig;
 use crate::protocol::{ToolDescriptor, ToolSourceInfo, ToolSourceState};
 use crate::sandbox::{Sandbox, SandboxProcess, SandboxSpec};
-use crate::secrets::SecretContext;
+use crate::secrets::{SecretContext, SecretError, SecretMaskExt};
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -345,6 +345,7 @@ pub struct StartupLimits {
     /// The shortest time between two starts of one server. A server that dies
     /// sooner than this after a start stays stopped.
     pub restart_interval: Duration,
+    pub secret_timeout: Duration,
 }
 
 impl Default for StartupLimits {
@@ -353,8 +354,47 @@ impl Default for StartupLimits {
             initialize: Duration::from_secs(10),
             list_tools: Duration::from_secs(10),
             restart_interval: Duration::from_secs(5),
+            secret_timeout: Duration::from_secs(10),
         }
     }
+}
+
+pub fn check_server_settings(config: &McpServerConfig) -> Result<(), String> {
+    for key in config.env.keys() {
+        if key.starts_with("LD_") || key.starts_with("DYLD_") {
+            return Err(format!(
+                "Server \"{}\": the variable \"{key}\" cannot start with LD_ or DYLD_",
+                config.name
+            ));
+        }
+    }
+    for (key, secret_name) in &config.env_secrets {
+        if config.env.contains_key(key) {
+            return Err(format!(
+                "Server \"{}\": the variable \"{key}\" appears in both env and env_secrets",
+                config.name
+            ));
+        }
+        if key.starts_with("LD_") || key.starts_with("DYLD_") {
+            return Err(format!(
+                "Server \"{}\": the variable \"{key}\" cannot start with LD_ or DYLD_",
+                config.name
+            ));
+        }
+        if secret_name.is_empty() {
+            return Err(format!(
+                "Server \"{}\": the secret name for \"{key}\" is empty",
+                config.name
+            ));
+        }
+        if secret_name == "model-api-key" {
+            return Err(format!(
+                "Server \"{}\": the secret name for \"{key}\" cannot be \"model-api-key\"",
+                config.name
+            ));
+        }
+    }
+    Ok(())
 }
 
 struct McpServer {
@@ -456,7 +496,7 @@ async fn start_server(
     config: &McpServerConfig,
     sandbox: &Sandbox,
     limits: StartupLimits,
-    _secrets: &SecretContext,
+    secrets: &SecretContext,
 ) -> Result<(McpServer, Vec<McpTool>), String> {
     let home = tempfile::tempdir().map_err(|e| e.to_string())?;
     let home_path = home.path().canonicalize().map_err(|e| e.to_string())?;
@@ -468,6 +508,37 @@ async fn start_server(
         ("LANG".to_string(), "C.UTF-8".to_string()),
     ]);
     env.extend(config.env.clone());
+    for (env_name, secret_name) in &config.env_secrets {
+        let store = secrets.store.clone();
+        let name_clone = secret_name.clone();
+        let timeout = limits.secret_timeout;
+        let read_result = tokio::time::timeout(
+            timeout,
+            tokio::task::spawn_blocking(move || store.get(&name_clone)),
+        )
+        .await;
+
+        let secret_value = match read_result {
+            Err(_) => return Err(format!("The secret \"{secret_name}\": read timed out")),
+            Ok(Err(_join_err)) => {
+                return Err(format!(
+                    "The secret \"{secret_name}\": Secret cannot be read"
+                ))
+            }
+            Ok(Ok(Ok(val))) => val,
+            Ok(Ok(Err(SecretError::Missing))) => {
+                return Err(format!(
+                    "The secret \"{secret_name}\" is not in the secret store. Run: nookctl secret set {secret_name}"
+                ));
+            }
+            Ok(Ok(Err(err))) => {
+                return Err(format!("The secret \"{secret_name}\": {err}"));
+            }
+        };
+
+        secrets.mask.add(&secret_value);
+        env.insert(env_name.clone(), secret_value);
+    }
     let mut write_roots = vec![home_path.clone()];
     write_roots.extend(existing_paths(&config.write_paths, &config.name));
     let spec = SandboxSpec {
@@ -568,6 +639,9 @@ impl McpProvider {
             } else if config.command.trim().is_empty() {
                 warn!("Ignored MCP server {}: the command is empty", config.name);
                 failed.push(super::mcp_off(&config.name, "The command is empty"));
+            } else if let Err(reason) = check_server_settings(config) {
+                warn!("Ignored MCP server {}: {reason}", config.name);
+                failed.push(super::mcp_off(&config.name, &reason));
             } else {
                 accepted.push(config);
             }
@@ -1133,5 +1207,81 @@ mod tests {
         assert!(long.ends_with("..."));
         assert_eq!(long.chars().count(), SUMMARY_ARGUMENT_CHARS + 3);
         assert_eq!(compact_arguments(&json!({ "a": 1 })), "{\"a\":1}");
+    }
+
+    #[test]
+    fn check_server_settings_validates_env_and_env_secrets() {
+        let base = McpServerConfig {
+            name: "test-server".to_string(),
+            command: "cmd".to_string(),
+            args: vec![],
+            env: BTreeMap::new(),
+            env_secrets: BTreeMap::new(),
+            network: false,
+            read_paths: vec![],
+            write_paths: vec![],
+            timeout_seconds: 60,
+        };
+        assert!(check_server_settings(&base).is_ok());
+
+        // Overlap between env and env_secrets
+        let mut overlap = base.clone();
+        overlap.env.insert("FOO".to_string(), "val".to_string());
+        overlap
+            .env_secrets
+            .insert("FOO".to_string(), "my-secret-val-999".to_string());
+        let err = check_server_settings(&overlap).unwrap_err();
+        assert!(err.contains("FOO"));
+        assert!(!err.contains("val"));
+        assert!(!err.contains("my-secret-val-999"));
+
+        // Empty secret name in env_secrets
+        let mut empty_sec = base.clone();
+        empty_sec
+            .env_secrets
+            .insert("VAR".to_string(), "".to_string());
+        let err = check_server_settings(&empty_sec).unwrap_err();
+        assert!(err.contains("VAR"));
+
+        // model-api-key name
+        let mut model_sec = base.clone();
+        model_sec
+            .env_secrets
+            .insert("VAR".to_string(), "model-api-key".to_string());
+        let err = check_server_settings(&model_sec).unwrap_err();
+        assert!(err.contains("VAR"));
+
+        // LD_ and DYLD_ in env
+        let mut ld_env = base.clone();
+        ld_env
+            .env
+            .insert("LD_PRELOAD".to_string(), "/lib/lib.so".to_string());
+        let err = check_server_settings(&ld_env).unwrap_err();
+        assert!(err.contains("LD_PRELOAD"));
+        assert!(!err.contains("/lib/lib.so"));
+
+        let mut dyld_env = base.clone();
+        dyld_env.env.insert(
+            "DYLD_INSERT_LIBRARIES".to_string(),
+            "/lib/lib.dylib".to_string(),
+        );
+        let err = check_server_settings(&dyld_env).unwrap_err();
+        assert!(err.contains("DYLD_INSERT_LIBRARIES"));
+
+        // LD_ in env_secrets
+        let mut ld_sec = base.clone();
+        ld_sec.env_secrets.insert(
+            "LD_LIBRARY_PATH".to_string(),
+            "my-secret-val-999".to_string(),
+        );
+        let err = check_server_settings(&ld_sec).unwrap_err();
+        assert!(err.contains("LD_LIBRARY_PATH"));
+        assert!(!err.contains("my-secret-val-999"));
+
+        // LDAP_URL is accepted
+        let mut ldap = base.clone();
+        ldap.env
+            .insert("LDAP_URL".to_string(), "ldap://localhost".to_string());
+        assert!(check_server_settings(&ldap).is_ok());
     }
 }

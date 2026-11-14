@@ -9,6 +9,7 @@ use nook_core::protocol::ToolSourceState;
 use nook_core::providers::mcp::{McpProvider, StartupLimits};
 use nook_core::providers::Provider;
 use nook_core::sandbox::Sandbox;
+use nook_core::secrets::SecretStore;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -77,6 +78,7 @@ fn quick() -> StartupLimits {
         initialize: Duration::from_secs(2),
         list_tools: Duration::from_secs(2),
         restart_interval: Duration::from_secs(3600),
+        secret_timeout: Duration::from_secs(2),
     }
 }
 
@@ -316,6 +318,270 @@ async fn a_docs_server_with_network_true_can_connect_out() {
 
     assert_eq!(result["status"], "ok");
     assert_eq!(result["output"], "connected");
+}
+
+struct MissingSecretStore;
+
+impl nook_core::secrets::SecretStore for MissingSecretStore {
+    fn get(&self, _name: &str) -> Result<String, nook_core::secrets::SecretError> {
+        Err(nook_core::secrets::SecretError::Missing)
+    }
+    fn set(&self, _name: &str, _value: &str) -> Result<(), nook_core::secrets::SecretError> {
+        Ok(())
+    }
+    fn delete(&self, _name: &str) -> Result<(), nook_core::secrets::SecretError> {
+        Ok(())
+    }
+}
+
+struct ErrorSecretStore(nook_core::secrets::SecretError);
+
+impl nook_core::secrets::SecretStore for ErrorSecretStore {
+    fn get(&self, _name: &str) -> Result<String, nook_core::secrets::SecretError> {
+        Err(self.0)
+    }
+    fn set(&self, _name: &str, _value: &str) -> Result<(), nook_core::secrets::SecretError> {
+        Ok(())
+    }
+    fn delete(&self, _name: &str) -> Result<(), nook_core::secrets::SecretError> {
+        Ok(())
+    }
+}
+
+struct BlockingSecretStore;
+
+impl nook_core::secrets::SecretStore for BlockingSecretStore {
+    fn get(&self, _name: &str) -> Result<String, nook_core::secrets::SecretError> {
+        loop {
+            std::thread::sleep(Duration::from_secs(60));
+        }
+    }
+    fn set(&self, _name: &str, _value: &str) -> Result<(), nook_core::secrets::SecretError> {
+        Ok(())
+    }
+    fn delete(&self, _name: &str) -> Result<(), nook_core::secrets::SecretError> {
+        Ok(())
+    }
+}
+
+struct FailingSecretStore;
+
+impl nook_core::secrets::SecretStore for FailingSecretStore {
+    fn get(&self, _name: &str) -> Result<String, nook_core::secrets::SecretError> {
+        Err(nook_core::secrets::SecretError::Unreadable)
+    }
+    fn set(&self, _name: &str, _value: &str) -> Result<(), nook_core::secrets::SecretError> {
+        Ok(())
+    }
+    fn delete(&self, _name: &str) -> Result<(), nook_core::secrets::SecretError> {
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn a_secret_from_the_store_reaches_the_server_as_an_env_value() {
+    let record_dir = tempfile::tempdir().unwrap();
+    let record_path = record_dir.path().canonicalize().unwrap();
+    let mut config = docs_server(&record_path);
+    config.env.insert(
+        "GOOGLE_DRIVE_MCP_CLIENT_ID".to_string(),
+        "fake-client-id".to_string(),
+    );
+    config.env_secrets.insert(
+        "GOOGLE_DRIVE_MCP_CLIENT_SECRET".to_string(),
+        "google-docs-client-secret".to_string(),
+    );
+    let store = Arc::new(nook_core::secrets::MemorySecretStore::default());
+    store
+        .set("google-docs-client-secret", "super-secret-1234")
+        .unwrap();
+    let secrets = nook_core::secrets::SecretContext {
+        store: store.clone(),
+        mask: Arc::default(),
+    };
+    let Some(sandbox) = sandbox().await else {
+        return;
+    };
+    let provider = McpProvider::start(&[config], &sandbox, quick(), secrets)
+        .await
+        .expect("server starts");
+    let mut h = Harness::new(vec![Arc::new(provider)]).await;
+    let chat = Uuid::new_v4();
+
+    let res1 = run(
+        &mut h,
+        chat,
+        "c1",
+        "mcp:google-docs:checkEnv",
+        json!({ "name": "GOOGLE_DRIVE_MCP_CLIENT_SECRET", "expected": "super-secret-1234" }),
+    )
+    .await;
+    assert_eq!(res1["status"], "ok");
+    assert_eq!(res1["output"], "match");
+
+    let res2 = run(
+        &mut h,
+        chat,
+        "c2",
+        "mcp:google-docs:checkEnv",
+        json!({ "name": "GOOGLE_DRIVE_MCP_CLIENT_ID", "expected": "fake-client-id" }),
+    )
+    .await;
+    assert_eq!(res2["status"], "ok");
+    assert_eq!(res2["output"], "match");
+}
+
+#[tokio::test]
+async fn a_missing_secret_keeps_the_server_off_and_names_the_secret() {
+    let record_dir = tempfile::tempdir().unwrap();
+    let record_path = record_dir.path().canonicalize().unwrap();
+    let mut config = docs_server(&record_path);
+    config.env_secrets.insert(
+        "GOOGLE_DRIVE_MCP_CLIENT_SECRET".to_string(),
+        "google-docs-client-secret".to_string(),
+    );
+    let secrets = nook_core::secrets::SecretContext {
+        store: Arc::new(MissingSecretStore),
+        mask: Arc::default(),
+    };
+    let Some(sandbox) = sandbox().await else {
+        return;
+    };
+    let (provider, failed) =
+        McpProvider::start_reporting(&[config], &sandbox, quick(), secrets).await;
+    assert!(provider.is_none());
+    assert_eq!(failed.len(), 1);
+    assert_eq!(failed[0].state, ToolSourceState::Off);
+    let reason = failed[0].reason.as_ref().expect("failure reason");
+    assert!(
+        reason.contains("google-docs-client-secret"),
+        "expected reason to name secret: {reason}"
+    );
+    assert!(
+        reason.contains("nookctl secret set google-docs-client-secret"),
+        "expected reason to contain nookctl secret set: {reason}"
+    );
+}
+
+#[tokio::test]
+async fn a_store_that_never_answers_keeps_the_server_off_after_the_timeout() {
+    let record_dir = tempfile::tempdir().unwrap();
+    let record_path = record_dir.path().canonicalize().unwrap();
+    let mut stuck = docs_server(&record_path);
+    stuck.env_secrets.insert(
+        "GOOGLE_DRIVE_MCP_CLIENT_SECRET".to_string(),
+        "stuck-secret".to_string(),
+    );
+    let good = server("good", "normal");
+    let secrets = nook_core::secrets::SecretContext {
+        store: Arc::new(BlockingSecretStore),
+        mask: Arc::default(),
+    };
+    let limits = StartupLimits {
+        secret_timeout: Duration::from_millis(50),
+        ..quick()
+    };
+    let Some(sandbox) = sandbox().await else {
+        return;
+    };
+    let (provider, failed) =
+        McpProvider::start_reporting(&[stuck, good], &sandbox, limits, secrets).await;
+    let p = provider.expect("good server should start");
+    let ready = p.sources();
+    assert_eq!(ready.len(), 1);
+    assert_eq!(ready[0].source_id, "mcp:good");
+    assert_eq!(failed.len(), 1);
+    assert_eq!(failed[0].source_id, "mcp:google-docs");
+    let reason = failed[0].reason.as_ref().unwrap();
+    assert!(reason.contains("stuck-secret"));
+    assert!(reason.contains("timed out"));
+}
+
+#[tokio::test]
+async fn a_store_error_keeps_the_server_off_with_the_fixed_text() {
+    let record_dir = tempfile::tempdir().unwrap();
+    let record_path = record_dir.path().canonicalize().unwrap();
+    let Some(sandbox) = sandbox().await else {
+        return;
+    };
+    for error in [
+        nook_core::secrets::SecretError::Unavailable,
+        nook_core::secrets::SecretError::Unreadable,
+    ] {
+        let mut config = docs_server(&record_path);
+        config.env_secrets.insert(
+            "GOOGLE_DRIVE_MCP_CLIENT_SECRET".to_string(),
+            "google-docs-client-secret".to_string(),
+        );
+        let secrets = nook_core::secrets::SecretContext {
+            store: Arc::new(ErrorSecretStore(error)),
+            mask: Arc::default(),
+        };
+        let (provider, failed) =
+            McpProvider::start_reporting(&[config], &sandbox, quick(), secrets).await;
+        assert!(provider.is_none());
+        assert_eq!(failed.len(), 1);
+        let reason = failed[0].reason.as_ref().unwrap();
+        assert!(
+            reason.contains("google-docs-client-secret"),
+            "expected reason to name secret: {reason}"
+        );
+        assert!(
+            reason.contains(&error.to_string()),
+            "expected reason to contain fixed text '{}': {reason}",
+            error
+        );
+    }
+
+    let mut failing_config = docs_server(&record_path);
+    failing_config.env_secrets.insert(
+        "GOOGLE_DRIVE_MCP_CLIENT_SECRET".to_string(),
+        "google-docs-client-secret".to_string(),
+    );
+    let secrets = nook_core::secrets::SecretContext {
+        store: Arc::new(FailingSecretStore),
+        mask: Arc::default(),
+    };
+    let (provider, failed) =
+        McpProvider::start_reporting(&[failing_config], &sandbox, quick(), secrets).await;
+    assert!(provider.is_none());
+    assert_eq!(failed.len(), 1);
+    let reason = failed[0].reason.as_ref().unwrap();
+    assert!(reason.contains("google-docs-client-secret"));
+    assert!(reason.contains("Secret cannot be read"));
+}
+
+#[tokio::test]
+async fn a_restart_with_a_missing_secret_logs_a_fixed_text_and_the_call_fails() {
+    let limits = StartupLimits {
+        restart_interval: Duration::ZERO,
+        ..quick()
+    };
+    let Some(sandbox) = sandbox().await else {
+        return;
+    };
+    let store = Arc::new(nook_core::secrets::MemorySecretStore::default());
+    store.set("restart-secret", "initial-value").unwrap();
+    let secrets = nook_core::secrets::SecretContext {
+        store: store.clone(),
+        mask: Arc::default(),
+    };
+    let mut s = server("fake", "normal");
+    s.env_secrets
+        .insert("RESTART_VAR".to_string(), "restart-secret".to_string());
+    let provider = McpProvider::start(&[s], &sandbox, limits, secrets)
+        .await
+        .expect("server starts");
+    let mut h = Harness::new(vec![Arc::new(provider)]).await;
+
+    run(&mut h, Uuid::new_v4(), "c1", "mcp:fake:die", json!({})).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+
+    store.delete("restart-secret").unwrap();
+
+    let result = run(&mut h, Uuid::new_v4(), "c2", ECHO, json!({ "text": "hi" })).await;
+    assert_eq!(result["status"], "error");
+    assert_eq!(result["output"], "Error: the MCP server stopped");
 }
 
 #[tokio::test]
@@ -652,6 +918,174 @@ async fn servers_that_cannot_start_or_have_bad_settings_are_skipped() {
 
     assert!(h.state.providers.contains("mcp:good:echo"));
     assert!(names(&h).iter().all(|name| name.starts_with("mcp__good__")));
+}
+
+#[tokio::test]
+async fn a_server_that_lists_one_name_in_env_and_env_secrets_is_skipped_with_a_report() {
+    let mut bad = server("bad", "normal");
+    bad.env
+        .insert("SHARED_NAME".to_string(), "env_val".to_string());
+    bad.env_secrets
+        .insert("SHARED_NAME".to_string(), "secret_name".to_string());
+    let good = server("good", "normal");
+    let Some(sandbox) = sandbox().await else {
+        return;
+    };
+    let (provider, failed) = McpProvider::start_reporting(
+        &[bad, good],
+        &sandbox,
+        quick(),
+        nook_core::secrets::SecretContext::default(),
+    )
+    .await;
+    let p = provider.expect("good server starts");
+    assert!(p
+        .descriptors()
+        .iter()
+        .all(|d| d.name.starts_with("mcp__good__")));
+    assert_eq!(failed.len(), 1);
+    assert_eq!(failed[0].source_id, "mcp:bad");
+    let reason = failed[0].reason.as_ref().unwrap();
+    assert!(reason.contains("SHARED_NAME"));
+    assert!(!reason.contains("env_val"));
+    assert!(!reason.contains("secret_name"));
+}
+
+#[tokio::test]
+async fn an_env_secrets_entry_with_an_empty_name_is_skipped_with_a_report() {
+    let mut bad = server("bad", "normal");
+    bad.env_secrets
+        .insert("EMPTY_SECRET".to_string(), "".to_string());
+    let good = server("good", "normal");
+    let Some(sandbox) = sandbox().await else {
+        return;
+    };
+    let (provider, failed) = McpProvider::start_reporting(
+        &[bad, good],
+        &sandbox,
+        quick(),
+        nook_core::secrets::SecretContext::default(),
+    )
+    .await;
+    let p = provider.expect("good server starts");
+    assert!(p
+        .descriptors()
+        .iter()
+        .all(|d| d.name.starts_with("mcp__good__")));
+    assert_eq!(failed.len(), 1);
+    assert_eq!(failed[0].source_id, "mcp:bad");
+    let reason = failed[0].reason.as_ref().unwrap();
+    assert!(reason.contains("EMPTY_SECRET"));
+}
+
+#[tokio::test]
+async fn an_env_secrets_entry_for_the_model_key_is_skipped_with_a_report() {
+    let mut bad = server("bad", "normal");
+    bad.env_secrets
+        .insert("SECRET_VAR".to_string(), "model-api-key".to_string());
+    let good = server("good", "normal");
+    let Some(sandbox) = sandbox().await else {
+        return;
+    };
+    let (provider, failed) = McpProvider::start_reporting(
+        &[bad, good],
+        &sandbox,
+        quick(),
+        nook_core::secrets::SecretContext::default(),
+    )
+    .await;
+    let p = provider.expect("good server starts");
+    assert!(p
+        .descriptors()
+        .iter()
+        .all(|d| d.name.starts_with("mcp__good__")));
+    assert_eq!(failed.len(), 1);
+    assert_eq!(failed[0].source_id, "mcp:bad");
+    let reason = failed[0].reason.as_ref().unwrap();
+    assert!(reason.contains("SECRET_VAR"));
+    assert!(!reason.contains("model-api-key-val"));
+}
+
+#[tokio::test]
+async fn a_library_variable_name_in_env_is_skipped_with_a_report() {
+    let Some(sandbox) = sandbox().await else {
+        return;
+    };
+    for var in ["LD_PRELOAD", "DYLD_INSERT_LIBRARIES"] {
+        let mut bad = server("bad", "normal");
+        bad.env
+            .insert(var.to_string(), "/lib/exploit.so".to_string());
+        let good = server("good", "normal");
+        let (provider, failed) = McpProvider::start_reporting(
+            &[bad, good],
+            &sandbox,
+            quick(),
+            nook_core::secrets::SecretContext::default(),
+        )
+        .await;
+        let p = provider.expect("good server starts");
+        assert!(p
+            .descriptors()
+            .iter()
+            .all(|d| d.name.starts_with("mcp__good__")));
+        assert_eq!(failed.len(), 1);
+        assert_eq!(failed[0].source_id, "mcp:bad");
+        let reason = failed[0].reason.as_ref().unwrap();
+        assert!(reason.contains(var));
+        assert!(!reason.contains("/lib/exploit.so"));
+    }
+}
+
+#[tokio::test]
+async fn a_library_variable_name_in_env_secrets_is_skipped_with_a_report() {
+    let mut bad = server("bad", "normal");
+    bad.env_secrets
+        .insert("LD_LIBRARY_PATH".to_string(), "my-secret".to_string());
+    let good = server("good", "normal");
+    let Some(sandbox) = sandbox().await else {
+        return;
+    };
+    let (provider, failed) = McpProvider::start_reporting(
+        &[bad, good],
+        &sandbox,
+        quick(),
+        nook_core::secrets::SecretContext::default(),
+    )
+    .await;
+    let p = provider.expect("good server starts");
+    assert!(p
+        .descriptors()
+        .iter()
+        .all(|d| d.name.starts_with("mcp__good__")));
+    assert_eq!(failed.len(), 1);
+    assert_eq!(failed[0].source_id, "mcp:bad");
+    let reason = failed[0].reason.as_ref().unwrap();
+    assert!(reason.contains("LD_LIBRARY_PATH"));
+    assert!(!reason.contains("my-secret"));
+}
+
+#[tokio::test]
+async fn a_name_that_only_looks_like_a_library_variable_is_accepted() {
+    let mut server_ldap = server("ldap", "normal");
+    server_ldap
+        .env
+        .insert("LDAP_URL".to_string(), "ldap://localhost".to_string());
+    let Some(sandbox) = sandbox().await else {
+        return;
+    };
+    let (provider, failed) = McpProvider::start_reporting(
+        &[server_ldap],
+        &sandbox,
+        quick(),
+        nook_core::secrets::SecretContext::default(),
+    )
+    .await;
+    let p = provider.expect("ldap server starts");
+    assert!(p
+        .descriptors()
+        .iter()
+        .any(|d| d.name.starts_with("mcp__ldap__")));
+    assert!(failed.is_empty());
 }
 
 #[tokio::test]
