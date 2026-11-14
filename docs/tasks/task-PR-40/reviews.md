@@ -116,8 +116,20 @@
 
 ## Round 8 (spec)
 
+- Head: `79d1c8c45355c5b89f8cb5682b48b9a2b4834bfe`
+- Reviewer: the T3 reviewer, follow-up of round 7. Verdict: COMMENT (P0: 0, P1: 0, P2: 0, P3: 1). It resolved the threads of S22, S23 and S24.
+- SonarCloud: Quality Gate passed.
+- Checks: pending when the reviewer read them. See "Round 9" for the state on the next head.
+- Gaps closed by recommendation: none
+
+| # | Finding | Action | Where |
+| --- | --- | --- | --- |
+| S25 (P3) | The new Daemon test file has no name or gate, the environment assertion shares a bullet with Mac-safe checks, and the native gate does not run `cargo test`. | fix | `specs/design.md` "Tests" and "Other files that change": the file `tests/notes_tool_tests.rs` with `#![cfg(unix)]`, the environment check in its own bullet with `cfg(target_os = "linux")`, and CI named as the place that runs it. |
+
+## Round 9 (spec)
+
 - Head: pending (the commit that adds this heading)
-- Reviewer: the T3 reviewer, follow-up of round 7.
+- Reviewer: the T3 reviewer, follow-up of round 8.
 - SonarCloud: pending
 - Checks: pending
 - Gaps closed by recommendation: none

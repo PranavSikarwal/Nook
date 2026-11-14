@@ -379,19 +379,20 @@ sets the program path in `nook-core`. Release builds of `nookd` use no feature.
 - Provider, called directly: `Provider::call` with invalid arguments returns
   `Error: the arguments are not valid` and starts no process, because the socket
   tests stop at `facts`.
-- Daemon, through the real socket and the fake Worker, with a fake `osascript` (a
-  script that writes its arguments, its working folder (`pwd -P`) and its exit
-  code to a file). The tests run on Linux and on macOS, except the one that
-  reads the environment, which reads `/proc/$$/environ` in the fake, so it has
-  `#[cfg(target_os = "linux")]`. CI and the native gate run it on Linux. A
-  developer on a Mac runs the other tests, and the Mac test covers the
-  environment:
+- Daemon, in the new file `daemon/crates/nook-core/tests/notes_tool_tests.rs`,
+  which starts with `#![cfg(unix)]` like its sibling test files, so the Windows
+  job still compiles. The tests use the real socket and the fake Worker, with a
+  fake `osascript` (a script that writes its arguments, its working folder
+  (`pwd -P`) and its exit code to a file). They run on Linux and on macOS:
   - The program runs only after an allow. A deny leaves the file empty. A cancel
     before the approval does not run it.
   - The program gets exactly three arguments: `-e`, the script and the HTML. The
     script is byte for byte the same for two calls with different titles. The
-    HTML starts with `<`. The environment is exactly `LANG=en_US.UTF-8`, and the
-    working directory is `/`.
+    HTML starts with `<`. The working folder is `/`.
+  - The environment of the program is exactly `LANG=en_US.UTF-8`. This test has
+    its own `#[cfg(target_os = "linux")]`, because its fake reads
+    `/proc/$$/environ`. `Code Quality and Tests` runs it on Linux. A developer on
+    a Mac skips it, and the Mac test covers the environment.
   - A title such as `-e` or `-l` arrives inside the HTML.
   - A body with quotes, backslashes, `$(...)` and a line break reaches the
     program as plain text in the HTML argument.
@@ -479,7 +480,8 @@ paragraph that names the Notes tool as the exception), `CHANGELOG.md`
 `daemon/crates/nook-core/src/sandbox.rs` (`GroupKill`, `read_capped` and
 `join_reader` become `pub(crate)`), `daemon/crates/nookd/src/main.rs` (the
 program path and the `e2e` setting), `daemon/crates/nook-core/tests/common/mod.rs`
-(the harness gets the new parameter), `panel/e2e/run.mjs`,
+(the harness gets the new parameter), the new
+`daemon/crates/nook-core/tests/notes_tool_tests.rs`, `panel/e2e/run.mjs`,
 `panel/e2e/fake_worker.py`, `panel/e2e/test_fake_worker.py`, a new spec in
 `panel/e2e/specs/`, `panel/e2e/specs/tools.spec.mjs`, `panel/src-tauri/tauri.conf.json`,
 `panel/src-tauri/Info.plist`, `panel/src-tauri/entitlements.plist` and
