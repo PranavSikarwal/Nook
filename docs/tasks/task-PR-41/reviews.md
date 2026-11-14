@@ -18,6 +18,17 @@
 | S4 | The docs list is incomplete (P3). | fix: four doc places named, changelog category Fixed. The row of item 11 in `docs/plans/open-items-fixes.md` belongs to the housekeeping task: the owner is told at gate 1 | `specs/design.md` Scope, Central docs |
 | S5 | The state block is one stage behind (P3). | fix: `Stage: 3 spec review` | `specs/design.md` |
 
+## Round 2 (spec)
+
+- Head: (the commit that adds this heading)
+- Reviewer: the T3 reviewer (follow-up of round 1)
+- SonarCloud: not applicable to a docs-only head
+- Checks: not applicable to a docs-only head
+- Gaps closed by recommendation: none
+
+| # | Finding | Action | Where |
+| --- | --- | --- | --- |
+
 ## Commands run
 
 This task adds no named check to a rule or a document.
