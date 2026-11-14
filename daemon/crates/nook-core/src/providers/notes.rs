@@ -113,3 +113,129 @@ mod tests {
         assert_eq!(append_html("a\nb").unwrap(), "<div>a</div><div>b</div>");
     }
 }
+
+#[cfg(unix)]
+#[derive(Clone)]
+pub(crate) struct NotesRunner {
+    program: std::path::PathBuf,
+    lock: std::sync::Arc<tokio::sync::Mutex<()>>,
+}
+
+#[cfg(unix)]
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum NotesRunResult {
+    Success(String),
+    PermissionDenied,
+    NotFound,
+    WrongTitle,
+    Failed,
+    TimedOut,
+    SpawnFailed,
+}
+
+#[cfg(unix)]
+impl NotesRunner {
+    pub(crate) fn new(
+        program: std::path::PathBuf,
+        lock: std::sync::Arc<tokio::sync::Mutex<()>>,
+    ) -> Self {
+        Self { program, lock }
+    }
+
+    pub(crate) async fn run(
+        &self,
+        script: &str,
+        arguments: &[&str],
+        output_limit: usize,
+    ) -> NotesRunResult {
+        use crate::sandbox::{join_reader, read_capped, GroupKill};
+        use std::process::Stdio;
+        use tokio::process::Command;
+        let _guard = self.lock.lock().await;
+        let mut command = Command::new(&self.program);
+        command
+            .arg("-e")
+            .arg(script)
+            .args(arguments.iter().map(|value| format!(":{value}")));
+        command
+            .current_dir("/")
+            .env_clear()
+            .env("LANG", "en_US.UTF-8")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .process_group(0);
+        let Ok(mut child) = command.spawn() else {
+            return NotesRunResult::SpawnFailed;
+        };
+        let _group = GroupKill(child.id().map(|pid| pid as i32));
+        let stdout = child.stdout.take().expect("piped stdout");
+        let stderr = child.stderr.take().expect("piped stderr");
+        let stdout_task = tokio::spawn(read_capped(stdout, output_limit));
+        let stderr_task = tokio::spawn(read_capped(stderr, 4096));
+        let status =
+            match tokio::time::timeout(std::time::Duration::from_secs(60), child.wait()).await {
+                Ok(Ok(status)) => status,
+                _ => {
+                    drop(_group);
+                    let _ = child.wait().await;
+                    return NotesRunResult::TimedOut;
+                }
+            };
+        let (stdout, _) = join_reader(stdout_task).await;
+        let (stderr, _) = join_reader(stderr_task).await;
+        let stderr = String::from_utf8_lossy(&stderr);
+        let code = status.code();
+        let number = ["(-1743)", "(-1728)", "(9001)", "(9002)"]
+            .into_iter()
+            .find(|n| stderr.contains(n));
+        tracing::debug!(exit_status = ?code, error_number = ?number, "Notes script completed");
+        if status.success() {
+            return NotesRunResult::Success(String::from_utf8_lossy(&stdout).into_owned());
+        }
+        match number {
+            Some("(-1743)") => NotesRunResult::PermissionDenied,
+            Some("(-1728)") | Some("(9001)") => NotesRunResult::NotFound,
+            Some("(9002)") => NotesRunResult::WrongTitle,
+            _ => NotesRunResult::Failed,
+        }
+    }
+}
+
+#[cfg(all(test, unix))]
+mod runner_tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+    use std::sync::Arc;
+
+    #[tokio::test]
+    async fn runner_prefixes_data_and_captures_output() {
+        let dir = tempfile::tempdir().unwrap();
+        let program = dir.path().join("osascript");
+        std::fs::write(
+            &program,
+            "#!/bin/sh\nprintf '%s\\n' \"$#\" \"$1\" \"$2\" \"$3\" \"$PWD\"\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let runner = NotesRunner::new(program, Arc::new(tokio::sync::Mutex::new(())));
+        let result = runner.run("script", &["-e"], 4096).await;
+        assert_eq!(
+            result,
+            NotesRunResult::Success("3\n-e\nscript\n:-e\n/\n".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn runner_maps_known_error_numbers_to_fixed_results() {
+        let dir = tempfile::tempdir().unwrap();
+        let program = dir.path().join("osascript");
+        std::fs::write(&program, "#!/bin/sh\necho 'failure (9002)' >&2\nexit 1\n").unwrap();
+        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let runner = NotesRunner::new(program, Arc::new(tokio::sync::Mutex::new(())));
+        assert_eq!(
+            runner.run("script", &[], 4096).await,
+            NotesRunResult::WrongTitle
+        );
+    }
+}
