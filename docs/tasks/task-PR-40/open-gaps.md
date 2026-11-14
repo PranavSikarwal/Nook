@@ -96,3 +96,16 @@ The owner's words: "isn't the recommended approval like delete is approval requi
 - Status: decided by owner
 
 The owner's words, to the proposal "I recommend that delete asks every time (allow once or deny only), and the other operations also offer allow for this chat": "works". The owner can change this at gate 1.
+
+## G7. Test files that build `ToolsConfig` by hand (found in stage 6, task 2)
+
+- Stage: 6 implement
+- Question: Task 2 adds a required field `notes` to `ToolsConfig`. A hand-built `ToolsConfig` in a test fails to compile (found: `daemon/crates/nook-core/tests/terminal_tool_tests.rs:43`). The plan names only `config.rs`. Does task 2 also change those initializers?
+- Options:
+  1. Task 2 also adds `notes: Default::default()` (or the value the test needs) to each hand-built `ToolsConfig` that stops compiling. No behavior changes.
+  2. Give `ToolsConfig` a way to build without the field, such as `..Default::default()` in the library. This changes the public type more than the spec says.
+- Recommendation: Option 1. The design already adds the field, and the fix is a mechanical edit of test initializers.
+- Decision: Option 1, closed by recommendation under stage 6 rule 1 (the choice touches only test files, no contract, policy, public interface, authorization, sandbox or dependency). The owner reviews it at gate 2.
+- Decided by: orchestrator
+- Date: 2026-11-14
+- Status: closed by recommendation
