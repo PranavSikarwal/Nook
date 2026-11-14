@@ -116,3 +116,17 @@
 - Decided by: owner
 - Date: 2026-11-14
 - Status: decided by owner
+
+## G9. Library variables in the environment of a server
+
+- Stage: 3 spec review (found by the round 4 reviewer, finding S21)
+- Question: After G8, the server environment is set on the `bwrap` process itself on Linux. A name such as `LD_PRELOAD` or `LD_LIBRARY_PATH` then changes how `bwrap` loads libraries on the host, before the sandbox starts. How does Nook handle these names?
+- Options:
+  1. Refuse names that start with `LD_` or `DYLD_`. `start_reporting` skips the server with a fixed report. One test. A server that needs `LD_LIBRARY_PATH` cannot be attached until a later task.
+  2. Keep `--clearenv` and pass the values through `bwrap --args <fd>` from a pipe that is closed after the start. No name is refused and the host `bwrap` is not affected. More code and a harder test in `sandbox.rs`.
+- Recommendation: Option 1. It is small and safe, and the Google Docs server needs none of these names.
+- Decision: Option 1: refuse `LD_*` and `DYLD_*` names. "Refuse LD_* and DYLD_* names (Recommended)."
+- Decided by: owner
+- Date: 2026-11-14
+- Status: decided by owner
+

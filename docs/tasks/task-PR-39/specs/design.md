@@ -1,6 +1,6 @@
 ```
 Stage: 3 spec review
-Gate 1: pending. 2026-11-14: the owner decided G1 to G8 (G4: the client secrets live in the operating system secret store behind one abstraction; G7: build it in this task; G8: fix the Linux `bwrap` argument exposure in this task). Round 3 asked for changes, and this version answers it. It needs round 4 and then the owner.
+Gate 1: pending. 2026-11-14: the owner decided G1 to G9 (G4: the client secrets live in the operating system secret store behind one abstraction; G7: build it in this task; G8: fix the Linux `bwrap` argument exposure in this task; G9: refuse `LD_*` and `DYLD_*` names). Round 4 asked for small changes, and this version answers it. It needs round 5 and then the owner.
 Gate 2: pending
 ```
 
@@ -22,8 +22,9 @@ with the existing `[[tools.mcp_servers]]` setting. Three things are missing:
    macOS Keychain only, for the model API key, and does nothing on Linux and
    Windows.
 3. No test proves that a Docs-style tool is listed, authorized and called
-   through the MCP path, and that a secret reaches the server and leaks to no
-   log, no error text and no tool result.
+   through the MCP path, and that a secret reaches the server and does not leak
+   into a log, an error text of the store or a tool result that the server
+   returns as the same text (a best-effort scrub, Risk 12).
 
 A real Google Docs server cannot run in CI, because it needs a Google account
 and the network. A fake MCP server stands in for it.
@@ -140,7 +141,16 @@ secret: the server does not start, and the report holds the fixed text of the
 
 A read can wait for an unlock or an access prompt, and servers start together.
 The Daemon therefore calls the store through `spawn_blocking` with a timeout of
-10 seconds. A timeout is a failure that keeps the server off.
+10 seconds. A timeout is a failure that keeps the server off. A `spawn_blocking`
+call cannot be cancelled. After the timeout the thread keeps running and its
+result is dropped, one thread for each start attempt, and shutdown ends it. The
+blocking pool is shared with the file tools, so a store that never answers
+costs a few threads, not the Daemon.
+
+When the store cannot be built at all (no D-Bus session), `OsSecretStore` returns
+`SecretError` "unavailable" and `nookd` and `nookctl` do not crash. The Cargo
+dependencies name their features: `apple-native-keyring-store` with `keychain`,
+and `zbus-secret-service-keyring-store` with `crypto-rust`.
 
 The functions that `nookctl` uses live in the same module, so that tests reach
 them: `set_from_reader(store, name, reader)` reads the value from a reader and
@@ -185,6 +195,9 @@ env_secrets = { GOOGLE_DRIVE_MCP_CLIENT_SECRET = "google-docs-client-secret" }
    a `nookd` started by hand has no mask. The Daemon masks its own output:
    1. A redacting writer wraps the log writer of `nookd` (`nookd/src/main.rs`).
       It reads a shared list of secret values (an `Arc<RwLock<Vec<String>>>`).
+      The list starts with `secrets_to_redact(config, ...)`, so a hand-started
+      `nookd` also masks the `env` values, the database password and the API
+      key. The writer redacts each log event as one write, or buffers by line.
    2. `start_server` adds each resolved value of 4 or more characters to the
       list before it starts the child.
    3. The server stderr line that the Daemon logs (`mcp.rs`, `debug!`) goes
@@ -202,11 +215,21 @@ env_secrets = { GOOGLE_DRIVE_MCP_CLIENT_SECRET = "google-docs-client-secret" }
    the server. The change sets the environment with `command.envs(...)` on the
    `bwrap` process (which already starts with `env_clear()`), and drops
    `--clearenv` and `--setenv`. `/proc/<pid>/environ` is readable by the owner
-   of the process only. The sandbox limits stay the same. This changes the
+   of the process and by root, and not by other users. On macOS, a `ps eww` of
+   the same user shows the environment. The page and Risk 11 promise only that
+   other users cannot read it. The sandbox limits stay the same. This changes the
    environment of every sandboxed command and every MCP server on Linux, so
-   `sandbox_tests.rs` (the test that expects `--setenv`) changes, and a new
-   Linux test checks that the `bwrap` command line holds no value. macOS passes
+   `sandbox_tests.rs` changes (the assertion at line 446 of
+   `the_bubblewrap_arguments_unshare_the_network_unless_allowed` expects
+   `--clearenv`), and a new Linux test checks that the `bwrap` command line holds no value. macOS passes
    the environment with `Command::envs` already and does not change.
+7. Library variables (G9). The `bwrap` process itself now gets the server
+   environment, so a name such as `LD_PRELOAD` or `LD_LIBRARY_PATH` would change
+   how `bwrap` loads libraries on the host, before the sandbox exists. The
+   Daemon therefore skips a server whose `env` or `env_secrets` holds a name
+   that starts with `LD_` or `DYLD_`, with a fixed report, in
+   `start_reporting`. A server that needs such a variable cannot be attached
+   until a later task.
 
 ### Sample block
 
@@ -336,7 +359,8 @@ The page adds one section, "When Google Docs stops working", with these causes:
    session. A cold start of a large Node package in the sandbox can be slow.
    Start the server by hand to see how long it takes, and read `daemon.log`.
 6. The log shows `***` where a value should be. The Daemon replaces every `env`
-   value of 4 or more characters, and every secret, with `***` in `daemon.log`,
+   value of 4 or more characters, and every secret, with `***` in `daemon.log`
+   (the Daemon masks them itself, also when it starts by hand),
    so the client ID and the scope name are hidden there. Read the `config.toml`
    file for the values.
 
@@ -399,8 +423,9 @@ empty `MemorySecretStore`.
    store, no `mcp__google-docs__` tool is listed, and the tool source report for
    `google-docs` is off with a message that names the secret and the command.
 7. `a_store_error_that_holds_the_secret_bytes_never_reaches_a_report_or_the_log`:
-   a store whose `get` returns an error with the secret bytes in its `Debug`
-   text keeps the server off, and neither the report nor the captured log holds
+   an `OsSecretStore` over the `keyring-core` mock store, whose credential is
+   set to fail with `BadEncoding(<secret bytes>)` (`Cred::set_error`), keeps
+   the server off, and neither the report nor the captured log holds
    the bytes or the text.
 8. `a_store_that_never_answers_keeps_the_server_off_after_the_timeout`: a store
    whose `get` never returns puts the server off, and the other servers start.
@@ -410,8 +435,9 @@ empty `MemorySecretStore`.
 10. `a_secret_printed_by_a_server_is_scrubbed_from_the_result`: `echoEnv` for
     the client secret returns `***`, not the value.
 11. `a_server_that_lists_one_name_in_env_and_env_secrets_is_skipped_with_a_report`,
-    `an_env_secrets_entry_with_an_empty_name_is_skipped_with_a_report` and
-    `an_env_secrets_entry_for_the_model_key_is_skipped_with_a_report`: each puts
+    `an_env_secrets_entry_with_an_empty_name_is_skipped_with_a_report`,
+    `an_env_secrets_entry_for_the_model_key_is_skipped_with_a_report` and
+    `a_library_variable_name_in_env_or_env_secrets_is_skipped_with_a_report`: each puts
     only that server off. They sit next to
     `servers_that_cannot_start_or_have_bad_settings_are_skipped`.
 12. `a_docs_server_with_network_true_can_connect_out`: `connect` to a local
@@ -421,7 +447,8 @@ Tests in `sandbox_tests.rs` (Linux only):
 
 1. `the_bwrap_command_line_holds_no_environment_value`: a server with a secret in
    its environment runs, and its `bwrap` command line holds no value.
-2. The test that expects `--setenv` changes to the new behavior.
+2. `the_bubblewrap_arguments_unshare_the_network_unless_allowed` changes: its
+   assertion at line 446 no longer expects `--clearenv`.
 
 Unit tests in `secrets.rs` and elsewhere:
 

@@ -65,8 +65,26 @@ The review makes four notes for the plan, not findings:
 
 ## Round 4 (spec)
 
-- Head: pending (the commit that adds this heading)
+- Head: `ac0b6c6bfec9ec035aaca19ca69f401a8b340045`
 - Reviewer: the T3 reviewer ("Review Pull Requests"), follow-up of round 3.
+- Verdict: `Verdict: COMMENT (P0: 0, P1: 0, P2: 1, P3: 5)` (review 5901830268)
+- SonarCloud: Quality Gate passed.
+- Checks: `Code Quality and Tests`, `Windows named-pipe IPC` and `SonarCloud Code Analysis` pass. `Native Tauri E2E Gate` runs at stage 6. Run the CI gate check again on the final head.
+- Gaps closed by recommendation: none. G9 is new and decided by the owner.
+
+| # | Finding | Action | Where |
+| --- | --- | --- | --- |
+| S21 (P2) | `LD_*` names in a server `env` would change how `bwrap` loads libraries on the host. | fix (owner decided, G9) | `specs/design.md` "The `env_secrets` setting" 7, test 11. `open-gaps.md` G9. |
+| S22 (P3) | The G8 text names a wrong test, and promises more than "other users cannot read it". | fix | `specs/design.md` "The `env_secrets` setting" 6 and "Tests in `sandbox_tests.rs`". |
+| S23 (P3) | The writer starts with an empty list, and page cause 6 is true only when the Panel starts the Daemon. | fix | `specs/design.md` "The `env_secrets` setting" 4.1 and "When Google Docs stops working" 6. |
+| S24 (P3) | The store crates need named features, and a store that cannot be built must not crash. | fix | `specs/design.md` "The secret store". |
+| S25 (P3) | `spawn_blocking` cannot be cancelled. | fix | `specs/design.md` "The secret store". |
+| S26 (P3) | "Why" 3 promises more than Risk 12, and test 7 needs the `keyring-core` mock. | fix | `specs/design.md` "Why" 3 and test 7. |
+
+## Round 5 (spec)
+
+- Head: pending (the commit that adds this heading)
+- Reviewer: the T3 reviewer ("Review Pull Requests"), follow-up of round 4.
 - SonarCloud:
 - Checks:
 - Gaps closed by recommendation: none
