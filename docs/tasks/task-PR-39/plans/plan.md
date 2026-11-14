@@ -280,7 +280,7 @@ Rules for every task:
   `SecretMask` and `check_server_settings` (state what `Missing`,
   `Unavailable`, `Unreadable` and `Refused` mean). Check: Daemon `rtk cargo test`
   and clippy.
-- [ ] **R1-5. Docs claim and the Panel lock (C7 doc, C8).**
+- [x] **R1-5. Docs claim and the Panel lock (C7 doc, C8).**
   `docs/testing.md`, `panel/src-tauri/Cargo.lock`. Reword the `docs/testing.md`
   sentence on `sandbox_tests.rs`: the test checks the argument list that
   `bubblewrap_args` builds, and does not inspect a process. Restore
