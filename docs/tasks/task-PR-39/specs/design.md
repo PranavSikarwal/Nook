@@ -1,6 +1,6 @@
 ```
 Stage: 4 gate 1
-Gate 1: pending
+Gate 1: pending. 2026-11-14: the owner decided G1 to G6. G4 needs a secret store abstraction that Nook does not have (G7 is open). The spec changes after G7 and goes through a review round again.
 Gate 2: pending
 ```
 
