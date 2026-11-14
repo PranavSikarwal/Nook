@@ -123,9 +123,13 @@ contract test, in the way of the folder list (`list_roots`, `add_root`):
 2. `set_notes_folder` (Panel to Daemon) carries `id` and `folder`. The answer is
    `notes_settings`, or an `error` with the code `invalid_request` and a fixed
    message.
-3. `notes_settings` (Daemon to Panel) carries `id`, `folder` and `available`.
-   `available` is true when the Notes tools are offered, so the Panel hides the
-   field on a platform without Notes.
+3. `notes_settings` (Daemon to Panel) carries `id`, `folder`, `supported` and an
+   optional `reason` of 1 to 200 characters. `supported` is true when the
+   platform has Notes (the program path is `Some`), so the Panel hides the field
+   only on a platform without Notes. `folder` is the stored value cut to 200
+   characters, even when it is not valid. `reason` is set when the tools are off,
+   for a name that is not valid or a missing program. So a user can still repair
+   a bad name in the field.
 
 A change takes effect at once and does not need a restart, as for the folders of
 the file tools. It follows the same path as `folders.rs`, under the same write
@@ -136,10 +140,17 @@ lock of `state.config`:
 2. The Daemon builds the Notes tools again with `rebuilt`, and sends the Worker
    a new tool catalog. The tool descriptions name the folder, so the model sees
    the new one.
-3. The Daemon denies each waiting approval of a Notes tool, with the reason `The
-   Notes folder changed`, and it drops every chat grant of a Notes tool. A grant
-   for the old folder must not apply to the new one. A call that already runs
-   finishes with the folder it started with.
+3. The Daemon denies every waiting approval of a Notes tool, with the reason `The
+   Notes folder changed`. `deny_stale_approvals` denies only when `facts` fails,
+   and after the change `facts` succeeds with the new folder. So the change calls
+   a new function that denies each pending approval whose tool is a Notes tool,
+   whatever its facts say. A card that named the old folder can then never run in
+   the new one.
+4. The Daemon drops every chat grant of a Notes tool, with a new
+   `GrantStore::remove_tools` method in `policy.rs` that removes the grants of
+   the given tool ids. A grant for the old folder must not apply to the new one.
+
+A call that already runs finishes with the folder it started with.
 
 The folder name is valid when, after the Daemon removes spaces at both ends, it
 has 1 to 100 characters, no control character and no `:`, and it is not `Recently
@@ -215,7 +226,7 @@ Each tool returns a fixed text with the facts of the call, or an error:
 | Tool | Result |
 | --- | --- |
 | create | `Created the note "<title>" in the Notes folder "<folder>". Its id is <id>.` The id comes from the output of the script and must pass the `note_id` check, or the text leaves it out. |
-| list | `Notes in the folder "<folder>":` and one line for each note, the id, a tab and the title. `No notes` for an empty or missing folder. At most 100 lines, and a last line `More notes exist.` when it cuts. |
+| list | `Notes in the folder "<folder>":` and one line for each note, the id, a tab and the title. The script cuts a title at 200 characters. `No notes` for an empty or missing folder. At most 100 lines, and a last line `More notes exist.` when it cuts. |
 | read | The title, an empty line and the plain text. A note over 20,000 characters is cut with a last line `[Cut at 20000 characters]`. |
 | append | `Added the text to the note "<note_title>".` |
 | edit | `Changed the note "<note_title>".` |
@@ -294,7 +305,9 @@ on run argv
       if n > 100 then set n to 101
       repeat with i from 1 to n
         set theNote to item i of theNotes
-        set end of rows to (id of theNote) & tab & (name of theNote)
+        set nm to name of theNote
+        if (length of nm) > 200 then set nm to text 1 thru 200 of nm
+        set end of rows to (id of theNote) & tab & nm
       end repeat
     end tell
   end tell
@@ -308,9 +321,7 @@ end run
 The list script asks for 101 notes. The Daemon keeps 100 lines, and a 101st line
 makes it add `More notes exist.`.
 
-Read, append, edit and delete share one lookup, shown here for read. For append,
-edit and delete the lookup also compares the title (`noteTitle` is the next
-argument, and the HTML is the last one) and then runs the one line of the tool:
+Read:
 
 ```
 on run argv
@@ -329,21 +340,76 @@ on run argv
 end run
 ```
 
-The title check, for append, edit and delete, goes after the folder check:
+Append, with the folder, the id, the title and the HTML as arguments 1 to 4:
 
 ```
+on run argv
+  set folderName to text 2 thru -1 of (item 1 of argv)
+  set noteId to text 2 thru -1 of (item 2 of argv)
+  set noteTitle to text 2 thru -1 of (item 3 of argv)
+  set addHtml to text 2 thru -1 of (item 4 of argv)
+  tell application "Notes"
+    tell default account
+      if not (exists folder folderName) then error "no folder" number 9001
+      set theNote to note id noteId
+      if (id of container of theNote) is not (id of folder folderName) then error "not in folder" number 9001
       considering case
         if (name of theNote) is not noteTitle then error "title" number 9002
       end considering
+      set body of theNote to (body of theNote) & addHtml
+      return "ok"
+    end tell
+  end tell
+end run
 ```
 
-and then the one line of each tool, with `return "ok"` after it:
+Edit, with the folder, the id, the title and the new HTML as arguments 1 to 4.
+The new HTML holds the new title and the new body:
 
 ```
-      set body of theNote to (body of theNote) & addHtml     -- append
-      set body of theNote to newHtml                         -- edit
-      delete theNote                                         -- delete
+on run argv
+  set folderName to text 2 thru -1 of (item 1 of argv)
+  set noteId to text 2 thru -1 of (item 2 of argv)
+  set noteTitle to text 2 thru -1 of (item 3 of argv)
+  set newHtml to text 2 thru -1 of (item 4 of argv)
+  tell application "Notes"
+    tell default account
+      if not (exists folder folderName) then error "no folder" number 9001
+      set theNote to note id noteId
+      if (id of container of theNote) is not (id of folder folderName) then error "not in folder" number 9001
+      considering case
+        if (name of theNote) is not noteTitle then error "title" number 9002
+      end considering
+      set body of theNote to newHtml
+      return "ok"
+    end tell
+  end tell
+end run
 ```
+
+Delete, with the folder, the id and the title as arguments 1 to 3:
+
+```
+on run argv
+  set folderName to text 2 thru -1 of (item 1 of argv)
+  set noteId to text 2 thru -1 of (item 2 of argv)
+  set noteTitle to text 2 thru -1 of (item 3 of argv)
+  tell application "Notes"
+    tell default account
+      if not (exists folder folderName) then error "no folder" number 9001
+      set theNote to note id noteId
+      if (id of container of theNote) is not (id of folder folderName) then error "not in folder" number 9001
+      considering case
+        if (name of theNote) is not noteTitle then error "title" number 9002
+      end considering
+      delete theNote
+      return "ok"
+    end tell
+  end tell
+end run
+```
+
+There are six scripts and no fragment. The plan copies each one exactly.
 
 Eight rules keep the operations closed. The model supplies data and never code or
 an option.
@@ -372,10 +438,15 @@ an option.
    task, so no code after an `await` runs, and the group kill sits in the
    `GroupKill` drop guard.
 7. The limit is 60 seconds. The provider keeps at most 4096 bytes of standard
-   output for create, append, edit and delete, 32 KiB for list and 96 KiB for
+   output for create, append, edit and delete, 128 KiB for list and 96 KiB for
    read, and it drains the rest of each pipe, so a long output cannot block
-   `osascript`. It keeps 4096 bytes of standard error. The text from `osascript`
-   is read as UTF-8 and bad bytes are replaced.
+   `osascript`. The list limit fits 101 lines of the worst length (300 characters
+   of id, a tab and 200 characters of title at 4 bytes each is about 1,100
+   bytes), and the read limit fits 20,000 characters and a title. If the provider
+   still drops bytes of a list or a read, it adds a last line `[Cut]`, so the model
+   never takes a partial result for a complete one. It keeps 4096 bytes of
+   standard error. The text from `osascript` is read as UTF-8 and bad bytes are
+   replaced.
 8. Success is exit status 0. Failure is decided by the kept standard error: a
    refusal by macOS contains `(-1743)`, a missing note or a note outside the
    folder contains `(-1728)` or `(9001)`, and a wrong title contains `(9002)`.
@@ -558,10 +629,15 @@ sets the program path in `nook-core`. Release builds of `nookd` use no feature.
   `Error: the arguments are not valid` and starts no process, because the socket
   tests stop at `facts`. The check functions have tests for each rule of "The
   tools".
+- Policy store: `GrantStore::remove_tools` removes the chat grants of the given
+  tool ids and no other grant.
 - Folder setting, through the real socket: `get_notes_settings` returns the
-  folder and `available`. `set_notes_folder` writes `config.toml`, keeps its
-  comments, rebuilds the tools, sends a new catalog and denies a waiting
-  approval with `The Notes folder changed`. A chat grant of a Notes tool does not
+  folder, `supported` and `reason`. A bad folder name in `config.toml` gives the
+  stored value, `supported` true and a `reason`, and `set_notes_folder` with a
+  good name repairs it. `set_notes_folder` writes `config.toml`, keeps its
+  comments, rebuilds the tools, sends a new catalog and denies every waiting
+  approval of a Notes tool with `The Notes folder changed`, also when `facts`
+  would succeed with the new folder. A chat grant of a Notes tool does not
   survive the change. An invalid name returns an `error` and changes nothing. A
   second change while a call runs does not break that call.
 - Daemon, in the new file `daemon/crates/nook-core/tests/notes_tool_tests.rs`,
@@ -599,7 +675,8 @@ sets the program path in `nook-core`. Release builds of `nookd` use no feature.
     is killed by a signal, gives the general failure. A path to a file that is not
     executable gives the cannot-start failure.
   - A fake that prints 1 MiB and exits 0 is a success for create, append, edit
-    and delete, and a list or a read shows only the kept part. A list with 101
+    and delete, and a list or a read shows only the kept part and the last line
+    `[Cut]`. A list with 101
     lines shows 100 and `More notes exist.` A read over 20,000 characters shows
     the cut line.
   - A slow fake is killed at the limit and gives the timeout message, and its
@@ -612,11 +689,16 @@ sets the program path in `nook-core`. Release builds of `nookd` use no feature.
     `/proc/$$/environ`. `Code Quality and Tests` runs it on Linux. A developer on
     a Mac skips it, and the Mac test covers the environment.
 - Contracts: the schema, the examples and `tests/contracts/test_contracts.py`
-  cover `get_notes_settings`, `set_notes_folder` and `notes_settings`.
-- Panel web view: `rtk npm run test:unit` covers the Notes folder field: it shows
-  the folder, saves a new one, shows the error of a refused name, and hides
-  itself when `available` is false. `panel/src/lib/daemon.ts` gets the browser
-  mock for the two requests.
+  cover `get_notes_settings`, `set_notes_folder` and `notes_settings`, with
+  negative cases: `set_notes_folder` with an empty or a missing `folder`, and
+  `notes_settings` without `supported`.
+- Panel web view: `rtk npm run test:unit` runs `node --test` on pure functions,
+  because the project has no test renderer for components. The logic of the field
+  moves into `panel/src/lib/notesFolder.ts`, and `panel/e2e/unit/notes-folder.test.mjs`
+  tests it: the field is hidden when `supported` is false, it shows the stored
+  folder and the `reason`, and Save is on only when the value changed and is not
+  empty after trimming. `panel/src/lib/daemon.ts` gets the browser mock for the
+  two requests. The rendered field is covered by the native spec.
 - Native flow: `panel/e2e/run.mjs` builds `nookd` with `--features e2e` already.
   It also sets `NOOK_E2E_OSASCRIPT` and writes the fake script. `panel/e2e/
   fake_worker.py` gets a command that calls the create and delete tools, in the
@@ -682,21 +764,24 @@ recorded consequence),
 paragraph that names the Notes tools as the exception), `CHANGELOG.md`
 ("Unreleased"), `policy/tools.yaml` (six entries), `policy/cedar/` (schema and
 policies, six actions), `contracts/panel-daemon.schema.json` and
-`contracts/examples/panel-daemon.ndjson`, `tests/contracts/test_contracts.py` if
-it needs the new messages,
+`contracts/examples/panel-daemon.ndjson`, `tests/contracts/test_contracts.py`
+(negative cases: `set_notes_folder` with an empty or a missing `folder`, and
+`notes_settings` without `supported`),
 `daemon/crates/nook-core/src/providers/` (`notes.rs`, and `mod.rs` for
 `build_registry`, `Carry`, `assemble` and the schema message),
 `daemon/crates/nook-core/src/config.rs` (`[tools.notes]`),
 `daemon/crates/nook-core/src/protocol.rs` and `server.rs` (the two requests), a
 new `daemon/crates/nook-core/src/notes_folder.rs` in the way of `folders.rs`,
-`daemon/crates/nook-core/src/tool_approval.rs` (the stale reason and the grant
-drop), `daemon/crates/nook-core/src/sandbox.rs` (`GroupKill`, `read_capped` and
+`daemon/crates/nook-core/src/tool_approval.rs` (the function that denies the
+waiting Notes approvals), `daemon/crates/nook-core/src/policy.rs`
+(`GrantStore::remove_tools`), `daemon/crates/nook-core/src/sandbox.rs` (`GroupKill`, `read_capped` and
 `join_reader` become `pub(crate)`), `daemon/crates/nookd/src/main.rs` (the
 program path and the `e2e` setting), `daemon/crates/nook-core/tests/common/mod.rs`
 (the harness gets the new parameter), the new
 `daemon/crates/nook-core/tests/notes_tool_tests.rs`, `panel/src/lib/daemon.ts`
-and `panel/src/lib/types.ts`, `panel/src/components/ToolsTab.tsx` (the field) and
-its unit tests, `panel/src-tauri/src/lib.rs` (two thin commands),
+and `panel/src/lib/types.ts`, `panel/src/lib/notesFolder.ts`,
+`panel/e2e/unit/notes-folder.test.mjs`, `panel/src/components/ToolsTab.tsx` (the
+field), `panel/src-tauri/src/lib.rs` (two thin commands),
 `panel/e2e/run.mjs`, `panel/e2e/fake_worker.py`, `panel/e2e/test_fake_worker.py`,
 a new spec in `panel/e2e/specs/`, `panel/e2e/specs/tools.spec.mjs`,
 `panel/src-tauri/tauri.conf.json`, `panel/src-tauri/Info.plist`,
@@ -766,11 +851,16 @@ all five on November 14, 2026.
    paths to `docs/tasks/task-PR-40/specs/design.md` and the route. The list must
    be checked again against `main` when this branch merges it.
 8. `allow_for_chat` lets the model use the tools for the rest of the chat with
-   no new approval and no count limit, except for delete, which always asks.
+   no new approval and no count limit, except for delete, which always asks. A
+   chat grant for edit lets a steered model replace notes in the folder with no
+   new approval, and an edit can lose a list or an image (Risk 10). The owner
+   accepted this by choosing the approval table. The owner can take
+   `allow_for_chat` from edit and append in `tools.yaml` without a Rust change
+   (gap G5).
 9. A note can hold text that tries to give the model an instruction (prompt
    injection). A read or a list puts that text in front of the model. The tool
-   descriptions say that note text is data, and every later call still needs its
-   own approval, and a delete always asks.
+   descriptions say that note text is data. A delete always asks. The other
+   calls ask too, unless the user chose `allow_for_chat` for the chat (Risk 8).
 10. An edit replaces the whole note, so a list, an image or an attachment in it
     can be lost, and an append rewrites the HTML of the note. The title check
     and the approval limit a wrong target, but not a lost format. The Mac test

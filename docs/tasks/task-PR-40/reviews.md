@@ -140,8 +140,26 @@
 
 ## Round 10 (spec)
 
+- Head: `0517bf3230598c57b19692d8c9da5fe2cb6abd0d`
+- Reviewer: the T3 reviewer, follow-up of round 9. The owner widened the design after the approval of round 9: six tools in a folder that the user chooses in Settings (gaps G1, G2 and G5). This round reviewed the whole new spec. Verdict: COMMENT (P0: 0, P1: 0, P2: 5, P3: 2). The reviewer found the claims about existing code true, and the Windows compile, the Cedar and `tools.yaml` design and the decisions G1 to G5 sound.
+- SonarCloud: Quality Gate passed.
+- Checks: pending when the reviewer read them. See "Round 11" for the state on the next head.
+- Gaps closed by recommendation: none
+
+| # | Finding | Action | Where |
+| --- | --- | --- | --- |
+| S26 (P2) | The Panel unit test cannot render `ToolsTab.tsx`: the project has no test renderer. | fix | `specs/design.md` "Tests": the field logic moves to `panel/src/lib/notesFolder.ts` with a `node --test` file, and the native spec covers the rendered field. |
+| S27 (P2) | The Panel cannot repair a bad folder name, because `available` hides the field when the tools are off. | fix | `specs/design.md` "The folder setting": `notes_settings` carries `supported` and an optional `reason`, and the field stays visible when `supported` is true. |
+| S28 (P2) | No way to drop chat grants by tool, `policy.rs` missing from the file list, and a waiting approval stays open after a folder change because `facts` succeeds. | fix | `specs/design.md` "The folder setting": `GrantStore::remove_tools`, and a function that denies every pending Notes approval at the change. File list and tests updated. |
+| S29 (P2) | Append, edit and delete are not written out in full. | fix | `specs/design.md` "Run in the Daemon": six full scripts, with the argument index of each value. |
+| S30 (P2) | Risk 9 says every later call needs its own approval, which is false for `allow_for_chat`. | fix | `specs/design.md` Risks 8 and 9: only delete always asks, the data-loss path is named, and the owner can remove `allow_for_chat` from edit and append in `tools.yaml` (gap G5). The owner chose the approval table. |
+| S31 (P3) | A list over the cap is cut in the middle of a line with no marker. | fix | `specs/design.md` rule 7: the script cuts a title at 200 characters, the list cap is 128 KiB, and the Daemon adds a last line `[Cut]` when it drops bytes. A test covers it. |
+| S32 (P3) | The contract test change is hedged. | fix | `specs/design.md` "Tests" and the file list: the negative cases are named. |
+
+## Round 11 (spec)
+
 - Head: pending (the commit that adds this heading)
-- Reviewer: the T3 reviewer, follow-up of round 9. The owner widened the design after the approval of round 9: six tools in a folder that the user chooses in Settings (gaps G1, G2 and G5). This round reviews the whole new spec.
+- Reviewer: the T3 reviewer, follow-up of round 10.
 - SonarCloud: pending
 - Checks: pending
 - Gaps closed by recommendation: none
