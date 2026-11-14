@@ -113,3 +113,24 @@ async fn shutdown_keeps_a_socket_that_another_listener_took_over() {
     assert!(path.exists());
     std::fs::remove_dir_all(&dir).ok();
 }
+
+#[tokio::test]
+async fn shutdown_keeps_a_symlink_at_the_socket_path() {
+    use std::os::unix::fs::MetadataExt;
+
+    let (path, dir) = socket_in("symlink");
+    let target = dir.join("target.sock");
+    let _listener = UnixListener::bind(&target).unwrap();
+    let metadata = std::fs::metadata(&target).unwrap();
+    std::os::unix::fs::symlink(&target, &path).unwrap();
+
+    assert!(!nook_core::server::remove_socket_if_owned(
+        &path,
+        (metadata.dev(), metadata.ino())
+    ));
+    assert!(std::fs::symlink_metadata(&path)
+        .unwrap()
+        .file_type()
+        .is_symlink());
+    std::fs::remove_dir_all(&dir).ok();
+}

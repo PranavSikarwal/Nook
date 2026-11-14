@@ -120,7 +120,7 @@ Tasks 6 to 10 touch `daemon/`. Their checks are `cd daemon && cargo fmt --check`
   (`pgrep -f fake_worker` prints nothing, use the process name that the test
   uses), and the three daemon checks pass. Commit:
   `test(daemon): kill the Worker when a test Daemon drops`.
-- [ ] **9. Finding #21: a test for the symlink at the socket path.** In
+- [x] **9. Finding #21: a test for the symlink at the socket path.** In
   `daemon/crates/nook-core/tests/` (next to the other socket ownership tests,
   `socket_ownership_tests.rs`), add a test: bind a socket, replace the path with
   a symlink that points at it, and assert that `remove_socket_if_owned` returns
