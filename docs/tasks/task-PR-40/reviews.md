@@ -102,8 +102,22 @@
 
 ## Round 7 (spec)
 
+- Head: `a1a9d20665b28395b6c537e14e542ee163c33a5e`
+- Reviewer: the T3 reviewer, follow-up of round 6. Verdict: COMMENT (P0: 0, P1: 0, P2: 1, P3: 2). It resolved the threads of S19, S20 and S21.
+- SonarCloud: Quality Gate passed.
+- Checks: pending when the reviewer read them. See "Round 8" for the state on the next head.
+- Gaps closed by recommendation: none
+
+| # | Finding | Action | Where |
+| --- | --- | --- | --- |
+| S22 (P2) | The test with 20,000 line breaks cannot pass on Linux: one argument may not exceed 131,072 bytes. | fix | `specs/design.md` "Tests": the Linux test uses 8,000 line breaks (about 90,000 bytes), and the Mac test sends 20,000. |
+| S23 (P3) | The environment test needs `/proc`, which macOS does not have, and the folder is not read in a stated way. | fix | `specs/design.md` "Tests": that test has `cfg(target_os = "linux")`, and the fake writes `pwd -P`. |
+| S24 (P3) | The description test is not in the Tests list, and the sentence is not pinned. | fix | `specs/design.md` "The tool" (the constant `The title is one line.`) and a bullet in "Tests". |
+
+## Round 8 (spec)
+
 - Head: pending (the commit that adds this heading)
-- Reviewer: the T3 reviewer, follow-up of round 6.
+- Reviewer: the T3 reviewer, follow-up of round 7.
 - SonarCloud: pending
 - Checks: pending
 - Gaps closed by recommendation: none

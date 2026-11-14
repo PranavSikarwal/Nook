@@ -151,9 +151,10 @@ It returns `Created the note "<title>" in the Nook folder` or an error.
 
 The tool description tells the model that it creates a new note in the `Nook`
 folder, cannot read or change a note, exists on macOS only, and that the title
-is one line. Without the old `pattern`, the description is the only place that
-tells the model, and a title with an inner line break ends the reply. A test
-checks that the description holds the sentence.
+is one line. The sentence is `The title is one line.`, and it is a constant in
+`notes.rs`. Without the old `pattern`, the description is the only place that
+tells the model, and a title with an inner line break ends the reply. A test in
+the "Tests" list checks that the description holds the constant.
 
 ### Run in the Daemon
 
@@ -379,9 +380,12 @@ sets the program path in `nook-core`. Release builds of `nookd` use no feature.
   `Error: the arguments are not valid` and starts no process, because the socket
   tests stop at `facts`.
 - Daemon, through the real socket and the fake Worker, with a fake `osascript` (a
-  script that writes its arguments, its working directory and
-  `/proc/$$/environ` to a file and exits with a chosen code, so the environment
-  has no `PWD` from the shell). The tests run on Linux:
+  script that writes its arguments, its working folder (`pwd -P`) and its exit
+  code to a file). The tests run on Linux and on macOS, except the one that
+  reads the environment, which reads `/proc/$$/environ` in the fake, so it has
+  `#[cfg(target_os = "linux")]`. CI and the native gate run it on Linux. A
+  developer on a Mac runs the other tests, and the Mac test covers the
+  environment:
   - The program runs only after an allow. A deny leaves the file empty. A cancel
     before the approval does not run it.
   - The program gets exactly three arguments: `-e`, the script and the HTML. The
@@ -397,8 +401,13 @@ sets the program path in `nook-core`. Release builds of `nookd` use no feature.
     "Title"` hold. The titles `\n`, `Title\n\n` and `Ti\ntle` start no process
     and show no prompt. A NUL in the title or the body does the same. A body that
     breaks the schema starts no process.
-  - A body of 20,000 line breaks reaches the program in full. The HTML stays
-    far under the 1 MiB argument limit of macOS.
+  - A body of 8,000 line breaks reaches the program in full. The HTML is about
+    90,000 bytes, which is under the Linux limit of 131,072 bytes for one
+    argument. The macOS limit is higher (1 MiB for all arguments and the
+    environment, not checked), and the Mac test sends the largest body, 20,000
+    line breaks, which is about 220,000 bytes.
+  - The descriptor description of the tool contains the constant `The title is
+    one line.`
   - A call for the tool in a registry built with `None` is denied with `Tool runs
     in the Worker`, as in the Worker-tool test of `provider_execution_tests.rs`.
   - A fake that prints a full sentence ending in `(-1743)` gives the macOS
@@ -421,8 +430,8 @@ sets the program path in `nook-core`. Release builds of `nookd` use no feature.
   as each of the other commands has one.
 - Manual, on a Mac: one real note, to check the macOS prompt and its app name,
   the script, the title in the Notes list, the HTML, a title that starts with `-`,
-  a title with non-ASCII characters, the run with the environment of rule 4, the
-  refusal path, and the signing result from the "Signing check" section. No
+  a title with non-ASCII characters, a body of 20,000 line breaks, the run with
+  the environment of rule 4, the refusal path, and the signing result from the "Signing check" section. No
   automated test touches the real Notes app.
 
 ### Commands
