@@ -153,6 +153,7 @@ impl Sandbox {
                 let mut command = Command::new("bwrap");
                 command.args(bubblewrap_args(spec, mount_proc));
                 command.env_clear();
+                command.envs(&spec.env);
                 if let Some(path) = spec.env.get("PATH") {
                     command.env("PATH", path);
                 }
@@ -402,10 +403,6 @@ pub fn bubblewrap_args(spec: &SandboxSpec, mount_proc: bool) -> Vec<String> {
         args.extend(["--bind".to_string(), root.clone(), root]);
     }
     args.extend(["--chdir".to_string(), spec.cwd.display().to_string()]);
-    args.push("--clearenv".to_string());
-    for (key, value) in &spec.env {
-        args.extend(["--setenv".to_string(), key.clone(), value.clone()]);
-    }
     args.push("--".to_string());
     args.extend(spec.argv.iter().cloned());
     args

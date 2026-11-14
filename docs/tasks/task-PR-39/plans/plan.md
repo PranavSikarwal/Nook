@@ -123,7 +123,7 @@ Rules for every task:
   through the real writer, plus a test that the seeded list masks an `env`
   value and the database password. Each fails first because the writer does not
   exist. Check: Daemon `rtk cargo test` and clippy.
-- [ ] **7. Environment of the sandbox off the `bwrap` command line (G8).**
+- [x] **7. Environment of the sandbox off the `bwrap` command line (G8).**
   `daemon/crates/nook-core/src/sandbox.rs`,
   `daemon/crates/nook-core/tests/sandbox_tests.rs`. For the `Bubblewrap`
   backend, `command.envs(&spec.env)` replaces the `--clearenv` and `--setenv`

@@ -443,5 +443,55 @@ fn the_bubblewrap_arguments_unshare_the_network_unless_allowed() {
     assert!(closed.contains(&"--unshare-all".to_string()));
     assert!(!closed.contains(&"--share-net".to_string()));
     assert!(open.contains(&"--share-net".to_string()));
-    assert!(closed.contains(&"--clearenv".to_string()));
+    assert!(!closed.contains(&"--clearenv".to_string()));
+    assert!(!closed.iter().any(|arg| arg == "--setenv"));
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn the_bwrap_command_line_holds_no_environment_value() {
+    let area = area();
+    let mut custom_spec = spec(&area, &["/bin/true"]);
+    custom_spec.env.insert(
+        "GOOGLE_DRIVE_MCP_CLIENT_SECRET".to_string(),
+        "my-secret-client-value".to_string(),
+    );
+    let args = nook_core::sandbox::bubblewrap_args(&custom_spec, true);
+
+    assert!(
+        !args
+            .iter()
+            .any(|arg| arg.contains("my-secret-client-value")),
+        "bwrap command line should not contain secret value"
+    );
+    assert!(!args.iter().any(|arg| arg == "--setenv"));
+    assert!(!args.iter().any(|arg| arg == "--clearenv"));
+}
+
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn a_sandboxed_command_sees_its_environment_and_no_host_variables() {
+    let Some(sandbox) = sandbox().await else {
+        return;
+    };
+    let area = area();
+    let mut custom_spec = spec(
+        &area,
+        &[
+            "/bin/sh",
+            "-c",
+            "echo val=$GOOGLE_DRIVE_MCP_CLIENT_SECRET; echo user=$USER",
+        ],
+    );
+    custom_spec.env.insert(
+        "GOOGLE_DRIVE_MCP_CLIENT_SECRET".to_string(),
+        "my-secret-client-value".to_string(),
+    );
+    let output = run(&sandbox, custom_spec).await;
+    assert_eq!(output.exit_code, Some(0), "{}", output.stderr);
+    assert!(output.stdout.contains("val=my-secret-client-value"));
+    assert!(!output.stdout.contains(&format!(
+        "user={}",
+        std::env::var("USER").unwrap_or_default()
+    )));
 }
