@@ -1,5 +1,5 @@
 ```
-Stage: 3 spec review
+Stage: 4 gate 1
 Gate 1: pending
 Gate 2: pending
 ```

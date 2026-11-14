@@ -23,14 +23,21 @@
 
 ## Round 2 (spec)
 
-- Head: pending (the commit that adds this heading)
+- Head: `f9b0fad58b8e1d2c7f8d5b1bb1b26d6882e0b5db` (the reviewed head)
 - Reviewer: the T3 reviewer ("Review Pull Requests"), follow-up of round 1.
-- SonarCloud:
-- Checks:
-- Gaps closed by recommendation: none
+- Verdict: `Verdict: APPROVE (P0: 0, P1: 0, P2: 0, P3: 0)` (review 5900857395). The reviewer resolved all 8 threads. 0 threads are unresolved.
+- SonarCloud: Quality Gate passed.
+- Checks: all four pass on the head (`Code Quality and Tests`, `Windows named-pipe IPC`, `SonarCloud Code Analysis`, `Native Tauri E2E Gate`).
+- Gaps closed by recommendation: none. G1 to G6 wait for the owner at gate 1.
 
-| # | Finding | Action | Where |
+The review makes four notes for the plan, not findings:
+
+| # | Note | Action | Where |
 | --- | --- | --- | --- |
+| N1 | The name rule of the sample test copies `valid_server_name`. Use a `pub` helper or a test in `mcp.rs` so that it cannot drift. | plan | Plan task for the sample test. |
+| N2 | Test 6 asserts that the outside file does not exist, and uses a read-only bound folder as the outside target. | plan | Plan task for the tests. |
+| N3 | The fake `connect` tool uses `TcpStream::connect_timeout`. | plan | Plan task for the fake server. |
+| N4 | Tests 3 and 4 share the helper that builds the `inserted.log` path. | plan | Plan task for the tests. |
 
 ## Commands run
 
