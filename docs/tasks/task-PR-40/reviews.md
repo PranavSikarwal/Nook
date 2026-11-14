@@ -128,14 +128,15 @@
 
 ## Round 9 (spec)
 
-- Head: pending (the commit that adds this heading)
-- Reviewer: the T3 reviewer, follow-up of round 8.
-- SonarCloud: pending
-- Checks: pending
+- Head: `97edd68ec3180cc094475de56568e3c668480c07`
+- Reviewer: the T3 reviewer, follow-up of round 8. Verdict: APPROVE (P0: 0, P1: 0, P2: 0, P3: 0). It resolved the thread of S25.
+- SonarCloud: Quality Gate passed.
+- Checks: `Code Quality and Tests`, `Windows named-pipe IPC`, `Native Tauri E2E Gate` and `SonarCloud Code Analysis` all pass. The CI gate check passes. The round exit check passes: the verdict is APPROVE, no finding is open, and 0 review threads are unresolved.
 - Gaps closed by recommendation: none
 
 | # | Finding | Action | Where |
 | --- | --- | --- | --- |
+| none | The review has no finding. | none | - |
 
 ## Commands run
 

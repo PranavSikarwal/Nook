@@ -1,7 +1,7 @@
 # Spec: Notes tool run by the Daemon outside the sandbox
 
 ```
-Stage: 3 spec review
+Stage: 4 gate 1
 Gate 1: pending
 Gate 2: pending
 ```
