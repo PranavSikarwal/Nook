@@ -27,21 +27,21 @@ async fn shutdown_can_be_called_twice() {
 }
 
 #[tokio::test]
+#[cfg(unix)]
 async fn shutdown_kills_a_worker_that_ignores_stdin_close() {
     let pid_file = std::env::temp_dir().join(format!("nook-worker-{}.pid", std::process::id()));
     let _ = tokio::fs::remove_file(&pid_file).await;
-    std::env::set_var("FAKE_WORKER_IGNORE_EOF", "1");
-    std::env::set_var("FAKE_WORKER_PID_FILE", &pid_file);
     let config = Config::default();
     let command = vec![
+        "env".to_string(),
+        "FAKE_WORKER_IGNORE_EOF=1".to_string(),
+        format!("FAKE_WORKER_PID_FILE={}", pid_file.display()),
         "python3".to_string(),
         fake_worker_script().to_string_lossy().to_string(),
     ];
     let supervisor = WorkerSupervisor::new(&config, None, Some(command))
         .await
         .expect("fake Worker should start");
-    std::env::remove_var("FAKE_WORKER_IGNORE_EOF");
-    std::env::remove_var("FAKE_WORKER_PID_FILE");
     let pid: u32 = tokio::fs::read_to_string(&pid_file)
         .await
         .unwrap()

@@ -104,7 +104,7 @@ Tasks 6 to 10 touch `daemon/`. Their checks are `cd daemon && cargo fmt --check`
   write that result in the final report. Change no non-test code. Check: the
   new test passes, and the three daemon checks above pass. Commit:
   `test(daemon): check that stop_everything aborts running tools`.
-- [ ] **7. Finding #18: pass the fake Worker flags through `env_vars`.** In
+- [x] **7. Finding #18: pass the fake Worker flags through `env_vars`.** In
   `daemon/crates/nook-core/tests/supervisor_tests.rs`, stop using
   `std::env::set_var` for `FAKE_WORKER_IGNORE_EOF` and the PID file variable.
   Pass them in the Worker command instead: `env FAKE_WORKER_IGNORE_EOF=1
