@@ -80,7 +80,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     }
 
     // 6. Start Worker supervisor
-    let registry = build_registry(&config.tools).await;
+    let registry = build_registry(&config.tools, notes_program()).await;
     let descriptors = registry.descriptors().to_vec();
     let providers = ProviderHandle::new(registry);
     let supervisor =
@@ -178,6 +178,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             shutdown::exit(1);
         }
     }
+}
+
+#[cfg(all(not(feature = "e2e"), target_os = "macos"))]
+fn notes_program() -> Option<std::path::PathBuf> {
+    Some("/usr/bin/osascript".into())
+}
+
+#[cfg(feature = "e2e")]
+fn notes_program() -> Option<std::path::PathBuf> {
+    std::env::var_os("NOOK_E2E_OSASCRIPT").map(Into::into)
+}
+
+#[cfg(all(not(feature = "e2e"), not(target_os = "macos")))]
+fn notes_program() -> Option<std::path::PathBuf> {
+    None
 }
 
 fn check_policy() -> i32 {
