@@ -353,6 +353,7 @@ pub async fn handle_authorize_tool(
     tx_out: &mpsc::Sender<DaemonMessage>,
 ) {
     let call_id = call.call_id.clone();
+    let cfg = state.config.read().await;
     let registry = state.providers.current();
     let runs_in_daemon = registry.contains(&call.tool_name);
     let execution = call.execute.then(|| Execution {
@@ -370,10 +371,12 @@ pub async fn handle_authorize_tool(
         execution,
     };
     if call.chat_id != ctx.chat_id {
+        drop(cfg);
         let verdict = deny("Request does not match the running chat");
         return deliver_logged(state, &delivery, verdict).await;
     }
     if call.execute != runs_in_daemon && state.policy.catalog.resolve(&call.tool_name).is_some() {
+        drop(cfg);
         let reason = if runs_in_daemon {
             "Tool runs in the Daemon"
         } else {
@@ -391,11 +394,18 @@ pub async fn handle_authorize_tool(
     ) {
         Ok(request) => request,
         Err(error) => {
+            drop(cfg);
             warn!("Tool arguments rejected: {error}");
             let verdict = deny(argument_denial(&error));
             return deliver_logged(state, &delivery, verdict).await;
         }
     };
+
+    if is_notes_tool(&request.tool_name) {
+        request
+            .facts
+            .insert("folder".to_string(), cfg.tools.notes.folder.clone());
+    }
 
     request.approval_tier = state
         .policy
@@ -403,17 +413,20 @@ pub async fn handle_authorize_tool(
 
     match state.policy.authorizer.authorize_tool(&request).await {
         Ok(true) => {
+            drop(cfg);
             let verdict = (AuthorizationDecision::Allow, None);
             return deliver_logged(state, &delivery, verdict).await;
         }
         Ok(false) => {}
         Err(error) => {
+            drop(cfg);
             let verdict = policy_failure(error);
             return deliver_logged(state, &delivery, verdict).await;
         }
     }
 
     if request.approval_tier == "deny" {
+        drop(cfg);
         let verdict = deny("The tool is denied by policy");
         return deliver_logged(state, &delivery, verdict).await;
     }
@@ -423,6 +436,7 @@ pub async fn handle_authorize_tool(
             (spec.description.clone(), spec.approval.actions.clone())
         }
         _ => {
+            drop(cfg);
             let verdict = deny("No approval action is available for this tool");
             return deliver_logged(state, &delivery, verdict).await;
         }
@@ -433,6 +447,7 @@ pub async fn handle_authorize_tool(
         let mut approvals = state.pending_approvals.lock().await;
         if approvals.contains_key(&call_id) {
             drop(approvals);
+            drop(cfg);
             let verdict = deny("An approval for this call is already pending");
             return deliver_logged(state, &delivery, verdict).await;
         }
@@ -449,6 +464,8 @@ pub async fn handle_authorize_tool(
             },
         );
     }
+    drop(cfg);
+
     let prompt = DaemonMessage::ApprovalRequested {
         id: ctx.client_request_id,
         chat_id: ctx.chat_id,
@@ -551,11 +568,31 @@ pub async fn handle_approval_decision(
         Err(message) => return send_error(tx_out, id, message.to_string(), false).await,
     };
 
-    let verdict = resolve_decision(state, &entry, &action).await;
+    let (verdict, execution) = {
+        let cfg = state.config.read().await;
+        let registry = state.providers.current();
+        if is_notes_tool(&entry.request.tool_name)
+            && entry.folder() != Some(cfg.tools.notes.folder.as_str())
+        {
+            (deny(NOTES_FOLDER_CHANGED), entry.execution.clone())
+        } else {
+            let mut execution = entry.execution.clone();
+            if let Some(ref mut exec) = execution {
+                exec.registry = registry;
+            }
+            let verdict = resolve_decision(state, &entry, &action).await;
+            (verdict, execution)
+        }
+    };
+
     if verdict.0 == AuthorizationDecision::Allow {
         store_persistent_grant(state, &entry, &action).await;
     }
-    let delivery = delivery_for(&call_id, &entry);
+    let delivery = Delivery {
+        worker_request_id: entry.worker_request_id,
+        call_id: call_id.clone(),
+        execution,
+    };
     match deliver(state, &delivery, verdict).await {
         Ok(()) => {
             state.pending_approvals.lock().await.remove(&call_id);
@@ -592,6 +629,35 @@ pub async fn deny_pending_for_request(
     for (call_id, entry) in dropped {
         let delivery = delivery_for(&call_id, &entry);
         deliver_logged(state, &delivery, deny(reason)).await;
+    }
+}
+
+pub const NOTES_FOLDER_CHANGED: &str = "The Notes folder changed";
+
+pub fn is_notes_tool(tool_name: &str) -> bool {
+    tool_name.starts_with("nook:notes_")
+}
+
+/// Denies every pending Notes approval with "The Notes folder changed",
+/// skipping entries with decision_in_flight.
+pub async fn deny_pending_notes_approvals(state: &Arc<AppState>) {
+    let dropped: Vec<(String, PendingApprovalEntry)> = {
+        let mut approvals = state.pending_approvals.lock().await;
+        let call_ids: Vec<String> = approvals
+            .iter()
+            .filter(|(_, entry)| {
+                is_notes_tool(&entry.request.tool_name) && !entry.decision_in_flight
+            })
+            .map(|(call_id, _)| call_id.clone())
+            .collect();
+        call_ids
+            .into_iter()
+            .filter_map(|call_id| approvals.remove(&call_id).map(|entry| (call_id, entry)))
+            .collect()
+    };
+    for (call_id, entry) in dropped {
+        let delivery = delivery_for(&call_id, &entry);
+        deliver_logged(state, &delivery, deny(NOTES_FOLDER_CHANGED)).await;
     }
 }
 

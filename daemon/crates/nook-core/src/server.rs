@@ -53,6 +53,12 @@ pub struct PendingApprovalEntry {
     pub execution: Option<crate::tool_approval::Execution>,
 }
 
+impl PendingApprovalEntry {
+    pub fn folder(&self) -> Option<&str> {
+        self.request.facts.get("folder").map(String::as_str)
+    }
+}
+
 pub fn claim_pending_approval(
     approvals: &mut HashMap<String, PendingApprovalEntry>,
     call_id: &str,
