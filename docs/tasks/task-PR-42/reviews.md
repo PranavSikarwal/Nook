@@ -26,14 +26,20 @@ changes no behavior in `daemon/`. C2 and C3 ran `cargo fmt --check`, clippy with
 
 ## Round 2 (code)
 
-- Head: the commit that adds this heading
-- Reviewer: T3 reviewer ("Review Pull Requests"), follow-up of round 1.
-- SonarCloud:
-- Checks:
+- Head: `12905e635d8b9b5e1d03785e820f69eb15116b88`
+- Reviewer: T3 reviewer ("Review Pull Requests"), follow-up of round 1. Review
+  5901260417, `Verdict: APPROVE (P0: 0, P1: 0, P2: 0, P3: 0)`. C1 to C5 are fixed.
+- SonarCloud: pass.
+- Checks: all four pass on the head (CI run 43550788276, Native Tauri E2E Gate
+  run 43550783025). No review thread is unresolved (`false` and `0`).
 - Gaps closed by recommendation: none since round 1.
 
 | # | Finding | Action | Where |
 | --- | --- | --- | --- |
+| none | The reviewer found no new finding. | none | none |
+
+Result: the round exit check passed. Reviewed head:
+`12905e635d8b9b5e1d03785e820f69eb15116b88`.
 
 ## Commands run
 

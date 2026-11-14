@@ -1,5 +1,5 @@
 ```
-Stage: 7 review rounds
+Stage: 8 gate 2
 Gate 1: skipped (small change), owner on 2026-11-14: "Yes, small change (Recommended)"
 Gate 2: pending
 ```
