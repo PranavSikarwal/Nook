@@ -79,7 +79,15 @@ impl Harness {
 
     /// Starts from a config and builds the tools from it, as the Daemon does.
     pub async fn with_config(config: Config, config_path: PathBuf) -> Self {
-        let registry = nook_core::providers::build_registry(&config.tools, None).await;
+        Self::with_config_and_notes(config, config_path, None).await
+    }
+
+    pub async fn with_config_and_notes(
+        config: Config,
+        config_path: PathBuf,
+        notes_program: Option<PathBuf>,
+    ) -> Self {
+        let registry = nook_core::providers::build_registry(&config.tools, notes_program).await;
         Self::assemble(
             repo_policy(),
             registry,
@@ -280,6 +288,14 @@ impl Harness {
         assert_eq!(result["status"], "denied", "{result}");
         self.assert_panel_silent();
         result["output"].as_str().unwrap().to_string()
+    }
+
+    /// Cancels a waiting or running request.
+    pub async fn cancel(&self, client_id: Uuid) {
+        self.state.cancelled_requests.lock().await.insert(client_id);
+        nook_core::tool_approval::deny_pending_for_request(&self.state, client_id, "Cancelled")
+            .await;
+        nook_core::tool_approval::abort_running_tools(&self.state, client_id).await;
     }
 }
 
