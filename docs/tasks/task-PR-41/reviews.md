@@ -46,11 +46,13 @@
 
 ## Round 4 (spec)
 
-- Head: (the commit that adds this heading)
+- Head: 06e4eb402211e5cb4e99e00c864efe4dc20bab6e (the commit that adds this heading). Reviewed spec head.
 - Reviewer: the T3 reviewer (follow-up of round 3)
 - SonarCloud: not applicable to a docs-only head
-- Checks: not applicable to a docs-only head
+- Checks: all four pass on this head (native gate started by hand)
 - Gaps closed by recommendation: none
+- Review: `Verdict: APPROVE (P0: 0, P1: 0, P2: 0, P3: 0)` from `PranavSikarwal`, on this head. 0 unresolved review threads.
+- Round exit check: passes.
 
 | # | Finding | Action | Where |
 | --- | --- | --- | --- |
