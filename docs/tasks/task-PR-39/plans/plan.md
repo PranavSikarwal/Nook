@@ -303,7 +303,7 @@ Rules for every task:
   `abcX` and `Xdef` in `abcXdef` leave `def`). Writing rules: plain English,
   short sentences, no semicolons, no em-dashes. Check:
   `git diff --check origin/main HEAD` prints nothing.
-- [ ] **R2-2. Test the startup-error scrub through `start_reporting` (C12).**
+- [x] **R2-2. Test the startup-error scrub through `start_reporting` (C12).**
   `daemon/crates/nook-core/examples/fake_mcp_server.rs`,
   `daemon/crates/nook-core/tests/mcp_tool_tests.rs`,
   `daemon/crates/nook-core/src/providers/mcp.rs` (only the unit test).

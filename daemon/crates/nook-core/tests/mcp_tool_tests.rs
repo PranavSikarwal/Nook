@@ -490,6 +490,36 @@ async fn a_missing_secret_keeps_the_server_off_and_names_the_secret() {
 }
 
 #[tokio::test]
+async fn a_startup_error_that_holds_a_secret_is_scrubbed_in_the_report() {
+    let mut config = server("leaky", "leak_init_error");
+    config
+        .env_secrets
+        .insert("LEAK_VALUE".to_string(), "leak-secret-name".to_string());
+    let store = Arc::new(nook_core::secrets::MemorySecretStore::default());
+    store.set("leak-secret-name", "leaked-token-5678").unwrap();
+    let secrets = nook_core::secrets::SecretContext {
+        store: store.clone(),
+        mask: Arc::default(),
+    };
+    let Some(sandbox) = sandbox().await else {
+        return;
+    };
+    let (provider, failed) =
+        McpProvider::start_reporting(&[config], &sandbox, quick(), secrets).await;
+    assert!(provider.is_none());
+    assert_eq!(failed.len(), 1);
+    let reason = failed[0].reason.as_ref().expect("failure reason");
+    assert!(
+        reason.contains("***"),
+        "expected the secret to be masked in the reason: {reason}"
+    );
+    assert!(
+        !reason.contains("leaked-token-5678"),
+        "expected the reason not to hold the secret: {reason}"
+    );
+}
+
+#[tokio::test]
 async fn a_store_that_never_answers_keeps_the_server_off_after_the_timeout() {
     let record_dir = tempfile::tempdir().unwrap();
     let record_path = record_dir.path().canonicalize().unwrap();

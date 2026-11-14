@@ -8,6 +8,7 @@
 //! - `old`: answers `initialize` with an unsupported protocol version.
 //! - `paged`: lists its tools over two pages.
 //! - `docs`: answers like a Google Docs server with narrow tools.
+//! - `leak_init_error`: answers `initialize` with an error that holds the value of `LEAK_VALUE`.
 use serde_json::{json, Value};
 use std::io::{BufRead, Write};
 
@@ -219,6 +220,15 @@ fn main() {
         match method {
             "initialize" => {
                 if mode == "hang" {
+                    continue;
+                }
+                if mode == "leak_init_error" {
+                    let leaked = std::env::var("LEAK_VALUE").unwrap_or_default();
+                    send(&json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "error": { "code": -32000, "message": format!("bad token {leaked}") }
+                    }));
                     continue;
                 }
                 if mode == "chatty" {

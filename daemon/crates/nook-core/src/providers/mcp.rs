@@ -1315,7 +1315,15 @@ mod tests {
     #[test]
     fn an_empty_stored_value_counts_as_missing() {
         assert_eq!(present_secret(Ok(String::new())), Err(SecretError::Missing));
+    }
+
+    #[test]
+    fn a_stored_value_is_kept() {
         assert_eq!(present_secret(Ok("value".into())), Ok("value".to_string()));
+    }
+
+    #[test]
+    fn a_store_error_is_kept() {
         assert_eq!(
             present_secret(Err(SecretError::Unavailable)),
             Err(SecretError::Unavailable)
