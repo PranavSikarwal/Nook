@@ -73,7 +73,7 @@ Tasks 6 to 10 touch `daemon/`. Their checks are `cd daemon && cargo fmt --check`
   Keep every existing number. Items 12 and 14 stay in place, marked closed. Each new open item gets the next free number after item 14 (gap G6). Do not drop an item that is still open. Check: re-read each item against the
   facts above and against `CHANGELOG.md`. Commit:
   `docs(plans): bring the tool platform gaps up to date`.
-- [ ] **4. Fix `CHECKLIST.md` and `docs/plan.md`.** `CHECKLIST.md`: keep TP11
+- [x] **4. Fix `CHECKLIST.md` and `docs/plan.md`.** `CHECKLIST.md`: keep TP11
   unticked and say exactly why: the designs are written and wait for approval,
   and PR 40 builds the Notes tool from the desktop design (no claim that the
   owner approved). Make the line under the title name the files that still

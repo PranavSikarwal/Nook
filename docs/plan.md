@@ -58,7 +58,7 @@ Use structured arguments, configured roots, narrow grants, and escape tests.
 
 Use command policy, environment filtering, resource limits, and cancellation.
 
-**TP11. Add browser and native-system capability designs.**
+**TP11. Add browser and desktop-app capability designs.**
 
 Approve each platform-specific design before implementation.
 
@@ -68,7 +68,7 @@ Users can manage validated preferences without bypassing Cedar.
 
 **TP13. Add additional search providers.**
 
-Add image, news, video, and book search one provider type at a time.
+Add news, video, and book search one provider type at a time.
 
 ## Current documentation
 
