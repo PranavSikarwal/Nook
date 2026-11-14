@@ -1,0 +1,280 @@
+# Plan: PR 38, SDLC Work Standard
+
+Spec: `docs/tasks/task-PR-38/specs/design.md`, approved at gate 1. The rule
+files in `.agents/rules/` are done. This plan applies the "Rule changes" table
+and adds the task folder template.
+
+Each task is one commit. Every task changes only Markdown, so its check is
+`git diff --check origin/main HEAD` after the commit (no output, exit 0). Stage only the files the task names.
+Tick the task's box in the same commit. Commit locally. Do not push.
+
+## Tasks
+
+- [x] **1. Task folder template.** Create `docs/tasks/_template/` with five
+  files. Take each file's content from `.agents/rules/task-records.md`.
+  - `specs/design.md`: the state block (`Stage: 1 start`, `Gate 1: pending`,
+    `Gate 2: pending`) and the headings `## Why`, `## Scope`, `## Design`,
+    `## Central docs that change`, `## Rule changes`, `## Risks`, each with
+    one line that says what goes there.
+  - `plans/plan.md`: a heading, one line that names the spec, and `## Tasks`
+    with one example task line `- [ ] **1. <title>.** <files>. Check: <command>.`
+  - `open-gaps.md`: a heading and the gap entry format from "Open gaps".
+  - `reviews.md`: a heading and one example round with the fields `Head`,
+    `Reviewer`, `SonarCloud`, `Checks`, `Gaps closed by recommendation`, and
+    the finding table `| # | Finding | Action | Where |`.
+  - `retro.md`: the headings `## What went wrong`, `## Why`, `## Proposals`,
+    each with one line that says what goes there.
+  - Commit: `docs(tasks): add the task folder template`.
+
+- [x] **2. Pointers for each harness.** Edit `AGENTS.md` and `CLAUDE.md`.
+  - `AGENTS.md`: add a section `## Work standard` right after the first
+    paragraph: "Every change follows `.agents/rules/sdlc-work-standard.md`.
+    Read it before any work. It points to `task-records.md`,
+    `review-standard.md` and `delegation-standard.md` in the same folder."
+  - `AGENTS.md` "Where things are": replace the bullets for `docs/plan.md`,
+    `docs/plans/` and `docs/design/` with the new text from the spec's
+    "Rule changes" table. Add a bullet: "`docs/tasks/task-PR-<number>/` holds
+    the spec, plan, open gaps, review rounds and retro of each pull request.
+    `docs/tasks/_template/` is the empty copy."
+  - `AGENTS.md` "Issue tracker": the new text from the table.
+  - `AGENTS.md` "Planning rules": replace the paragraph with the new text from
+    the table.
+  - `AGENTS.md` "Done" 3: append "Stage 6 of
+    `.agents/rules/sdlc-work-standard.md` says when the orchestrator may close a
+    gap by recommendation."
+  - `CLAUDE.md`: add the line `@.agents/rules/sdlc-work-standard.md` after
+    `@AGENTS.md`.
+  - Commit: `docs(rules): point every harness to the SDLC Work Standard`.
+
+- [x] **3. Contributing, issue tracker, testing and plans index.** Edit
+  `CONTRIBUTING.md`, `docs/agents/issue-tracker.md`, `docs/testing.md` and
+  `docs/plans/README.md`.
+  - `CONTRIBUTING.md` "Branches and commits": replace "Do not add
+    author-attribution trailers or generator notices to commits." with the new
+    text from the table.
+  - `CONTRIBUTING.md` "Pull requests": replace the `docs/plan.md` sentence with
+    the new text from the table.
+  - `CONTRIBUTING.md`, the line "Keep completed plans in
+    `docs/archive/plans/`.": replace with the new text from the table.
+  - `docs/agents/issue-tracker.md`: add the sentence from the table under
+    "Conventions".
+  - `docs/testing.md`: add a section `## Documentation checks` at the end:
+    "A change that touches only Markdown runs `git diff --check`. It must print
+    nothing."
+  - `docs/plans/README.md`: add under the first paragraph: "New work uses a
+    task folder under `docs/tasks/`, as `.agents/rules/sdlc-work-standard.md`
+    says. The plans below started before PR 38."
+  - Commit: `docs: apply the SDLC Work Standard to the contributor docs`.
+
+- [x] **4. Live load check (orchestrator).** Start one Antigravity child and
+  one Codex child. Ask each, without naming a file, which stage of the work
+  standard comes after the spec review. Record each answer and whether the
+  child read the rule in gap G2 and in `reviews.md`.
+  - Commit: `docs(tasks): record the live rule load check`.
+
+- [x] **5. CI gate (orchestrator).** Push, start the native gate, and run the
+  CI gate check from `.agents/rules/review-standard.md`. Fix any failure as a
+  new task below.
+
+- [x] **6. Blank line in `docs/testing.md` (orchestrator).** Task 3 put the
+  new heading right after the last paragraph. Add the blank line.
+
+- [x] **7. Brief line for every provider (orchestrator, gap G13).** Edit
+  `.agents/rules/delegation-standard.md` "T3 Code" 1 and the Antigravity row in
+  the spec.
+
+## Round 1
+
+Code round 1 findings C1 to C4 and gap G14. Each task is one commit by the
+implementer. Check after each commit: `git diff --check origin/main HEAD`
+prints nothing once task 10 is done (before it, it reports only the C3 line).
+
+- [x] **8. C1: stage 6 exit check.** `.agents/rules/sdlc-work-standard.md`,
+  stage 6 "Exit": replace ``grep -c -- '- \[ \]' plans/plan.md`` with
+  ``grep -c -E '^- \[ \]' docs/tasks/task-PR-<number>/plans/plan.md``.
+  Commit: `docs(rules): count only real open tasks in the stage 6 exit check`.
+- [x] **9. C2: Markdown check.** `docs/testing.md`, "Documentation checks":
+  the sentence becomes "A change that touches only Markdown runs
+  `git diff --check origin/main HEAD` after the commit. It must print nothing."
+  Commit: `docs(testing): check Markdown changes against main after the commit`.
+- [x] **10. C3: blank line at the end.** `.agents/rules/task-records.md`: the
+  file ends with one line break, not two.
+  Commit: `docs(rules): remove the blank line at the end of task-records`.
+- [x] **11. C4: round heading in the template.** `docs/tasks/_template/reviews.md`:
+  `## Round 1` becomes `## Round 1 (spec|code)`.
+  Commit: `docs(tasks): give the template round heading its type`.
+- [x] **12. G14: implementer model order.** `.agents/rules/delegation-standard.md`,
+  "T3 Code" 1: replace "provider `codex`, model `gpt-6-luna`,
+  `reasoningEffort: high`, `runtimeMode: full-access`, `isolation: shared`,
+  unless the owner names another model." with: "`runtimeMode: full-access`,
+  `isolation: shared`, and the first model in this order that is available,
+  unless the owner names another model:" followed by a numbered list: 1.
+  Provider `codex`, model `gpt-6-luna`, `reasoningEffort: high`. 2. Provider
+  `antigravity`, model `gemini-3.8-flash`, `thinking_level: high`, when
+  `gpt-6-luna` is unavailable or its child was cancelled as stalled. Keep the
+  sentences after it.
+  Commit: `docs(rules): add gemini-3.8-flash as the second implementer model`.
+- [x] **13. Layout of task 12 (orchestrator).** The child put the sentence "The
+  brief names the plan path ..." inside list item 2. Move it after the list as
+  its own paragraph. Commit: `docs(rules): set the brief sentence outside the model list`.
+- [x] **14. Retro (orchestrator).** Write `retro.md`, as stage 8 step 1 says.
+
+## Round 2 (retro proposals)
+
+The owner accepted retro proposals P1, P2 and P4 at gate 2 (gap G16). Each task
+is one commit by the implementer. Check after each commit:
+`git diff --check origin/main HEAD` prints nothing.
+
+- [x] **15. P1: the rule files are the spec.** `.agents/rules/sdlc-work-standard.md`,
+  stage 2 "Spec": add this paragraph after the first paragraph (before "Exit"):
+  "When the task changes rules or documents, those files are the spec. Write them
+  in this stage, and keep `specs/design.md` to the why and the list of file
+  changes." Commit: `docs(rules): make the rule files the spec of a rule task`.
+- [x] **16. P2: run every command before review.** `.agents/rules/sdlc-work-standard.md`.
+  Stage 2 "Exit" becomes: "Exit: every template section has content, every gap
+  has options and a recommendation, and `reviews.md` holds the result of each
+  command that the task adds to a rule or a document, run with `/usr/bin/grep`
+  and on a real pull request." In stage 6, item 2 of "After each task" ends with
+  this added sentence: "Run each command that the task added to a rule or a
+  document, as stage 2 says." Commit: `docs(rules): run each new command before review`.
+- [x] **17. P4: small fixes need no child.** `.agents/rules/delegation-standard.md`,
+  "T3 Code" 4 "Take over": add a new item 5 after it: "5. **Small fixes.** A
+  fix that touches one or two files and a few lines, and changes no behavior in
+  `daemon/`, `worker/`, `panel/`, `contracts/` or `policy/`, needs no child. The
+  orchestrator makes it, runs the same checks, and commits it, even when the plan
+  does not list it. A planned task goes to a child." Commit:
+  `docs(rules): let the orchestrator make small fixes`.
+
+## Round 3 (code review findings C5 to C9)
+
+The owner accepted all five fixes with the reviewer's recommendations (gap G17).
+C9 and the retro stage number are orchestrator edits in the task folder. Each
+task below is one commit by the implementer. Check after each commit:
+`git diff --check origin/main HEAD` prints nothing.
+
+- [x] **18. C5: a workable "commands run" rule.**
+  `.agents/rules/sdlc-work-standard.md` and `docs/tasks/_template/reviews.md`.
+  - Stage 2 "Exit" becomes: "Exit: every template section has content, every gap
+    has options and a recommendation, and `reviews.md` has a `## Commands run`
+    section with one row for each command that the task adds to a rule or a
+    document. Run a read-only command on the pull request of the task or on a
+    merged one, with `/usr/bin/grep` where the command uses grep. For a command
+    that changes state, run its `--help` or write `not run: changes state`."
+  - Stage 6, the paragraph under item 2 ("Run each command that the task added
+    ...") becomes: "Add a row to `## Commands run` in `reviews.md` for each
+    command that the task added to a rule or a document, as stage 2 says."
+  - Template `reviews.md`: add at the end a section `## Commands run` with one
+    line "One row for each command that the task adds to a rule or a document."
+    and the table header `| Command | Run | Result |` with its separator row.
+  - Commit: `docs(rules): make the commands-run rule safe to follow`.
+- [x] **19. C6: small fixes and the other rules.**
+  - `AGENTS.md` "Done" 3: append the sentence "A small fix is the exception:
+    `.agents/rules/delegation-standard.md` \"T3 Code\" 5 says when." (use plain
+    quotes around T3 Code in the file, no backslashes).
+  - `.agents/rules/review-standard.md`, "Run a round" 5: after the existing text
+    of item 5 add: "A small fix (see `.agents/rules/delegation-standard.md`
+    \"T3 Code\" 5) needs no plan task. Write it as a row of the round with the
+    Action `fix (small)`." (plain quotes, no backslashes).
+  - `.agents/rules/delegation-standard.md`, "T3 Code" item 5: after the sentence
+    "The orchestrator makes it, runs the same checks, and commits it, even when
+    the plan does not list it." add: "It writes a row of the current round in
+    `reviews.md` with the Action `fix (small)`, and names the fix in the commit
+    message."
+  - Commit: `docs(rules): let a small fix sit outside the plan with a record`.
+- [x] **20. C7: bound a small fix.** `.agents/rules/delegation-standard.md`,
+  "T3 Code" item 5: replace the first sentence "A fix that touches one or two
+  files and a few lines, and changes no behavior in `daemon/`, `worker/`,
+  `panel/`, `contracts/` or `policy/`, needs no child." with: "A fix that touches
+  at most 2 files and 20 lines needs no child. It touches nothing under
+  `.agents/rules/`, `.github/` or `scripts/`, no dependency or lock file, and it
+  changes no behavior in `daemon/`, `worker/`, `panel/`, `contracts/` or
+  `policy/`, no public interface, no authorization and no sandbox. Anything
+  else is a plan task or a gap." Keep the sentences after it.
+  Commit: `docs(rules): bound a small fix by files, lines and paths`.
+- [x] **21. C8: the spec of a rule task.** `.agents/rules/sdlc-work-standard.md`
+  stage 2: the paragraph that starts "When the task changes rules or documents"
+  becomes: "When the task changes rules or documents, those files are the spec.
+  Write them in this stage. In `specs/design.md`, the sections `Design` and
+  `Rule changes` list the files and point to them, and the other sections stay
+  as they are." `.agents/rules/task-records.md`, the task folder tree line for
+  `specs/design.md` becomes: `specs/design.md   the spec: why, what changes,
+  options, risks, rule changes (for a rule task: the files and pointers)`. Keep
+  the column alignment of the other lines.
+  Commit: `docs(rules): say how a rule task fills the spec file`.
+
+## Round 4 (code review findings C10 to C13)
+
+The owner accepted option 2 for C10 and the fixes for C11 to C13 (gap G18).
+C13 and the table rows are orchestrator edits in the task folder. Each task below
+is one commit by the implementer. Check after each commit:
+`git diff --check origin/main HEAD` prints nothing, and `git diff --stat HEAD~1 HEAD`
+lists the file the task names.
+
+- [x] **22. C10 and C12: rows for check commands only.**
+  `.agents/rules/sdlc-work-standard.md` and `docs/tasks/_template/reviews.md`.
+  - Stage 2 "Exit" becomes: "Exit: every template section has content, every gap
+    has options and a recommendation, and `reviews.md` has a `## Commands run`
+    section with one row for each check command that the task adds to a rule or a
+    document. A check command decides whether a stage or a round passes, or it
+    uses a filter, a regex or `jq`. Run a read-only check command on the pull
+    request of the task or on a merged one, with `/usr/bin/grep` where it uses
+    grep. For a check command that changes state, run its `--help` or write
+    `not run: changes state`."
+  - Stage 6, the paragraph under item 2 becomes: "Add a row to `## Commands run`
+    in `reviews.md` for each check command that the task added to a rule or a
+    document, as stage 2 says."
+  - Template `reviews.md`: the line under `## Commands run` becomes "One row for
+    each check command that the task adds to a rule or a document."
+  - Commit: `docs(rules): require command rows for check commands only`.
+- [x] **23. C11: bound a small fix by binding documents.**
+  `.agents/rules/delegation-standard.md`, "T3 Code" item 5 becomes (wrap at about
+  80 characters, keep the list indentation): "5. **Small fixes.** A fix needs no
+  child when it changes at most 20 lines (added plus removed, as
+  `git diff --shortstat` counts) in at most 2 files. It touches nothing under
+  `.agents/rules/`, `.github/` or `scripts/`, none of `AGENTS.md`, `CLAUDE.md`,
+  `CONTRIBUTING.md` or `docs/testing.md`, and no dependency or lock file. It
+  changes no behavior in `daemon/`, `worker/`, `panel/`, `contracts/` or
+  `policy/`, no public interface, no authorization and no sandbox. Anything else
+  is a plan task or a gap. The orchestrator makes the fix, runs the same checks,
+  and commits it, even when the plan does not list it. It writes a row of the
+  current round in `reviews.md` with the Action `fix (small)` and the commit SHA
+  in the `Where` cell, and names the fix in the commit message. A planned task
+  goes to a child."
+  Commit: `docs(rules): keep binding documents out of the small-fix bound`.
+
+## Round 5 (code review findings C10 and C14)
+
+The owner chose option 1 for C10 and accepted C14 (gap G19). The table rows and
+the records are orchestrator edits in the task folder. Each task below is one
+commit by the implementer. Check after each commit:
+`git diff --check origin/main HEAD` prints nothing, and `git diff --stat HEAD~1 HEAD`
+lists every file the task names.
+
+- [x] **24. C10: one row for each named check.**
+  `.agents/rules/sdlc-work-standard.md` and `docs/tasks/_template/reviews.md`.
+  - Stage 2 "Exit" becomes: "Exit: every template section has content, every gap
+    has options and a recommendation, and `reviews.md` has a `## Commands run`
+    section with one row for each named check that the task adds to a rule or a
+    document. A row lists the commands of its check. A check decides whether a
+    task, a stage, a round or a merge passes, or it uses a filter, a regex or
+    `jq`. Run a read-only check on the pull request of the task or on a merged
+    one, with `/usr/bin/grep` where it uses grep. For a check that changes state,
+    run its `--help` or write `not run: changes state`."
+  - Stage 6, the paragraph that starts "Add a row to `## Commands run`" becomes:
+    "Add a row to `## Commands run` in `reviews.md` for each named check that the
+    task added to a rule or a document, as stage 2 says."
+  - Template `reviews.md`: the line under `## Commands run` becomes "One row for
+    each named check that the task adds to a rule or a document. A row lists the
+    commands of its check."
+  - Commit: `docs(rules): require one command row for each named check`.
+- [x] **25. C14: three limits of a small fix.**
+  `.agents/rules/delegation-standard.md`, "T3 Code" item 5.
+  - `git diff --shortstat` becomes `git diff --shortstat HEAD`.
+  - The exclusion list adds "none of the central docs named in stage 2 of the
+    SDLC Work Standard, nothing under `docs/adr/`," after the four named
+    documents.
+  - The record sentence becomes: "It writes a row of the current round in
+    `reviews.md` after the fix commit exists, with the Action `fix (small)` and
+    the commit SHA in the `Where` cell, and names the fix in the commit message."
+  - Rewrap item 5 at about 80 characters. Keep every other sentence.
+  - Commit: `docs(rules): close three gaps in the small-fix bound`.

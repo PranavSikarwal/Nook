@@ -2,12 +2,16 @@
 
 Nook is a cross-platform desktop overlay app. It has a Tauri Panel, a Rust Daemon, and a Python Deep Agents Worker. The Worker talks to a self-hosted OpenAI-compatible model.
 
+## Work standard
+
+Every change follows `.agents/rules/sdlc-work-standard.md`. Read it before any work. It points to `task-records.md`, `review-standard.md` and `delegation-standard.md` in the same folder.
+
 ## Where things are
 
 - `docs/architecture.md`, `docs/contracts.md`, `docs/tools-and-authorization.md`, `docs/mcp-servers.md`, `docs/release.md`, and `docs/testing.md` describe current behavior.
-- `docs/plan.md` holds the active work, and `CHECKLIST.md` tracks it.
-- `docs/plans/` holds active implementation plans. `docs/archive/plans/` holds completed plans.
-- `docs/design/` holds proposed designs that wait for approval.
+- `docs/plan.md` and `CHECKLIST.md` track the work that started before PR 38. A new task is tracked by its task folder and its pull request.
+- Each task has `docs/tasks/task-PR-<number>/`. `docs/plans/` and `docs/design/` keep only the plans and designs that started before PR 38.
+- `docs/tasks/task-PR-<number>/` holds the spec, plan, open gaps, review rounds and retro of each pull request. `docs/tasks/_template/` is the empty copy.
 - `docs/adr/` holds decisions that are hard to reverse. `docs/archive/` holds retired specifications and historical records.
 - `model-check/` holds the script that tests the model endpoint with Deep Agents.
 
@@ -15,7 +19,7 @@ Nook is a cross-platform desktop overlay app. It has a Tauri Panel, a Rust Daemo
 
 ### Issue tracker
 
-Issues and specs live as local markdown under `.scratch/`. See `docs/agents/issue-tracker.md`.
+Issues live under `.scratch/`. The spec of a task lives in its task folder. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
@@ -27,7 +31,7 @@ Single-context. See `docs/agents/domain.md`.
 
 ## Planning rules
 
-Always write plans inside the `docs/plans/` directory for all work. Every new phase, feature, or refactoring task must have a plan file recorded there before execution starts.
+Follow `.agents/rules/sdlc-work-standard.md`. The spec and the plan live in the task folder.
 
 ## Engineering rules
 
@@ -77,7 +81,7 @@ Write the minimum. Prefer a clear name, a type, or a smaller function.
 
 1. Every command in `docs/testing.md` for each changed component passes with zero warnings.
 2. Each plan step is one commit, with its checklist box ticked in the same commit.
-3. A change stays inside the plan. If the plan is wrong or a change outside it is needed, stop and report.
+3. A change stays inside the plan. If the plan is wrong or a change outside it is needed, stop and report. Stage 6 of `.agents/rules/sdlc-work-standard.md` says when the orchestrator may close a gap by recommendation. A small fix is the exception: `.agents/rules/delegation-standard.md` "T3 Code" 5 says when.
 4. A pull request that completes a release bumps the application version and moves "Unreleased" in `CHANGELOG.md` under the new version before it merges. After the merge, run the Package and Release workflow by hand on `main` at the merge commit. Create the tag only when the package run passes on macOS, Ubuntu and Windows.
 
 ## GitHub CLI and commit rules
