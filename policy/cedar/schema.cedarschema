@@ -73,4 +73,16 @@ namespace Nook {
       argument_digest: String,
     }
   };
+
+  action "notes_create_note", "notes_list_notes", "notes_read_note", "notes_append_note", "notes_edit_note", "notes_delete_note" appliesTo {
+    principal: [User],
+    resource: [Tool],
+    context: {
+      chat_id: String,
+      folder: String,
+      approval_tier: String,
+      grant_scope: String,
+      argument_digest: String,
+    }
+  };
 }
