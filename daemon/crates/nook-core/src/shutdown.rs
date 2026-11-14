@@ -3,7 +3,7 @@ use crate::server::AppState;
 use std::time::Duration;
 
 /// Stops the Worker, running tool tasks, and providers in that order.
-/// Each step waits for its work to finish, up to `timeout` for all steps.
+/// Returns false when the steps do not finish within `timeout`.
 pub async fn stop_everything(state: &AppState, timeout: Duration) -> bool {
     tokio::time::timeout(timeout, async {
         let supervisor = state.supervisor.lock().await.clone();
