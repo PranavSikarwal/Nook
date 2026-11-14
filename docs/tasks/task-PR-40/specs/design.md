@@ -1,7 +1,7 @@
 # Spec: Notes tool run by the Panel
 
 ```
-Stage: 2 spec
+Stage: 3 spec review
 Gate 1: pending
 Gate 2: pending
 ```
