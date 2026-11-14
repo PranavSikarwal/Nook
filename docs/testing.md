@@ -83,6 +83,8 @@ start stays stopped. `permissions_db_tests.rs` covers the late database
 connection: it keeps trying while PostgreSQL is down, then applies the
 migrations and loads the stored grants.
 
+The fake server offers a docs mode in `mcp_tool_tests.rs` for Docs-style MCP tests. These tests cover tool listing, authorization prompts, document writes, network connections, and secret resolution. `secrets.rs` tests the in-memory store and tests `OsSecretStore` against the `keyring-core` mock store. `sandbox_tests.rs` proves that the `bwrap` process on Linux receives no environment value on its command line. Unit tests verify the redacting log writer and the scrub of tool results. `nookctl` secret tests in `secret_tests.rs` check that `nookctl secret set` reads standard input without command-line arguments. `docs_sample_tests.rs` verifies that the Google Docs sample configuration block in `docs/mcp-servers.md` parses into a valid server. The MCP and sandbox tests skip without a working sandbox. CI sets `NOOK_REQUIRE_SANDBOX=1` so they fail instead of skip.
+
 `provider_execution_tests.rs` runs the Daemon execute path with a test provider
 and the fake Worker. It covers approval, denial, grants, errors, the output
 limit, invalid arguments, the Worker and Daemon tool mix-ups, expiry, and

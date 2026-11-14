@@ -204,7 +204,7 @@ Rules for every task:
   it against a copy of the page without the block and with a bad block (an
   `LD_PRELOAD` key), see it fail, and restore the page. Check: Daemon `rtk cargo test`
   and clippy.
-- [ ] **12. Docs: testing, architecture, ADR, changelog.** `docs/testing.md`,
+- [x] **12. Docs: testing, architecture, ADR, changelog.** `docs/testing.md`,
   `docs/architecture.md`, `docs/adr/<next number>-secrets-live-in-the-operating-system-secret-store.md`,
   `CHANGELOG.md`. `docs/testing.md`: one paragraph on the Docs-style MCP tests,
   the store tests, the sandbox environment test and the sample test.

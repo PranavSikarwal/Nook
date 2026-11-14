@@ -4,6 +4,14 @@ This file records user-visible changes for each Nook release.
 
 ## Unreleased
 
+### Added
+
+- Add Google Docs through an MCP server with sample configuration and setup steps in `docs/mcp-servers.md`, the native secret store, the `env_secrets` setting, and `nookctl secret set` and `delete`.
+
+### Changed
+
+- A server with an `env` name that starts with `LD_` or `DYLD_` no longer starts, and on Linux the server environment no longer shows in the process command line.
+
 ## v0.1.6 - 2026-11-13
 
 ### Fixed
