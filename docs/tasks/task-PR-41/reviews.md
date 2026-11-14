@@ -31,6 +31,17 @@
 | --- | --- | --- | --- |
 | S4 | The spec names no owner for the stale row of item 11 in `docs/plans/open-items-fixes.md` (P3). | fix: PR #42 named, new gap G5 asks the owner | `specs/design.md` Scope; `open-gaps.md` G5 |
 
+## Round 3 (spec)
+
+- Head: (the commit that adds this heading)
+- Reviewer: the T3 reviewer (follow-up of round 2)
+- SonarCloud: not applicable to a docs-only head
+- Checks: not applicable to a docs-only head
+- Gaps closed by recommendation: none
+
+| # | Finding | Action | Where |
+| --- | --- | --- | --- |
+
 ## Commands run
 
 This task adds no named check to a rule or a document.
