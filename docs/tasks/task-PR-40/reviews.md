@@ -50,14 +50,15 @@
 
 ## Round 4 (spec)
 
-- Head: pending
-- Reviewer: the T3 reviewer, follow-up of round 3
-- SonarCloud:
-- Checks:
+- Head: `882682149422f9f6e368e5541c090610feec0af7`
+- Reviewer: the T3 reviewer, follow-up of round 3. Verdict: APPROVE (P0: 0, P1: 0, P2: 0, P3: 0). It resolved the thread of S7.
+- SonarCloud: Quality Gate passed.
+- Checks: all four pass. The CI gate check passes. The round exit check passes: the verdict is APPROVE, no finding is open, and 0 review threads are unresolved.
 - Gaps closed by recommendation: none
 
 | # | Finding | Action | Where |
 | --- | --- | --- | --- |
+| none | The review has no finding. | none | - |
 
 ## Commands run
 
