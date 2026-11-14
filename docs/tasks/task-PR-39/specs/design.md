@@ -1,6 +1,6 @@
 ```
-Stage: 4 gate 1
-Gate 1: pending (round 6 approved, reviewed head f2206ef; waiting for the owner). 2026-11-14: the owner decided G1 to G9 (G4: the client secrets live in the operating system secret store behind one abstraction; G7: build it in this task; G8: fix the Linux `bwrap` argument exposure in this task; G9: refuse `LD_*` and `DYLD_*` names). The spec is approved by the reviewer in round 6. It needs the owner.
+Stage: 6 implement
+Gate 1: approved by owner on 2026-11-14: "Approved" (spec head f2206ef, reviewer verdict APPROVE in round 6). 2026-11-14: the owner decided G1 to G9 (G4: the client secrets live in the operating system secret store behind one abstraction; G7: build it in this task; G8: fix the Linux `bwrap` argument exposure in this task; G9: refuse `LD_*` and `DYLD_*` names).
 Gate 2: pending
 ```
 
