@@ -1,5 +1,5 @@
 use crate::config::Config;
-use crate::secrets::{SecretMask, SecretMaskExt};
+use crate::secrets::{redact_with, SecretMask, SecretMaskExt};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use tokio::fs::File;
@@ -108,13 +108,7 @@ fn urlencoding_decode(text: &str) -> Result<String, std::string::FromUtf8Error> 
 }
 
 pub fn redact_line(line: &str, secrets: &[String]) -> String {
-    secrets.iter().fold(line.to_owned(), |line, secret| {
-        if secret.is_empty() {
-            line
-        } else {
-            line.replace(secret, "***")
-        }
-    })
+    redact_with(line, secrets)
 }
 
 /// A log file that keeps one older file. When the file reaches `max_bytes`, it

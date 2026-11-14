@@ -1,6 +1,7 @@
+use std::cmp::Reverse;
 use std::collections::BTreeMap;
 use std::io::Read;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, PoisonError, RwLock};
 use thiserror::Error;
 
 #[derive(Debug, Error, Clone, Copy, PartialEq, Eq)]
@@ -216,25 +217,32 @@ pub trait SecretMaskExt {
 impl SecretMaskExt for SecretMask {
     fn add(&self, value: &str) {
         if value.chars().count() >= 4 {
-            let mut guard = self.write().unwrap();
-            if !guard.contains(&value.to_string()) {
+            let mut guard = self.write().unwrap_or_else(PoisonError::into_inner);
+            if !guard.iter().any(|secret| secret == value) {
                 guard.push(value.to_string());
+                guard.sort_by_key(|secret| Reverse(secret.len()));
             }
         }
     }
 
     fn scrub(&self, text: &str) -> String {
-        let Ok(guard) = self.read() else {
-            return text.to_string();
-        };
-        let mut result = text.to_string();
-        for secret in guard.iter() {
-            if secret.chars().count() >= 4 {
-                result = result.replace(secret, "***");
-            }
-        }
-        result
+        let guard = self.read().unwrap_or_else(PoisonError::into_inner);
+        redact_with(text, &guard)
     }
+}
+
+/// Replaces each secret with `***`, longest first.
+/// Warning: a shorter secret replaced first would leave the tail of a longer one that contains it.
+pub fn redact_with(text: &str, secrets: &[String]) -> String {
+    let mut longest_first: Vec<&str> = secrets
+        .iter()
+        .map(String::as_str)
+        .filter(|secret| !secret.is_empty())
+        .collect();
+    longest_first.sort_by_key(|secret| Reverse(secret.len()));
+    longest_first
+        .into_iter()
+        .fold(text.to_owned(), |text, secret| text.replace(secret, "***"))
 }
 
 pub fn set_from_reader(
@@ -301,6 +309,34 @@ mod tests {
             mask.scrub("hello supersecret abc world"),
             "hello *** abc world"
         );
+    }
+
+    #[test]
+    fn a_longer_secret_that_contains_a_shorter_one_is_fully_masked() {
+        let mask: SecretMask = Arc::new(RwLock::new(Vec::new()));
+        mask.add("abcd");
+        mask.add("abcd-REFRESH-9z");
+
+        let scrubbed = mask.scrub("token abcd-REFRESH-9z here");
+
+        assert_eq!(scrubbed, "token *** here");
+    }
+
+    #[test]
+    fn a_poisoned_mask_lock_still_scrubs() {
+        let mask: SecretMask = Arc::new(RwLock::new(Vec::new()));
+        mask.add("hunter22");
+        let poisoner = mask.clone();
+        let _ = std::thread::spawn(move || {
+            let _guard = poisoner.write().unwrap();
+            panic!("poison the mask lock");
+        })
+        .join();
+        assert!(mask.is_poisoned());
+
+        assert_eq!(mask.scrub("a hunter22 b"), "a *** b");
+        mask.add("another-secret");
+        assert_eq!(mask.scrub("another-secret"), "***");
     }
 
     #[test]

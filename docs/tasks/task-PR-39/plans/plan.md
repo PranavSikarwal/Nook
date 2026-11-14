@@ -235,7 +235,7 @@ Rules for every task:
 
 ## Round 1
 
-- [ ] **R1-1. One masking routine, longest secret first (C1, C5).**
+- [x] **R1-1. One masking routine, longest secret first (C1, C5).**
   `daemon/crates/nook-core/src/secrets.rs`,
   `daemon/crates/nook-core/src/daemon_log.rs`. `SecretMask::add` keeps the list
   sorted by length, longest first. `scrub` replaces in that order. `add` and
