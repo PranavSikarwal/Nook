@@ -83,8 +83,24 @@ The review makes four notes for the plan, not findings:
 
 ## Round 5 (spec)
 
-- Head: pending (the commit that adds this heading)
+- Head: `af647a5a0c8702c44a4fc36fcf189c4941981047`
 - Reviewer: the T3 reviewer ("Review Pull Requests"), follow-up of round 4.
+- Verdict: `Verdict: COMMENT (P0: 0, P1: 0, P2: 0, P3: 4)` (review 5901857793)
+- SonarCloud: Quality Gate passed.
+- Checks: run the CI gate check again on the final head.
+- Gaps closed by recommendation: none
+
+| # | Finding | Action | Where |
+| --- | --- | --- | --- |
+| S27 (P3) | The G9 rule has no stated limit or text. | fix | `specs/design.md` "The `env_secrets` setting" 7. |
+| S28 (P3) | The G9 test has one case and no counter case. | fix | `specs/design.md` test 11. |
+| S29 (P3) | The docs list and the changelog do not name G9, and it breaks existing servers. | fix | `specs/design.md` "Scope", "Central docs that change" 1.11 and 5, Risk 11. |
+| S30 (P3) | `open-gaps.md` ends with a blank line. | fix | `open-gaps.md` ends with one newline. |
+
+## Round 6 (spec)
+
+- Head: pending (the commit that adds this heading)
+- Reviewer: the T3 reviewer ("Review Pull Requests"), follow-up of round 5.
 - SonarCloud:
 - Checks:
 - Gaps closed by recommendation: none

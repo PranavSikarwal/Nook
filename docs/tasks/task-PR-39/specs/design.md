@@ -1,6 +1,6 @@
 ```
 Stage: 3 spec review
-Gate 1: pending. 2026-11-14: the owner decided G1 to G9 (G4: the client secrets live in the operating system secret store behind one abstraction; G7: build it in this task; G8: fix the Linux `bwrap` argument exposure in this task; G9: refuse `LD_*` and `DYLD_*` names). Round 4 asked for small changes, and this version answers it. It needs round 5 and then the owner.
+Gate 1: pending. 2026-11-14: the owner decided G1 to G9 (G4: the client secrets live in the operating system secret store behind one abstraction; G7: build it in this task; G8: fix the Linux `bwrap` argument exposure in this task; G9: refuse `LD_*` and `DYLD_*` names). Round 5 asked for four small changes, and this version answers it. It needs round 6 and then the owner.
 Gate 2: pending
 ```
 
@@ -44,8 +44,9 @@ In scope:
    system.
 3a. Masking in the Daemon itself: a redacting log writer and a scrub of tool
    results, so that a resolved secret never leaves the Daemon as text.
-3b. A change to the Linux sandbox (G8): the environment of the server no longer
-   goes to `bwrap` as command-line arguments.
+3b. A change to the Linux sandbox (G8 and G9): the environment of the server no
+   longer goes to `bwrap` as command-line arguments, and a server `env` name that
+   starts with `LD_` or `DYLD_` is refused.
 4. A sample `config.toml` block and the owner's setup steps, in
    `docs/mcp-servers.md`.
 5. A `docs` mode in the fake MCP server, and tests in
@@ -53,7 +54,7 @@ In scope:
 6. A test that the sample block in `docs/mcp-servers.md` loads as a valid server
    with the real config loader, so the sample cannot drift.
 7. One ADR, one sentence in `docs/architecture.md`, one paragraph in
-   `docs/testing.md` and one line in `CHANGELOG.md`.
+   `docs/testing.md` and two lines in `CHANGELOG.md`.
 8. The follow-up tasks (G2 and G5) written into `docs/mcp-servers.md`.
 
 Out of scope:
@@ -229,7 +230,12 @@ env_secrets = { GOOGLE_DRIVE_MCP_CLIENT_SECRET = "google-docs-client-secret" }
    Daemon therefore skips a server whose `env` or `env_secrets` holds a name
    that starts with `LD_` or `DYLD_`, with a fixed report, in
    `start_reporting`. A server that needs such a variable cannot be attached
-   until a later task.
+   until a later task. The rule is an exact, case-sensitive prefix match on
+   `LD_` and `DYLD_`. It does not refuse other host-side names such as
+   `GCONV_PATH`, `LOCPATH` and `GLIBC_TUNABLES`, because the rule is a guard for
+   the common loader variables and not a full list. `DYLD_` is there for
+   symmetry, because macOS did not change. The report is one fixed constant that
+   names the server and the variable, and never a value.
 
 ### Sample block
 
@@ -437,8 +443,11 @@ empty `MemorySecretStore`.
 11. `a_server_that_lists_one_name_in_env_and_env_secrets_is_skipped_with_a_report`,
     `an_env_secrets_entry_with_an_empty_name_is_skipped_with_a_report`,
     `an_env_secrets_entry_for_the_model_key_is_skipped_with_a_report` and
-    `a_library_variable_name_in_env_or_env_secrets_is_skipped_with_a_report`: each puts
-    only that server off. They sit next to
+    `a_library_variable_name_in_env_is_skipped_with_a_report` (cases
+    `LD_PRELOAD` and `DYLD_INSERT_LIBRARIES`), `a_library_variable_name_in_env_secrets_is_skipped_with_a_report`
+    and `a_name_that_only_looks_like_a_library_variable_is_accepted` (case
+    `LDAP_URL`; the report test also asserts that the report holds no value): each puts
+    only that server off, except the last, which starts. They sit next to
     `servers_that_cannot_start_or_have_bad_settings_are_skipped`.
 12. `a_docs_server_with_network_true_can_connect_out`: `connect` to a local
     listener returns `connected` (pattern: `terminal_tool_tests.rs:411-433`).
@@ -506,6 +515,9 @@ test reads `docs/` today. It:
    9. The bullet list under "For developers". It lists the fake server modes and
       must name `docs`.
    10. A note on where to get `nookctl` (a separate asset of the release).
+   11. The `env` row of the settings table says that a name that starts with
+       `LD_` or `DYLD_` is refused. "What cannot work" lists a server that needs
+       such a variable.
 2. `docs/architecture.md`: one sentence next to the Keychain line that names the
    secret store and its use for MCP servers.
 3. `docs/testing.md`: one paragraph on the Docs-style MCP tests, the store tests
@@ -513,7 +525,9 @@ test reads `docs/` today. It:
 4. `docs/adr/`: one new ADR, "Secrets live in the operating system secret store
    behind one abstraction". The plan takes its number from the highest number
    on `origin/main` at that time, because other tasks may add an ADR.
-5. `CHANGELOG.md`: one line under "Unreleased".
+5. `CHANGELOG.md`: one line under "Unreleased" for Google Docs, and one
+   "Changed" line that says that a server with an `env` name that starts with
+   `LD_` or `DYLD_` no longer starts.
 
 `docs/contracts.md`, `docs/tools-and-authorization.md` and `docs/release.md` do
 not change, because no message, policy or release step changes. `config.toml` is
@@ -598,11 +612,12 @@ documents above.
     limited to a small size (the reviewer read 2560 bytes from the Windows API
     constant, and a longer value fails with `TooLong`). A Google refresh token is
     far shorter. The page says each.
-11. **The Linux environment change touches every sandboxed command.** G8 moves the
+11. **The Linux environment change touches every sandboxed command.** G8 and G9 move the
     environment from the `bwrap` arguments to the `bwrap` process environment.
     The limits of the sandbox stay the same, but every MCP server and terminal
-    command on Linux gets its environment a new way. `sandbox_tests.rs` covers
-    it. The live check cannot cover it on macOS, which did not change.
+    command on Linux gets its environment a new way, and an existing server with
+    an `LD_` or `DYLD_` name in `env` stops starting (the changelog says so).
+    `sandbox_tests.rs` covers it. The live check cannot cover it on macOS, which did not change.
 12. **The scrub is best effort.** The Daemon replaces a secret in a result only
     when the server returns it as the same text. A server that encodes it passes
     it. The page says so. The approval card and the model never receive the
