@@ -150,7 +150,10 @@ shown.
 It returns `Created the note "<title>" in the Nook folder` or an error.
 
 The tool description tells the model that it creates a new note in the `Nook`
-folder, cannot read or change a note, and exists on macOS only.
+folder, cannot read or change a note, exists on macOS only, and that the title
+is one line. Without the old `pattern`, the description is the only place that
+tells the model, and a title with an inner line break ends the reply. A test
+checks that the description holds the sentence.
 
 ### Run in the Daemon
 
@@ -201,12 +204,17 @@ an option.
 4. The environment holds only `LANG=en_US.UTF-8`, so `osascript` reads a title
    with non-ASCII characters as UTF-8. The working directory is `/`. There is no
    standard input.
-5. The provider runs one `osascript` at a time (one `tokio::sync::Mutex`), so two
-   parallel first calls cannot both create the `Nook` folder.
+5. The provider runs one `osascript` at a time, so two parallel first calls
+   cannot both create the `Nook` folder. The lock is one `Arc<tokio::sync::Mutex<()>>`
+   in `Carry`, which `assemble` gives to each new `NotesProvider`. A lock inside
+   the provider would be new after each folder change, and a call that started
+   on the old registry could then run next to a call on the new one.
 6. The process runs in its own process group (`process_group(0)`). The provider
    reuses `GroupKill`, `read_capped` and `join_reader` from `sandbox.rs`, which
-   become `pub(crate)` and `#[cfg(unix)]`. It does not copy the timeout and
-   read loop. A cancel aborts the task, so no code after an `await` runs, and the
+   become `pub(crate)` and `#[cfg(unix)]`. `GroupKill` is a tuple struct with a
+   private field, so its field becomes `pub(crate)` too. The code in `assemble`
+   that builds `NotesProvider` has the same `#[cfg(unix)]` gate as the code for
+   MCP. The provider does not copy the timeout and read loop. A cancel aborts the task, so no code after an `await` runs, and the
    group kill sits in the `GroupKill` drop guard.
 7. The limit is 60 seconds. The provider reads at most 4096 bytes of standard
    output and of standard error, and it drains the rest of each pipe, so a long
@@ -360,10 +368,20 @@ sets the program path in `nook-core`. Release builds of `nookd` use no feature.
 - Registry, with a fake program path: `build_registry(tools, None)` has no Notes
   tool. With a path to a fake program it has the tool and the source `notes`. A
   path to a missing file gives the source `off` with a reason. `rebuilt` after a
-  folder change keeps the tool.
+  folder change keeps the tool and the same lock.
+- Registry, schema message: the string that `ProviderRegistry::facts` returns for
+  a refused schema holds the keyword and the property and never the value. The
+  test runs it for the Notes tool and for a second provider (the `Fixed`
+  provider of the unit tests), so the shared path is pinned. It uses the keyword
+  and the path of the error, and never its `kind`, because the `kind` of an extra
+  property holds the property name that the model chose.
+- Provider, called directly: `Provider::call` with invalid arguments returns
+  `Error: the arguments are not valid` and starts no process, because the socket
+  tests stop at `facts`.
 - Daemon, through the real socket and the fake Worker, with a fake `osascript` (a
-  script that writes its arguments, its environment and its working directory to
-  a file and exits with a chosen code). The tests run on Linux:
+  script that writes its arguments, its working directory and
+  `/proc/$$/environ` to a file and exits with a chosen code, so the environment
+  has no `PWD` from the shell). The tests run on Linux:
   - The program runs only after an allow. A deny leaves the file empty. A cancel
     before the approval does not run it.
   - The program gets exactly three arguments: `-e`, the script and the HTML. The
@@ -374,17 +392,23 @@ sets the program path in `nook-core`. Release builds of `nookd` use no feature.
   - A body with quotes, backslashes, `$(...)` and a line break reaches the
     program as plain text in the HTML argument.
   - The HTML conversion escapes `&`, `<` and `>`.
-  - A title ending with a line break is trimmed. An empty title, an inner line
-    break and a NUL in the title or the body start no process and show no
-    prompt. A body that breaks the schema starts no process.
-  - A schema refusal puts no argument value in the log message.
+  - The titles `Title\n` and `Title\r\n` become `Title`, and the trimmed title is
+    what the approval summary, the HTML and the result text `Created the note
+    "Title"` hold. The titles `\n`, `Title\n\n` and `Ti\ntle` start no process
+    and show no prompt. A NUL in the title or the body does the same. A body that
+    breaks the schema starts no process.
+  - A body of 20,000 line breaks reaches the program in full. The HTML stays
+    far under the 1 MiB argument limit of macOS.
+  - A call for the tool in a registry built with `None` is denied with `Tool runs
+    in the Worker`, as in the Worker-tool test of `provider_execution_tests.rs`.
   - A fake that prints a full sentence ending in `(-1743)` gives the macOS
     message. A fake that exits with another code, or is killed by a signal,
     gives the general failure. A path to a file that is not executable gives the
     cannot-start failure. A fake that prints 1 MiB and exits 0 is a success.
   - A slow fake is killed at the limit and gives the timeout message, and its
     process group is gone. A cancel kills the process group.
-  - Two parallel calls never run the fake at the same time.
+  - Two parallel calls never run the fake at the same time, also when a folder
+    change replaces the registry between them.
   - The failure messages never contain the output text of the program.
 - Native flow: `panel/e2e/run.mjs` builds `nookd` with `--features e2e` already.
   It also sets `NOOK_E2E_OSASCRIPT` and writes the fake script. `panel/e2e/
@@ -393,6 +417,8 @@ sets the program path in `nook-core`. Release builds of `nookd` use no feature.
   after Allow, that a deny leaves the file empty, and that a cancel before the
   approval does not run it. `panel/e2e/specs/tools.spec.mjs` counts four tool
   sources, and it counts five once the Notes source shows.
+  `panel/e2e/test_fake_worker.py` gets one test for the new fake Worker command,
+  as each of the other commands has one.
 - Manual, on a Mac: one real note, to check the macOS prompt and its app name,
   the script, the title in the Notes list, the HTML, a title that starts with `-`,
   a title with non-ASCII characters, the run with the environment of rule 4, the
@@ -407,8 +433,8 @@ Each changed component runs its commands from `docs/testing.md`:
    --all-targets -- -D warnings`.
 2. Contracts: `rtk uv run --with pytest --with jsonschema pytest tests/contracts
    panel/e2e/test_fake_worker.py`. No schema, example or message changes, so
-   these only have to keep passing. `panel/e2e/test_fake_worker.py` covers the new
-   fake Worker command.
+   these only have to keep passing, and the new test of the fake Worker command
+   in `panel/e2e/test_fake_worker.py` is part of them.
 3. Native: `rtk npm run test:e2e:deterministic` from `panel/`.
 
 The Panel code and the web view do not change, so the Panel Rust commands and
@@ -445,8 +471,8 @@ paragraph that names the Notes tool as the exception), `CHANGELOG.md`
 `join_reader` become `pub(crate)`), `daemon/crates/nookd/src/main.rs` (the
 program path and the `e2e` setting), `daemon/crates/nook-core/tests/common/mod.rs`
 (the harness gets the new parameter), `panel/e2e/run.mjs`,
-`panel/e2e/fake_worker.py`, a new spec in `panel/e2e/specs/`,
-`panel/e2e/specs/tools.spec.mjs`, `panel/src-tauri/tauri.conf.json`,
+`panel/e2e/fake_worker.py`, `panel/e2e/test_fake_worker.py`, a new spec in
+`panel/e2e/specs/`, `panel/e2e/specs/tools.spec.mjs`, `panel/src-tauri/tauri.conf.json`,
 `panel/src-tauri/Info.plist`, `panel/src-tauri/entitlements.plist` and
 `scripts/bundle.sh`.
 

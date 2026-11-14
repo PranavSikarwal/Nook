@@ -86,8 +86,24 @@
 
 ## Round 6 (spec)
 
+- Head: `8684185c75a250552c6b11458c9e80d8930df78a`
+- Reviewer: the T3 reviewer, follow-up of round 5. Verdict: COMMENT (P0: 0, P1: 0, P2: 0, P3: 3). It resolved the 11 threads of S8 to S18 and found no new P2.
+- SonarCloud: Quality Gate passed.
+- Checks: pending when the reviewer read them. See "Round 7" for the state on the next head.
+- Gaps closed by recommendation: none
+
+| # | Finding | Action | Where |
+| --- | --- | --- | --- |
+| S19 (P3) | The one-at-a-time lock is new after a folder change, so two calls can run together. | fix | `specs/design.md` rule 5: one `Arc<Mutex<()>>` in `Carry`, and a test across `rebuilt`. |
+| S20 (P3) | Five test details cannot pass or cannot be seen: the exact environment, the trim cases, the log test, two rows without a test, the fake Worker test. | fix | `specs/design.md` "Tests" and "Commands": `/proc/$$/environ`, the five title cases, a registry test with a second provider, a direct `call` test, a `None` registry test, and a new test in `test_fake_worker.py`. |
+| S21 (P3) | The model is not told that the title is one line. | fix | `specs/design.md` "The tool": the description says it, and a test checks it. |
+| Residual 4 | The worst-case HTML size is not tested. | fix | `specs/design.md` "Tests": a body of 20,000 line breaks. |
+| Residual 6 | `GroupKill` has a private field, and the `assemble` code needs the `cfg(unix)` gate. | fix (small) | `specs/design.md` rule 6. |
+
+## Round 7 (spec)
+
 - Head: pending (the commit that adds this heading)
-- Reviewer: the T3 reviewer, follow-up of round 5.
+- Reviewer: the T3 reviewer, follow-up of round 6.
 - SonarCloud: pending
 - Checks: pending
 - Gaps closed by recommendation: none
