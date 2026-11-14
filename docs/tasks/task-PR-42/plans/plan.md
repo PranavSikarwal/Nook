@@ -22,7 +22,7 @@ Tasks 6 to 10 touch `daemon/`. Their checks are `cd daemon && cargo fmt --check`
 ## Facts for the state documents (as of 2026-11-14)
 
 1. Released: v0.1.4 (2026-10-11), v0.1.5 (2026-11-10), v0.1.6 (2026-11-13).
-2. Merged: PR 31 (TP1 to TP3), PR 32 (TP7 to TP13, merged after PR 31), PR 34
+2. Merged: PR 31 (TP1 to TP3), PR 32 (TP7 to TP13, it contained PR 31, both landed in merge commit `8f378a5`), PR 34
    (allowed folders view), PR 36 (Node 24), PR 37 (Daemon exit, v0.1.6), PR 38
    (SDLC work standard).
 3. Open pull requests of other tasks: PR 39 (Google Docs MCP sample and test),

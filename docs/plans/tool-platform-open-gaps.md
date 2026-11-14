@@ -74,8 +74,8 @@ Updated on November 14, 2026.
     `59103bac-6fc6-4425-bf97-673264f2ad8f` sits in `worker.checkpoint_writes`,
     `worker.checkpoint_blobs` and `worker.checkpoints`. It is not a chat. Delete
     the rows with that `thread_id` from the three tables.
-14. **Merge order.** Closed. PR #31 and PR #32 are both merged. PR #32 merged
-    after PR #31.
+14. **Merge order.** Closed. PR #32 contained the commits of PR #31. Both
+    landed in `main` in merge commit `8f378a5`.
 15. **Mac check for Allowed Folders.** The manual check in
     `allowed-folders-view.md` remains open. Check that the menu shows both
     items and that "Allowed Folders..." opens the tab. Risk: the macOS menu may
