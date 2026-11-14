@@ -174,8 +174,23 @@
 
 ## Round 12 (spec)
 
+- Head: `8b6b23ca2186ac76aa32244f8901241634a17831`
+- Reviewer: the T3 reviewer, follow-up of round 11. Verdict: REQUEST_CHANGES (P0: 0, P1: 1, P2: 2, P3: 1). It closed S33 as designed and found the folder-change mechanism incomplete.
+- SonarCloud: Quality Gate passed.
+- Checks: pending when the reviewer read them. See "Round 13" for the state on the next head.
+- Gaps closed by recommendation: none
+
+| # | Finding | Action | Where |
+| --- | --- | --- | --- |
+| S36 (P1) | The folder guarantee is not met: `Execution` has no registry and `start_execution` reads the current one again, a call allowed by a chat grant has no lock, and the new deny function does not say what it does with `decision_in_flight`. | fix | `specs/design.md` "The folder setting": four rules (read lock in both paths, `registry` in `Execution`, folder stored in the pending entry and compared at decision time, skip `decision_in_flight`), and the file list. |
+| S37 (P2) | The race tests cannot be forced without sleeps. | fix | `specs/design.md` "Tests": the test holds `state.config.write()`, and the harness owns `AppState`. Both orders and the chat-grant path are tested. |
+| S38 (P2) | The boundary test cannot pass for a list, because the result text holds a header before the cut. | fix | `specs/design.md` "Tests": the limit counts the final result text, and the list fake is sized minus the header. |
+| S39 (P3) | A missing test for the `reason` text, a sentence with no use, and a failure row that still says "kept part". | fix | `specs/design.md` rule 7, "Failure behavior" and "Tests". |
+
+## Round 13 (spec)
+
 - Head: pending (the commit that adds this heading)
-- Reviewer: the T3 reviewer, follow-up of round 11.
+- Reviewer: the T3 reviewer, follow-up of round 12.
 - SonarCloud: pending
 - Checks: pending
 - Gaps closed by recommendation: none

@@ -152,17 +152,39 @@ lock, and that leaves a window. The sequence:
    and sends the Worker a new tool catalog. The tool descriptions name the
    folder, so the model sees the new one.
 
-Steps 2 and 3 alone leave two races, so two more rules close them. Each pending
-Notes approval stores the folder that its card showed. When a decision arrives,
-the Daemon takes the read lock of `state.config`, and under that lock it compares
-the stored folder with the current folder, records the grant and takes the
-registry. A mismatch denies the call with `The Notes folder changed`, and no grant
-is recorded. The change holds the write lock for its whole sequence, so a
-decision either finishes before it, with the old registry and the old folder, or
-starts after it and is denied. A call that already runs finishes with the folder
-it started with. A decision that is already claimed holds the read lock until it
-has the registry, so the change waits for it, and the call that follows uses the
-old registry and the old folder, as its card said.
+Steps 2 and 3 alone leave races, because a call can read the registry, the
+grants and the approvals between them. Four rules close them:
+
+1. Both paths that start a Notes call take the read lock of `state.config`:
+   `handle_authorize_tool` (and `execute_tool`) from `normalize_with` until the
+   call has its approval entry or, when a chat grant allows it, until it is
+   delivered, and the decision path from the comparison of step 2 until the
+   `Execution` is stored. Under the lock they read the registry once, build the
+   facts and the Cedar answer from that registry, check the grants, and store
+   that registry in the `Execution`. The change holds the write lock for its
+   whole sequence, so each call sees either the old registry with the old grants,
+   or the new registry with the grants dropped. The read lock is released before
+   the Daemon waits for the user or runs the tool. No code under the read lock may
+   read `state.config` again, because a tokio lock is not re-entrant and a waiting
+   writer would then deadlock it.
+2. `Execution` gets a field `registry: Arc<ProviderRegistry>`, and
+   `start_execution` calls that registry. Today it calls `state.providers.call`,
+   which reads the current registry again after the lock is gone, so a change in
+   between would run the call in the new folder.
+3. Each pending Notes approval stores the folder that its card showed. When a
+   decision arrives, under the read lock the Daemon compares the stored folder
+   with the folder of the current registry, records the grant and stores the
+   registry. A mismatch denies the call with `The Notes folder changed`, and no
+   grant is recorded.
+4. The new function that denies pending Notes approvals skips an entry that has
+   `decision_in_flight`, as `deny_stale_approvals` does, because that decision
+   compares the folder itself under the read lock. Denying it would send the
+   Worker two results for one call. A decision that is already claimed holds the
+   read lock until its `Execution` has the registry, so the change waits for it,
+   and the call that follows runs with the old registry and the old folder, as its
+   card said.
+
+A call that already runs finishes with the folder it started with.
 
 The folder name is valid when, after the Daemon removes spaces at both ends, it
 has 1 to 100 characters, no control character and no `:`, and it is not `Recently
@@ -463,7 +485,7 @@ an option.
    text has many 4-byte characters (80,000 bytes). Both cases are cut and marked.
    It keeps 4096 bytes of standard error. The text from `osascript` is read as UTF-8
    and bad bytes are replaced. `read_capped` sets `truncated` only when the output
-   is longer than its limit, and the provider uses that flag.
+   is longer than its limit.
 8. Success is exit status 0. Failure is decided by the kept standard error: a
    refusal by macOS contains `(-1743)`, a missing note or a note outside the
    folder contains `(-1728)` or `(9001)`, and a wrong title contains `(9002)`.
@@ -622,7 +644,7 @@ sets the program path in `nook-core`. Release builds of `nookd` use no feature.
 | Notes does not answer within 60 seconds | `Error: Notes did not answer`. The Daemon kills the process group. |
 | `osascript` cannot start | `Error: Notes could not complete the request`. |
 | Any other failure (non-zero exit, killed by a signal, a locked note) | `Error: Notes could not complete the request`. The Daemon logs the exit status and the error number. |
-| The program writes more than the output limit | The provider keeps the limit, drains the rest and judges only the exit status. A list or a read shows the kept part. |
+| The program writes more than the output limit | The provider keeps the limit (for list and read, one byte more than `MAX_TOOL_OUTPUT_BYTES`), drains the rest and judges only the exit status. A list or a read is cut at `MAX_TOOL_OUTPUT_BYTES` and ends with `[output truncated]`. |
 | The call is cancelled | The drop guard kills the process group. A change can still exist if the script had finished. |
 | The folder changes while a call waits for approval | The Daemon denies the approval with `The Notes folder changed`. |
 | A decision arrives for a card that names the old folder | The Daemon denies the call with `The Notes folder changed` and records no grant. |
@@ -635,8 +657,9 @@ sets the program path in `nook-core`. Release builds of `nookd` use no feature.
   `tools.yaml`. The real policy files are used.
 - Registry, with a fake program path: `build_registry(tools, None)` has no Notes
   tool. With a path to a fake program it has the six tools and the source `notes`.
-  A path to a missing file, or an invalid folder name, gives the source `off`
-  with a reason. `rebuilt` after a folder change keeps the tools and the same
+  A path to a missing file gives the source `off` with the reason `Notes was
+  not found on this Mac`, and an invalid folder name gives the reason `The Notes
+  folder name is not valid`. `rebuilt` after a folder change keeps the tools and the same
   lock.
 - Registry, schema message: the string that `ProviderRegistry::facts` returns for
   a refused schema holds the keyword and the property and never the value. The
@@ -652,8 +675,14 @@ sets the program path in `nook-core`. Release builds of `nookd` use no feature.
   tool ids and no other grant.
 - Folder change, races: a pending approval of another tool stays open and a grant
   of another tool stays after a folder change. A decision that arrives for a card
-  with the old folder is denied and records no grant. A decision that was already
-  claimed before the change runs with the old folder. A failed write of
+  with the old folder is denied and records no grant. The harness owns
+  `AppState` (`tests/common/mod.rs`), so the tests force the order without
+  sleeps: the test holds `state.config.write()`, sends the decision, which waits at
+  the read lock, makes the change in memory (folder, registry, deny, drop),
+  releases the guard, and expects the denial and no grant. For the other order, the
+  decision finishes first, then the change runs, and the fake receives the old
+  folder. A call that a chat grant allows follows the same two orders, and it never
+  runs in the new folder with a grant for the old one. A failed write of
   `config.toml` returns the fixed error and leaves the registry, the approvals and
   the grants as they were.
 - Folder setting, through the real socket: `get_notes_settings` returns the
@@ -701,8 +730,10 @@ sets the program path in `nook-core`. Release builds of `nookd` use no feature.
     is killed by a signal, gives the general failure. A path to a file that is not
     executable gives the cannot-start failure.
   - A fake that prints 1 MiB and exits 0 is a success for create, append, edit
-    and delete. A list or a read of exactly `MAX_TOOL_OUTPUT_BYTES` shows no
-    marker, one byte more ends with `[output truncated]`, and a four-byte
+    and delete. The limit counts the final result text. A read of exactly
+    `MAX_TOOL_OUTPUT_BYTES` shows no marker. For a list the fake prints the limit
+    minus the header `Notes in the folder "<folder>":` and its line break, which
+    shows no marker, and one byte more ends with `[output truncated]`, and a four-byte
     character at the cut leaves valid UTF-8. A list with 101 lines shows 100 and
     `More notes exist.` A read over 20,000 characters shows the cut line of the
     script.
@@ -800,7 +831,9 @@ policies, six actions), `contracts/panel-daemon.schema.json` and
 `daemon/crates/nook-core/src/config.rs` (`[tools.notes]`),
 `daemon/crates/nook-core/src/protocol.rs` and `server.rs` (the two requests), a
 new `daemon/crates/nook-core/src/notes_folder.rs` in the way of `folders.rs`,
-`daemon/crates/nook-core/src/tool_approval.rs` (the function that denies the
+`daemon/crates/nook-core/src/tool_approval.rs` (`PendingApprovalEntry` with the
+folder, `Execution` with the registry, `handle_authorize_tool`,
+`handle_approval_decision`, `start_execution`, and the function that denies the
 waiting Notes approvals), `daemon/crates/nook-core/src/policy.rs`
 (`GrantStore::remove_tools`), `daemon/crates/nook-core/src/sandbox.rs` (`GroupKill`, `read_capped` and
 `join_reader` become `pub(crate)`), `daemon/crates/nookd/src/main.rs` (the
