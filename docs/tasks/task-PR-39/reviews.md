@@ -63,6 +63,17 @@ The review makes four notes for the plan, not findings:
 | S19 (P3) | In external mode the Drive tools fail inside the server. | fix | `specs/design.md` "The server" 5 and "What the model sees". `open-gaps.md` G2 and G5. |
 | S20 (P3) | The state block and `reviews.md` did not show the round. | fix | The state block is `Stage: 3 spec review`, and this heading exists. |
 
+## Round 4 (spec)
+
+- Head: pending (the commit that adds this heading)
+- Reviewer: the T3 reviewer ("Review Pull Requests"), follow-up of round 3.
+- SonarCloud:
+- Checks:
+- Gaps closed by recommendation: none
+
+| # | Finding | Action | Where |
+| --- | --- | --- | --- |
+
 ## Commands run
 
 This task adds no named check to a rule or a document.
