@@ -181,6 +181,13 @@ impl GrantStore {
             .retain(|g| g.chat_id != chat_id || is_persistent_scope(&g.scope));
     }
 
+    /// Drops the chat grants of the given tool ids, for every chat.
+    pub fn remove_tools(&mut self, tool_ids: &[&str]) {
+        self.grants.retain(|grant| {
+            !tool_ids.contains(&grant.tool_name.as_str()) || !grant.scope.starts_with("chat")
+        });
+    }
+
     pub fn matching_scopes(
         &self,
         chat_id: Uuid,
@@ -661,6 +668,49 @@ mod tests {
         assert_eq!(
             store.matching_scopes(other_chat, "web_search", None, None, None),
             vec!["chat".to_string(), "persistent".to_string()]
+        );
+    }
+
+    #[test]
+    fn remove_tools_drops_only_matching_chat_grants() {
+        let chat_id = Uuid::new_v4();
+        let other_chat = Uuid::new_v4();
+        let mut store = GrantStore::new();
+        store.add_grant(grant(chat_id, "notes_create_note", "chat"));
+        store.add_grant(grant(chat_id, "notes_delete_note", "chat"));
+        store.add_grant(grant(chat_id, "web_search", "chat"));
+        store.add_grant(grant(other_chat, "notes_create_note", "chat"));
+        store.add_grant(grant(other_chat, "web_search", "chat"));
+        store.add_grant(grant(chat_id, "notes_create_note", "persistent"));
+        store.add_grant(ScopedGrant {
+            argument_digest: Some("d".to_string()),
+            ..grant(chat_id, "notes_create_note", "once")
+        });
+
+        store.remove_tools(&["notes_create_note", "notes_delete_note"]);
+
+        assert_eq!(
+            store.matching_scopes(chat_id, "notes_create_note", None, None, None),
+            vec!["persistent"]
+        );
+        assert_eq!(
+            store.matching_scopes(chat_id, "notes_create_note", None, None, Some("d")),
+            vec!["persistent", "once"]
+        );
+        assert!(store
+            .matching_scopes(chat_id, "notes_delete_note", None, None, None)
+            .is_empty());
+        assert_eq!(
+            store.matching_scopes(chat_id, "web_search", None, None, None),
+            vec!["chat"]
+        );
+        assert_eq!(
+            store.matching_scopes(other_chat, "web_search", None, None, None),
+            vec!["chat"]
+        );
+        assert_eq!(
+            store.matching_scopes(other_chat, "notes_create_note", None, None, None),
+            vec!["persistent"]
         );
     }
 
