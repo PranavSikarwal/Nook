@@ -70,7 +70,7 @@ Tasks 6 to 10 touch `daemon/`. Their checks are `cd daemon && cargo fmt --check`
   `daemon-exit-after-panel-quit.md`, "Verification" 4, and gap G3). Add one
   item for the open Mac check of `allowed-folders-view.md`. Add one item for
   the notice of a refused call (item 11 of `open-items-fixes.md`, PR 41 open).
-  Do not drop an item that is still open. Check: re-read each item against the
+  Keep every existing number. Items 12 and 14 stay in place, marked closed. Each new open item gets the next free number after item 14 (gap G6). Do not drop an item that is still open. Check: re-read each item against the
   facts above and against `CHANGELOG.md`. Commit:
   `docs(plans): bring the tool platform gaps up to date`.
 - [ ] **4. Fix `CHECKLIST.md` and `docs/plan.md`.** `CHECKLIST.md`: keep TP11

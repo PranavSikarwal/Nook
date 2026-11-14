@@ -71,3 +71,17 @@
 - Decided by: owner (the task text: "G11 ... is NOT part of this task")
 - Date: 2026-11-14
 - Status: decided by owner
+
+## G6. Numbering of the new items in the open gaps file
+
+- Stage: 6 implement (plan task 3)
+- Question: the plan says item 12 (stale Daemon) is closed and also says to add
+  the live v0.1.6 Mac check. Does the check take the number 12?
+- Options: (a) item 12 stays closed, and each new open item gets the next free
+  number at the end of its section. (b) renumber the file.
+- Recommendation: (a). It keeps the numbers that other documents quote.
+- Decision: (a). The choice touches only the file that task 3 names and changes
+  no contract, policy, interface or dependency.
+- Decided by: orchestrator by recommendation
+- Date: 2026-11-14
+- Status: closed by recommendation
