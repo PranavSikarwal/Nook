@@ -136,6 +136,19 @@ No findings. The spec went through rounds 1 to 6 with the owner's decisions G1 t
 | C9 (P3) | Four public items have no doc comment. | fix | plan R1-4 |
 | C10 (P3) | `check_server_settings` writes the `LD_` message twice. | fix | plan R1-3 |
 
+## Round 2 (code)
+
+- Head: pending (the commit that adds this heading)
+- Reviewer: the T3 reviewer ("Review Pull Requests"), follow-up of round 1.
+- Verdict:
+- SonarCloud:
+- Checks:
+- Gaps closed by recommendation since round 1: G10 (extra variant `SecretError::Empty`), G11 (overlapping secrets in the mask are accepted as best effort).
+- Fix commits for round 1: R1-1 `0f5ed7a`, R1-2 `9ffa939`, R1-3 `cc20f1b`, R1-4 `4f570a2`, R1-5 `7cb811f`. CI passed on `9ffa939`.
+
+| # | Finding | Action | Where |
+| --- | --- | --- | --- |
+
 ## Commands run
 
 This task adds no named check to a rule or a document.

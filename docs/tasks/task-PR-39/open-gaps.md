@@ -129,3 +129,30 @@
 - Decided by: owner
 - Date: 2026-11-14
 - Status: decided by owner
+
+## G10. Extra error variant `SecretError::Empty`
+
+- Stage: 7 code review (reported by the implementer of plan task R1-4)
+- Question: Plan task R1-4 names the new variant `Refused`. `set_from_reader` also needs to report an empty value. Does it get its own variant?
+- Options:
+  1. Add `SecretError::Empty` with the fixed text "The value is empty." `nookctl` prints this text and its test stays as it is.
+  2. Reuse `Unreadable` for an empty value. The user would see "Secret cannot be read", which is wrong.
+- Recommendation: Option 1. It touches only `secrets.rs` and `nookctl`, changes no interface in `contracts/` or `policy/`, and adds no dependency.
+- Decision: Option 1, closed by recommendation by the orchestrator in code round 1.
+- Decided by: orchestrator (closed by recommendation)
+- Date: 2026-11-14
+- Status: closed by recommendation
+
+## G11. Overlapping secrets can leave a part of a secret in masked text
+
+- Stage: 7 code review (reported by the implementer of plan task R1-1)
+- Question: The mask replaces secrets longest first. Two secrets that overlap without one containing the other (`xxabcd` and `abcdyy` in the text `xxabcdyy`) can leave a part (`yy`). Does the task mask by match ranges?
+- Options:
+  1. Accept. The spec and the page say that the scrub and the log mask are best effort, and the secrets of one server are unrelated random strings. Mention it in the ADR if the owner asks.
+  2. Mask by merged match ranges in one pass. More code in `secrets.rs` and a new test.
+- Recommendation: Option 1. The case needs two secrets that overlap by construction, and the Google client secret and refresh token do not.
+- Decision: Option 1, closed by recommendation by the orchestrator in code round 1.
+- Decided by: orchestrator (closed by recommendation)
+- Date: 2026-11-14
+- Status: closed by recommendation
+
