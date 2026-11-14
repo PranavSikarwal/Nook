@@ -21,6 +21,17 @@
 | S8 (P3) | Three facts miss from the risks: the client secret under `network`, the 10 second start limit, and the masked `env` values in the log. | fix | `specs/design.md` Risks 2, 8 and 9, and "When Google Docs stops working" 5 and 6. |
 | G1, G4, G5 text | The reviewer adds a sentence to each. | fix | `open-gaps.md` G1 (accept `network = true`), G4 (`ps` reads `env`), G5 (decide again with a Drive scope). |
 
+## Round 2 (spec)
+
+- Head: pending (the commit that adds this heading)
+- Reviewer: the T3 reviewer ("Review Pull Requests"), follow-up of round 1.
+- SonarCloud:
+- Checks:
+- Gaps closed by recommendation: none
+
+| # | Finding | Action | Where |
+| --- | --- | --- | --- |
+
 ## Commands run
 
 This task adds no named check to a rule or a document.
