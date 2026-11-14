@@ -60,6 +60,17 @@
 | --- | --- | --- | --- |
 | none | The review has no finding. | none | - |
 
+## Round 5 (spec)
+
+- Head: pending (the commit that adds this heading)
+- Reviewer: the T3 reviewer, follow-up of round 4. The spec changed after the owner decided G4 (the Daemon runs the tool), so this round reviews the new design.
+- SonarCloud: pending
+- Checks: pending
+- Gaps closed by recommendation: none
+
+| # | Finding | Action | Where |
+| --- | --- | --- | --- |
+
 ## Commands run
 
 One row for each named check that the task adds to a rule or a document. A row lists the commands of its check.
