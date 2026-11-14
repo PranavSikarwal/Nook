@@ -1,7 +1,7 @@
-# Spec: Notes tool run by the Panel
+# Spec: Notes tool run by the Daemon outside the sandbox
 
 ```
-Stage: 4 gate 1
+Stage: 3 spec review
 Gate 1: pending
 Gate 2: pending
 ```
@@ -9,17 +9,26 @@ Gate 2: pending
 Branch: `feat/notes-tool`. Pull request: #40.
 
 This spec starts from the draft `docs/design/desktop-app-tools.md` of October 17,
-2026. The draft moved here with this task. The owner chose this route on October
-17, 2026 (see `docs/plans/app-integrations.md`, option 2). ADR 0008 records the
-decision, and this task changes its status to Accepted.
+2026. The draft moved here with this task. The draft and the first version of
+this spec had the Panel run the tool, and the owner chose that route on October
+17, 2026 (see `docs/plans/app-integrations.md`, option 2). On November 14, 2026
+the owner changed the route: the Daemon runs the tool itself, outside the
+command sandbox, because the Daemon is the core of Nook and the Panel is only
+the view (gap G4). ADR 0008 records the decision, and this task rewrites it and
+changes its status to Accepted.
 
 ## Why
 
 The owner wants the assistant to write to the Notes app. A Notes server from the
 internet cannot do this inside the command sandbox, because macOS refuses Apple
-events (the messages that one Mac app sends to another) from any sandboxed
-process. The Panel is a normal desktop app, so it can send Apple events when the
-user allows it. The Panel runs the tool, and the Daemon authorizes each call.
+events (the messages that one Mac app sends to another) from any process that
+runs under a sandbox profile. So the tool cannot use the sandbox that the
+command tool and the MCP servers use.
+
+The Daemon already owns every tool call: it checks the arguments, asks Cedar,
+shows the approval and runs the tool. This design keeps that whole path in the
+Daemon. The Daemon starts `/usr/bin/osascript` itself, as a plain child process
+with one fixed script. The Panel does not change.
 
 The draft before this one had clipboard, notification and open-link tools. The
 owner removed them because the user can do each of them without the assistant.
@@ -34,6 +43,9 @@ folders, other accounts, Reminders, Calendar, Mail, Messages, the clipboard,
 screen capture and any other app. Each of those needs its own design, because
 reading a note shows private data and a delete cannot be undone.
 
+The Panel starts the Daemon. A Daemon that something else starts, such as
+`nookctl` or a person in a terminal, is not a supported case for this tool.
+
 This is not a release. No version file changes. The change adds one line under
 "Unreleased" in `CHANGELOG.md`.
 
@@ -47,155 +59,47 @@ This is not a release. No version file changes. The change adds one line under
 | Linux | No | No Notes app. The tool is not offered. |
 | Windows | No | No Notes app. The tool is not offered. |
 
-### What the code does today, and what changes
+### Where each tool runs
 
-Two facts about the current code shape this design.
+This design needs an accurate picture of the sandbox, because the Notes tool is
+the first tool that must run a program outside it.
 
-1. Each Panel request uses its own short connection to the Daemon. `ask_daemon`
-   in `panel/src-tauri/src/lib.rs` opens a connection, sends one message and reads
-   the reply. `send_message` keeps one connection for the events of one reply.
-   The Daemon cannot send a message to the Panel at any other time. The draft
-   said "the Daemon sends the Panel a `native_request`", but no channel for that
-   exists.
-2. The Daemon builds its tool list from a `ProviderRegistry` and sends it to the
-   Worker as `tool_catalog`. A folder change already builds the registry again
-   and sends a new catalog. The same path can add or remove the Notes tool.
+| Tool | Runs in | OS sandbox |
+| --- | --- | --- |
+| File tools | The Daemon, in process | No. The allowed folders and Cedar limit them. |
+| Command tool and MCP servers | The Daemon, as a child process | Yes. Seatbelt on macOS, bubblewrap on Linux. |
+| Web search and web fetch | The Worker | No. |
+| Notes tool (new) | The Daemon, as a child process | No. macOS refuses Apple events from a sandboxed process. |
 
-So the design adds one long-lived connection, the **desktop link**, and one
-provider that uses it.
+The Daemon builds its tool list from a `ProviderRegistry` and sends it to the
+Worker as `tool_catalog`. A tool that the Daemon owns reaches the Daemon as
+`execute_tool`. The Notes tool is one more `Provider` in that registry, so the
+Worker, the Panel and the contracts do not change.
 
-### The desktop link
+### The call, step by step
 
-The Panel opens the desktop link when it starts. It is a normal connection to the
-Daemon socket that stays open. The Rust side of the Panel owns it. The web view
-never sees it. The Panel has no reconnect code today, so the section "Link
-lifecycle" below defines it.
-
-Four new messages in `contracts/panel-daemon.schema.json`:
-
-1. `register_desktop` (Panel to Daemon) carries `id` and `operations`, a list of
-   operation names that this Panel can run. On macOS the list is
-   `["notes_create_note"]`. On Linux and Windows the Panel sends no
-   registration. The Daemon ignores an operation name that it does not know.
-2. `desktop_registered` (Daemon to Panel) carries `id`. It is the answer to a
-   `register_desktop` that the Daemon accepted. The connection stays open.
-3. `native_request` (Daemon to Panel) carries `call_id`, `operation`,
-   `arguments` (an object) and `nonce` (a random string). The Daemon sends it
-   only on the desktop link.
-4. `native_result` (Panel to Daemon) carries `id`, `call_id`, `nonce`, `status`
-   (`ok` or `error`) and `output` (a string of at most 1000 characters). The
-   Daemon sends no reply to it.
-
-Only one desktop link is active, and the first live link wins. A second
-`register_desktop` gets an `error` reply (code `invalid_request`, message `A
-desktop is already connected`), and the Daemon keeps the first link. The Daemon
-never closes a live link to make room. A closed local socket shows end of file at
-once, so a Panel that quits or crashes frees the link. When the link closes, the
-Daemon drops it and fails each waiting call with `Error: the desktop is not
-available`.
-
-The Daemon keeps the link and the waiting calls in one `DesktopLink` handle in
-`AppState`. One lock protects it. A waiting call is a record with the call id,
-the nonce and a channel for the result. The Daemon removes the record when the
-result arrives, when the call is cancelled and when the call times out.
-
-### Link lifecycle
-
-1. **Start.** The Panel starts the link task after `ensure_daemon_started` at
-   application start. It runs on macOS builds and on `e2e` builds only.
-2. **Connect.** The task connects with the plain `connect_local_daemon`. It never
-   starts a Daemon, so it cannot start one again after `RunEvent::Exit` stopped
-   it. The next chat request starts a Daemon through `connect_to_daemon`, and the
-   task then connects on its next try.
-3. **Retry.** After a loss or a failed connect, the task tries again every 5
-   seconds, with no limit, until the Panel exits. A failed local connect costs
-   almost nothing.
-4. **Refusal.** The Daemon may answer `register_desktop` with an `error`. This
-   happens with an old Daemon that does not know the message, and with a second
-   desktop. The Panel logs the error, offers no tool and tries again after 60
-   seconds, so it never loops fast. The Daemon keeps the connection of an old
-   Daemon open, so the Panel closes its side first.
-5. **Exit.** The task ends with the Panel. The Daemon sees the end of file and
-   drops the link.
-
-Panel tests cover each rule: a Daemon that is down, a Daemon that comes back, an
-`error` reply, and exit. The tests use a fake Daemon on a socket.
+1. The model calls `nook:notes_create_note`. The Worker checks the arguments and
+   sends `authorize_tool`, as for any tool.
+2. The Daemon checks the arguments against the schema, asks Cedar and shows the
+   approval to the user.
+3. After an allow, the Worker sends `execute_tool`. `NotesProvider::call` checks
+   the arguments again, builds the HTML of the note and runs `osascript`.
+4. The Daemon returns the result to the Worker as `tool_result`.
 
 ### Offering the tool
 
 `providers/notes.rs` holds `NotesProvider`, a `Provider` behind
-`ProviderRegistry`. The registry builder adds it only while the `DesktopLink`
-handle holds a registered link with `notes_create_note` in its operations. The
-Tools tab shows a source `desktop` (display name "Desktop tools") with state
-`ready` while the link is up.
+`ProviderRegistry`. Its constructor takes the path of the program to run. A
+release build always passes `/usr/bin/osascript`.
 
-Four rules keep the swap correct. Each one has a test.
+`assemble` in `providers/mod.rs` adds `NotesProvider` when the build targets
+macOS (or is an `e2e` build, see "The test build") and the program file exists.
+When the file is missing, the Daemon does not offer the tool and logs why once at
+start. The Daemon does not run `osascript` to test it, because a test run would
+show the macOS prompt.
 
-1. **Where the state lives.** `Carry` in `providers/mod.rs` also holds a clone of
-   the `DesktopLink` handle, and `assemble` reads it. A folder change calls
-   `rebuilt`, so it keeps the Notes tool while the link is up. Today `Carry`
-   holds only the sandbox and the MCP servers, and a folder change would drop the
-   tool without this.
-2. **One lock.** One function reads the registry, builds the new one, replaces
-   it in `ProviderHandle` and calls `update_tools`. It runs under the write lock
-   of `state.config`, the same lock that `folders.rs` takes. A link event and a
-   folder change then cannot lose each other's update (`AGENTS.md` Design 6).
-   The folder path calls this function too. `folders.rs` already holds that
-   lock in `apply`, and the lock is not re-entrant, so the function takes the
-   held guard as an argument and never takes the lock a second time.
-3. **Waiting approvals.** After each link change, the Daemon calls
-   `deny_stale_approvals`. For a waiting approval of the Notes tool, the reason
-   is `The desktop is not available`. Today an unknown tool gets the reason
-   `Path is outside the allowed folders`, which is wrong here.
-4. **Catalog text.** `docs/contracts.md` says the catalog goes out "each time the
-   allowed folders change". It now also goes out when the desktop link changes.
-
-Because the tool exists in the catalog only while a Panel can run it, a call
-that finds no link is rare. Two cases remain:
-
-- The link closes while the call waits. The call holds the registry it took, so
-  it fails with `Error: the desktop is not available`.
-- The model calls the tool after the swap but before its Worker has the new
-  catalog. The registry no longer has the tool, and `tools.yaml` still lists it.
-  The check at `tool_approval.rs:370-377` then denies the call with the reason
-  `Tool runs in the Worker`, and a denial ends the reply ("Denial ends the reply"
-  in `docs/tools-and-authorization.md`). The window is the short time between the
-  swap and the rebuild of the Worker. A distinct reason would need a way to tell a
-  Daemon tool from a Worker tool in that check, which is more than this task
-  needs. A test pins this behavior, and the docs say it.
-
-Nothing queues for later.
-
-### The call, step by step
-
-1. The Worker sends `execute_tool` for `nook:notes_create_note`, as for any tool
-   that the Daemon owns.
-2. The Daemon checks the arguments against the schema, asks Cedar and shows the
-   approval.
-3. After an allow, `NotesProvider::call` makes a nonce, stores the waiting
-   record, and sends `native_request` on the desktop link. It then waits for the
-   result for 70 seconds.
-4. The Panel checks the request. It refuses an operation outside its fixed list.
-   It refuses a nonce that it already saw on this link. It checks the arguments
-   again (see "Run in the Panel"). It then runs the operation and sends
-   `native_result`.
-5. The Daemon accepts a `native_result` only when it arrives on the desktop link
-   that got the request and matches the `call_id` and the nonce of a waiting
-   record. It uses the record once. A second result for the same call, or a
-   result for an unknown call, is ignored and logged.
-6. The Daemon returns the result to the Worker as `tool_result`.
-
-Cancel aborts the waiting future, as for any tool. The Panel may already run the
-script, so a note can exist after a cancel. The Panel gets no cancel message.
-
-What the nonce does: the draft said that the Panel refuses a request "without a
-nonce that the Daemon issued". The Panel cannot check who issued a nonce. The
-nonce stops two things: the Panel runs no request twice, and the Daemon accepts
-no forged or repeated result. The trust anchor is the desktop link itself. The
-socket is private to the user, and `approval_decision` has the same trust level.
-Any process of the same user that can reach the socket can already approve
-tools, so the design adds no new weakness there. The nonce is a replay guard, not
-a login.
+`NotesProvider` holds no state, so a folder change that calls `rebuilt` adds it
+again. The tool never leaves the catalog while the Daemon runs. A test pins this.
 
 ### The tool
 
@@ -212,35 +116,44 @@ It returns `Created the note "<title>" in the Nook folder` or an error.
 The tool description tells the model that it creates a new note in the `Nook`
 folder, cannot read or change a note, and exists on macOS only.
 
-### Run in the Panel
+### Run in the Daemon
 
-A new module `panel/src-tauri/src/desktop.rs` owns the link and the operations.
-Its public interface is small: start the link, and run one named operation with
-its arguments. Everything else stays private.
+`NotesProvider::call` checks the arguments itself, because it is the last step
+before a process starts. The arguments must be exactly `title` and `body`, both
+strings, with the same limits as the schema and no line break in the title. If
+they fail, it returns `Error: the arguments are not valid` and starts no
+process.
 
-The Panel checks the arguments itself, because it is the last step before a
-process starts. The arguments must be exactly `title` and `body`, both strings,
-with the same limits as the Daemon schema and no line break in the title. If
-they fail, the Panel sends `status: error` with the fixed text `Error: the
-arguments are not valid`, and it starts no process.
+The provider builds the HTML first, in one small function that tests call
+directly. It escapes `&`, `<` and `>`, and it puts each line in a `div`. Notes
+takes the title of a note from the first line of its body, so the first `div`
+holds the escaped title as a heading, and the body lines follow. The manual test
+checks the title in the Notes list.
 
-The Panel runs `/usr/bin/osascript` with a script that is a constant in the
-module. The script takes one argument, the HTML of the note (`on run argv`). The
-text of the model is never part of the script text. The Panel passes no raw
-title and no raw body on the command line. The HTML always starts with `<`, so
-`osascript` cannot read it as an option. The process starts with an empty
-environment and a 60 second limit, and the Panel kills it at the limit.
+Six rules keep the operation closed. The model supplies data and never code or
+an option.
 
-The Panel builds the HTML first. It escapes `&`, `<` and `>`, and it puts each
-line in a `div`. Notes takes the title of a note from the first line of its
-body, so the first `div` holds the escaped title as a heading, and the body
-lines follow. The manual test checks the title in the Notes list.
+1. The program is the path that the constructor got. A release build passes
+   `/usr/bin/osascript`.
+2. The script is a constant in `notes.rs`. It takes one argument (`on run
+   argv`). The text of the model is never part of the script text.
+3. The one argument is the HTML. It always starts with `<`, so `osascript`
+   cannot read it as an option. The provider passes no raw title and no raw body
+   on the command line.
+4. The process starts with an empty environment and with no standard input.
+5. The process runs in its own process group with `kill_on_drop`. The provider
+   kills the group at the 60 second limit and when the call is cancelled. It
+   reuses `kill_group` from `sandbox.rs`, which becomes `pub(crate)`.
+6. The provider reads at most 4096 bytes of standard output and of standard
+   error. The model sees only the fixed texts of the failure table. The Daemon
+   logs the exit status and the AppleScript error number, never the output
+   text, because a script error can contain part of the note.
 
 The script creates the `Nook` folder in the default account when it is missing,
 and then creates the note in it.
 
-The Panel does not run an `osascript` that the model or the Daemon supplies.
-Cedar keeps its rule that forbids `osascript` for the command tool.
+Cedar keeps its rule that forbids `osascript` for the command tool. The Notes
+tool does not use the command tool.
 
 ### Approval and policy
 
@@ -271,12 +184,17 @@ folder and grant rules.
 
 The first call makes macOS ask whether Nook may control Notes. The user can
 refuse. A refusal returns `Error: macOS did not allow Nook to control Notes`
-(AppleScript error -1743), and macOS does not ask again until the user changes
-the setting in System Settings, Privacy and Security, Automation.
+(AppleScript error -1743 in the standard error of `osascript`), and macOS does
+not ask again until the user changes the setting in System Settings, Privacy and
+Security, Automation.
 
-The 60 second limit is longer than the 15 seconds of the draft. The first call
-waits for a person to answer the macOS prompt, and it may also wait while Notes
-starts.
+macOS shows the name of the responsible app in this prompt. The Panel starts the
+Daemon as a child process, so the responsible app should be Nook, and macOS
+should read the usage description from the `Info.plist` of `Nook.app`. This is
+not checked, because it needs a Mac (Risk 1).
+
+The 60 second limit leaves time for a person to answer the macOS prompt, and for
+Notes to start.
 
 ### Signing check (gap G3)
 
@@ -304,134 +222,123 @@ The task adds both: the usage description in the `Info.plist` of the Tauri
 bundle and in `scripts/bundle.sh`, and an entitlements file with the automation
 key that `tauri.conf.json` references. The release build runs `npm run tauri
 build`, so `tauri.conf.json` is the release path. `scripts/bundle.sh` signs
-with no `--entitlements` flag, so it gets only the usage description. It does not change the signing identity
-or turn on the hardened runtime. A real signed and notarized release stays a
-later task. The plan has a step that builds the bundle on a Mac and runs
-`codesign -d --entitlements :- Nook.app` and `plutil -p Info.plist` to check the
-result. The result goes into the task record before the pull request leaves
-draft.
+with no `--entitlements` flag, so it gets only the usage description. It does not
+change the signing identity or turn on the hardened runtime. A real signed and
+notarized release stays a later task. The plan has a step that builds the bundle
+on a Mac and runs `codesign -d --entitlements :- Nook.app` and `plutil -p
+Info.plist` to check the result. The result goes into the task record before the
+pull request merges.
+
+If the manual test shows that macOS names `nookd` in the prompt, or shows no
+prompt, the usage description must also go into the `nookd` binary. That is a
+new gap for the owner (see Risk 1).
 
 ### Data handling
 
 The Daemon stores the title and the body only in the chat transcript, as for any
-tool argument. The Panel writes them nowhere except the note. The Panel logs the
-operation name and the status, never the title or the body. The tool cannot read
-a note, so the assistant never sees what is already in Notes.
-
-### Isolation
-
-The Panel adds no Tauri command and no capability permission for this operation.
-The operation lives in Rust, behind the desktop link. The web view can neither
-start it nor read a nonce.
+tool argument. The provider writes them nowhere except the note. The Daemon logs
+the operation name and the status, never the title or the body. The tool cannot
+read a note, so the assistant never sees what is already in Notes.
 
 ### The test build
 
-Warning: a setting that lets the Panel run another program in place of
-`osascript` must not exist in a release build. The Panel reads the setting
-`NOOK_E2E_OSASCRIPT` only under `#[cfg(feature = "e2e")]`. The `e2e` build also
-registers the desktop link on every platform, so the native tests run on Ubuntu.
+Warning: a setting that lets the Daemon run another program in place of
+`osascript` must not exist in a release build. `nookd` reads the setting
+`NOOK_E2E_OSASCRIPT` only under `#[cfg(feature = "e2e")]` and passes the path to
+the registry builder. `nook-core` reads no environment variable. An `e2e` build
+also offers the tool on every platform, so the native tests run on Ubuntu.
 
 ### Failure behavior
 
 | Case | Result |
 | --- | --- |
-| The link closes while the call waits | `Error: the desktop is not available`. |
-| The call runs after the link closed and the registry changed | The Daemon denies it with `Tool runs in the Worker`, and the reply ends. The next catalog removes the tool. |
-| A waiting approval when the link closes | The Daemon denies it with the reason `The desktop is not available`. |
-| A second desktop registers | The Daemon answers with an `error` and keeps the first link. |
-| An old Daemon refuses `register_desktop` | The Panel logs it, offers no tool and tries again after 60 seconds. |
-| Platform is not macOS | The tool is not offered. |
+| Platform is not macOS (release build) | The tool is not offered. |
+| `/usr/bin/osascript` does not exist | The tool is not offered, and the Daemon logs why at start. |
 | User denies the approval | A fixed denial reason, as for any tool. |
-| macOS refuses Automation | `Error: macOS did not allow Nook to control Notes`. |
-| Notes does not answer within 60 seconds | `Error: Notes did not answer`. |
-| Any other `osascript` failure | `Error: Notes could not create the note`. The Panel logs the detail. |
-| The Daemon gets no result within 70 seconds | `Error: the desktop did not answer`. |
-| Request has an operation outside the list | The Panel refuses it and logs it. |
-| Request has a repeated nonce | The Panel refuses it and logs it. |
-| Result has a wrong, unknown or used nonce or call id | The Daemon ignores it and logs it. |
 | Arguments break the schema | The Daemon refuses the call before any prompt. |
-| The Panel finds invalid arguments | `Error: the arguments are not valid`. No process starts. |
+| The provider finds invalid arguments | `Error: the arguments are not valid`. No process starts. |
+| macOS refuses Automation | `Error: macOS did not allow Nook to control Notes`. |
+| Notes does not answer within 60 seconds | `Error: Notes did not answer`. The Daemon kills the process group. |
+| `osascript` cannot start | `Error: Notes could not create the note`. |
+| Any other `osascript` failure | `Error: Notes could not create the note`. The Daemon logs the exit status and the error number. |
+| The call is cancelled | The Daemon kills the process group. A note can still exist if the script had finished. |
 
 ### Tests
 
-- Contracts: schema and examples for `register_desktop`, `desktop_registered`,
-  `native_request` and `native_result`. The contract test in
-  `tests/contracts/test_contracts.py` covers them.
 - Policy: the tool needs a grant with scope `once` or `chat`. No permanent grant
   is offered. A call that carries any other folder is denied. The real policy
   files are used.
-- Daemon, through the real socket and the fake Worker: the tool is absent from
-  the catalog until a desktop link registers, and absent again after the link
-  closes. A call reaches the link only after an allow. A result with a wrong
-  nonce, a wrong call id or a second result is ignored. A link that closes
-  fails the waiting call and denies a waiting approval with its own reason. A
-  second registration gets an `error` and the first link stays. A timeout
-  returns the fixed error. A cancel removes the waiting record. A folder change
-  while the link is up keeps the tool. A call for the tool after the link closed
-  and the registry changed is denied with `Tool runs in the Worker`, and the
-  reply ends.
-- Panel: an operation outside the list is refused. A repeated nonce is refused.
-  Arguments that are not exactly a valid `title` and `body` start no process.
-  The HTML conversion escapes `&`, `<` and `>`. A body with quotes, backslashes
-  and `$(...)` reaches the program as one plain argument. Titles such as `-e`
-  and `-l` also arrive inside the HTML and not as an option. The link lifecycle
-  tests use a fake Daemon on a socket (see "Link lifecycle").
-- Native flow: the `e2e` build runs a fake program in place of `osascript`. It
-  writes its arguments to a file. The test checks that the program ran only
-  after Allow, that a deny leaves the file empty, and that a cancel before the
-  approval does not run it. No automated test touches the real Notes app.
-- Manual, on a Mac: one real note, to check the macOS prompt, the title in the
-  Notes list, the HTML, a title that starts with `-`, the run with an empty
-  environment, the refusal path, and the signing result from the "Signing check"
-  section.
+- Daemon, through the real socket and the fake Worker, with a fake `osascript`
+  (a script that writes its arguments to a file and exits with a chosen code).
+  The tests run on Linux:
+  - The tool is in the catalog when the provider is built, and it stays after a
+    folder change.
+  - The program runs only after an allow. A deny leaves the file empty. A cancel
+    before the approval does not run it.
+  - The program gets exactly one argument, it starts with `<`, and the
+    environment is empty. A title such as `-e` or `-l` arrives inside the HTML.
+  - A body with quotes, backslashes, `$(...)` and a line break reaches the
+    program as plain text in that one argument.
+  - The HTML conversion escapes `&`, `<` and `>`.
+  - Arguments that are not exactly a valid `title` and `body` start no process.
+  - An exit with the error number -1743 returns the macOS message. A slow
+    program is killed at the limit and returns the timeout message, and its
+    process group is gone. A cancel kills the process group.
+  - The failure messages never contain the output text of the program.
+- Native flow: the `e2e` build of `nookd` runs a fake program in place of
+  `osascript`, as in the Daemon tests, and the native test checks the same
+  allow, deny and cancel cases through the Panel.
+- Manual, on a Mac: one real note, to check the macOS prompt and its app name,
+  the title in the Notes list, the HTML, a title that starts with `-`, the run
+  with an empty environment, the refusal path, and the signing result from the
+  "Signing check" section. No automated test touches the real Notes app.
 
 ### Commands
 
-Each changed component runs its commands from `docs/testing.md`. This task adds
-the Panel Rust commands, because no gate runs them today (CI runs only `cargo
-check` in `panel/src-tauri`):
+Each changed component runs its commands from `docs/testing.md`:
 
 1. Daemon, from `daemon/`: `rtk cargo test` and `rtk cargo clippy --workspace
    --all-targets -- -D warnings`.
-2. Panel Rust, from `panel/src-tauri/`: `rtk cargo test` and `rtk cargo clippy
-   --all-targets -- -D warnings`. These are new in `docs/testing.md`, and the
-   `Code Quality and Tests` job gets a step for each. If the base commit already
-   fails clippy, or a test of `panel/src-tauri/src/lib.rs` fails on the CI
-   runner, the first plan task records the failure as a gap, and the owner
-   decides. The CI step runs only after the first plan task shows that both
-   commands pass on the base.
-3. Contracts: `rtk uv run --with pytest --with jsonschema pytest tests/contracts
-   panel/e2e/test_fake_worker.py`.
-4. Native: `rtk npm run test:e2e:deterministic` from `panel/`.
+2. Contracts: `rtk uv run --with pytest --with jsonschema pytest tests/contracts
+   panel/e2e/test_fake_worker.py`. No schema, example or message changes, so
+   these only have to keep passing.
+3. Native: `rtk npm run test:e2e:deterministic` from `panel/`. The plan task
+   finds where the native tests build `nookd` and adds the `e2e` feature there.
 
-The web view does not change, so the npm lint, unit and build commands do not
-apply.
+The Panel code and the web view do not change, so the Panel Rust commands and
+the npm commands do not apply. The Panel bundle settings change, and the Mac
+build step checks them.
 
 ## Central docs that change
 
-1. `docs/architecture.md`: the Panel also runs desktop tools. Add the desktop
-   link to "Processes" and "Tool boundary".
-2. `docs/contracts.md`: a "Desktop link" section with the four messages and the
-   nonce rule. The schemas and examples change in the same commit as the code.
-3. `docs/tools-and-authorization.md`: a "Desktop tools" section with the Notes
-   tool, its approval actions, the Cedar action and the failure messages. It
-   names the denial `Tool runs in the Worker` for a call after the link closed.
-4. `docs/testing.md`: the new Daemon, Panel and native tests, the Panel Rust
-   commands, and the fake `osascript` setting of the `e2e` build.
-5. `docs/release.md`: the Automation usage description and entitlement, and the
+1. `docs/architecture.md`: the Notes tool runs in the Daemon as a child process
+   outside the sandbox. Add it to "Tool boundary".
+2. `docs/tools-and-authorization.md`: a "Notes tool" section with the tool, its
+   approval actions, the Cedar action and the failure messages. It also corrects
+   the section "Tools that run in the Daemon": the table in "Where each tool
+   runs" says which tools use the sandbox.
+3. `docs/testing.md`: the new Daemon tests, the fake `osascript` and the
+   `NOOK_E2E_OSASCRIPT` setting of the `e2e` build.
+4. `docs/release.md`: the Automation usage description and entitlement, and the
    note that ad hoc builds may ask again after an update.
 
-Other files that change: `docs/adr/0008-panel-runs-desktop-app-tools.md` (status
-Accepted, the desktop link, and the nonce meaning), `CHANGELOG.md` ("Unreleased"),
-`policy/tools.yaml`, `policy/cedar/` (schema and policies), `contracts/`,
-`.github/workflows/ci.yml` (the Panel Rust test step), `panel/src-tauri/tauri.conf.json`,
-`scripts/bundle.sh` and a new entitlements file in `panel/src-tauri/`.
-`docs/contracts.md` also changes the catalog sentence (see "Offering the tool").
+Other files that change: `docs/adr/0008-panel-runs-desktop-app-tools.md` (renamed
+to `docs/adr/0008-daemon-runs-desktop-app-tools-outside-the-sandbox.md`, rewritten
+for this route, status Accepted, and its link to the draft updated),
+`docs/adr/0007-daemon-runs-privileged-tools-in-a-native-sandbox.md` (one short
+paragraph that names the Notes tool as the exception), `CHANGELOG.md`
+("Unreleased"), `policy/tools.yaml`, `policy/cedar/` (schema and policies),
+`policy_assets.rs` (the approval actions), `daemon/crates/nook-core/src/providers/`
+(`notes.rs`, `mod.rs`), `daemon/crates/nook-core/src/sandbox.rs` (`kill_group`
+becomes `pub(crate)`), `daemon/crates/nookd/src/main.rs` (the `e2e` setting),
+`panel/src-tauri/tauri.conf.json`, `scripts/bundle.sh` and a new entitlements
+file in `panel/src-tauri/`.
 
-`docs/mcp-servers.md` does not change. `docs/plan.md` does not change. The
-housekeeping task owns `CHECKLIST.md` and `docs/plans/`, so this task leaves
-them. Four of those files point to `docs/design/desktop-app-tools.md`, which moved
-to this folder (see "Risks").
+`docs/contracts.md` does not change, because no message changes. `docs/mcp-servers.md`
+does not change. `docs/plan.md` does not change. The housekeeping task owns
+`CHECKLIST.md` and `docs/plans/`, so this task leaves them. Four of those files
+point to `docs/design/desktop-app-tools.md`, which moved to this folder, and
+`docs/plans/app-integrations.md` describes the Panel route (see "Risks").
 
 ## Rule changes
 
@@ -441,32 +348,40 @@ None. This task changes no file under `.agents/rules/`, `AGENTS.md`,
 ## Open gaps
 
 `open-gaps.md` holds four questions, each with options and a recommendation. G1
-to G3 come from the draft. G4 came from spec review round 1.
+to G3 come from the draft. G4 came from spec review round 1, and the owner
+decided it on November 14, 2026.
 
 1. G1: a fixed `Nook` folder, or a folder set in `config.toml`.
 2. G2: append to an existing note, or not.
 3. G3: the Automation entitlement. The check is in "Signing check" above.
-4. G4: a long-lived desktop link, or no link.
+4. G4: where the operation runs. Decided by the owner: the Daemon runs it,
+   outside the sandbox.
 
 ## Risks
 
-1. The desktop link is new surface. A process of the same user can register as a
-   desktop and receive the title and body of each note. It can also answer with
-   a false `ok`, so the model believes a note exists. The first live link wins,
-   so a process that registers first keeps the real Panel off until it closes.
-   That process can already send `approval_decision`, and it can read the
-   database URL in `config.toml`, so the user boundary does not change.
-2. The tool changes how the Daemon and the Panel connect. A wrong nonce or
-   ownership check could let a forged result pass. The Daemon tests cover this.
-3. A cancel can leave a note behind, because the Panel gets no cancel message.
-4. I cannot run Notes on Linux. The HTML, the title rule and the macOS prompt
-   are checked only in the manual test on a Mac. The owner or an agent with a
-   Mac must run it before the pull request merges.
-5. An ad hoc signature changes per build, so macOS may ask again after each
+1. macOS may blame the wrong app in the Automation prompt. The Panel starts the
+   Daemon, so I expect the prompt to name Nook, but I cannot check it on Linux.
+   If it names `nookd` or shows no prompt, the usage description must go into
+   the `nookd` binary, which is a new gap. The owner tests this on a Mac.
+2. `osascript` may need an environment variable that the empty environment
+   removes. The manual test checks it. If it fails, the first fix is to pass
+   `HOME` only, and that is a small fix to the provider.
+3. The tool runs a program outside the sandbox. A flaw in the argument handling
+   or in the HTML would run in a process with the rights of the user. The
+   closed operation limits this: a fixed program, a constant script, one
+   argument that starts with `<`, a schema and a second check, Cedar, and an
+   approval for every call. The tests use hostile titles and bodies.
+4. A cancel or a timeout can leave a note behind, because the script may have
+   finished before the Daemon kills it.
+5. I cannot run Notes on Linux. The HTML, the title rule, the empty environment
+   and the macOS prompt are checked only in the manual test on a Mac. The owner
+   will run it before the pull request merges.
+6. An ad hoc signature changes per build, so macOS may ask again after each
    update. A signed release removes this, and it needs its own task.
-6. The move of the draft leaves four dangling paths to
+7. The move of the draft leaves four dangling paths to
    `docs/design/desktop-app-tools.md` in `CHECKLIST.md`,
    `docs/plans/app-integrations.md`, `docs/plans/tool-platform-open-gaps.md` and
-   `docs/plans/tp7-tp13-tool-providers.md`. The housekeeping task owns those
+   `docs/plans/tp7-tp13-tool-providers.md`. `docs/plans/app-integrations.md` also
+   still names the Panel route as the choice. The housekeeping task owns those
    files. The orchestrator tells the owner, and a later small change updates the
-   paths to `docs/tasks/task-PR-40/specs/design.md`.
+   paths to `docs/tasks/task-PR-40/specs/design.md` and the route.

@@ -42,15 +42,18 @@
 - Date:
 - Status: open
 
-## G4. A long-lived desktop link or no link
+## G4. Where the Notes operation runs
 
-- Stage: 3 spec review (found by round 1, as the "design decision for gate 1")
-- Question: How does the Daemon reach the Panel when it needs the Panel to run a tool?
+- Stage: 3 spec review (found by round 1, as the "design decision for gate 1"), decided by the owner during gate 1
+- Question: Which process runs `osascript` for the Notes tool, and how does the call get there?
 - Options:
-  1. A long-lived desktop link. The Panel opens one connection at start and registers its operations. The Daemon offers the tool only while the link is up, and it sends `native_request` on the link. This follows ADR 0008, decision 4, "The Daemon offers the tool only when a Panel reports that it can run it". It needs four new messages, a link lifecycle in the Panel, a `DesktopLink` handle in `AppState`, and a registry swap on each link change. The spec is written for this option.
-  2. No link. The Daemon sends `native_request` on the event stream of the chat that made the call, as it does for `approval_requested`. The Panel answers with `native_result` on a new short connection, as it does for `approval_decision`. There is no registration, no lifecycle and no registry swap. Two messages are new. The Panel also sends its operations in an optional field of `send_message`. A call for a tool that the request did not advertise fails at once with `Error: the desktop is not available`. The Daemon offers the tool in the catalog whenever it runs on macOS, so the model sees it even when only `nookctl` is connected. This changes decision 4 of ADR 0008. The reviewer of round 2 recommends this option.
-- Recommendation: Option 1. The catalog stays honest, so the model never sees a tool that no Panel can run, and it matches ADR 0008 as written. Option 2 is smaller and reuses the approval pattern. Choose it if the owner values less code over an honest catalog. Option 2 needs one more spec round, because "The desktop link", "Link lifecycle", "Offering the tool", the call steps, the failure table, the tests, Risks 1 and 2, the contract list and ADR 0008 change.
-- Decision:
-- Decided by:
-- Date:
-- Status: open
+  1. The Panel runs it, and a long-lived desktop link carries the call. The Panel opens one connection at start and registers its operations. The Daemon offers the tool only while the link is up, and it sends `native_request` on the link. It needs four new messages, a link lifecycle in the Panel, a `DesktopLink` handle in `AppState`, and a registry swap on each link change. Spec round 1 to 4 reviewed this option.
+  2. The Panel runs it, with no link. The Daemon sends `native_request` on the event stream of the chat that made the call, and the Panel answers on a new short connection. Two messages are new. The reviewer of round 2 recommended this option.
+  3. The Daemon runs it. `NotesProvider` starts `/usr/bin/osascript` as a plain child process, outside the command sandbox, with one fixed script and one HTML argument. No message changes, the Panel code does not change, and there is no link. The tool runs outside the sandbox, because macOS refuses Apple events from a sandboxed process. The file tools also run in the Daemon with no OS sandbox, so the Notes tool is not the first tool outside it. The cost is a prompt whose app name macOS decides (Risk 1 of the spec), and a Mac test before merge.
+- Recommendation: Option 3, after the owner raised the principle that the Daemon is the core and the Panel is only the view. It removes the most code and the most new surface. Options 1 and 2 stay as the fallback if the manual test shows that macOS cannot attribute the prompt to Nook.
+- Decision: Option 3. The Daemon runs the tool outside the sandbox.
+- Decided by: owner
+- Date: 2026-11-14
+- Status: decided by owner
+
+The owner's words: "I want deamon to be core system controlling everything panel is just the view" and "let it run outside sandbox the notes thing due to apple event". The owner also said that the Daemon is always started by the Panel, so the case of a Daemon started by hand is out of scope, and that the owner will run the real Mac test.
