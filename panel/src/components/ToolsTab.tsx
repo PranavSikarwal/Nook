@@ -69,8 +69,6 @@ export function ToolsTab() {
     }
   }
 
-  const hasNotesSource = sources?.some((source) => source.source_id === 'notes')
-
   return (
     <div data-testid="tools-tab" className="flex-1 p-4 space-y-3 overflow-y-auto text-xs">
       {error && (
@@ -118,7 +116,7 @@ export function ToolsTab() {
                   </span>
                 </span>
               </div>
-              {source.reason && (
+              {source.reason && !showFolderField && (
                 <div className="mt-1 text-[10px] text-zinc-400" data-testid="tool-source-reason">
                   {source.reason}
                 </div>
@@ -171,52 +169,6 @@ export function ToolsTab() {
           )
         })}
       </ul>
-      {sources && !hasNotesSource && isNotesFolderVisible(notesSettings) && (
-        <div className="p-2 rounded-lg border border-white/10 bg-white/5" data-testid="notes-folder-standalone">
-          <form
-            onSubmit={(e) => {
-              e.preventDefault()
-              if (canSaveNotesFolder(folderInput, notesSettings?.folder ?? '')) {
-                void handleSaveNotesFolder()
-              }
-            }}
-            className="space-y-1.5"
-            data-testid="notes-folder-field"
-          >
-            <div className="flex items-center justify-between gap-2">
-              <label htmlFor="notes-folder-input-standalone" className="text-zinc-300 font-medium text-[11px]">
-                Notes folder
-              </label>
-              <button
-                type="submit"
-                data-testid="notes-folder-save"
-                disabled={savingFolder || !canSaveNotesFolder(folderInput, notesSettings?.folder ?? '')}
-                className="px-2 py-0.5 rounded text-[10px] font-medium bg-purple-600 hover:bg-purple-500 text-white disabled:opacity-40 transition-colors"
-              >
-                {savingFolder ? 'Saving…' : 'Save'}
-              </button>
-            </div>
-            <input
-              id="notes-folder-input-standalone"
-              data-testid="notes-folder-input"
-              type="text"
-              value={folderInput}
-              onChange={(e) => setFolderInput(e.target.value)}
-              placeholder="Folder name"
-              disabled={savingFolder}
-              className="w-full bg-white/5 border border-white/10 rounded-md px-2 py-1 text-zinc-200 focus:outline-none focus:border-purple-500/50 transition-colors font-mono text-[11px]"
-            />
-            {notesSettings?.reason && (
-              <div className="text-[10px] text-zinc-400" data-testid="notes-folder-reason">
-                {notesSettings.reason}
-              </div>
-            )}
-            <p className="text-[10px] text-zinc-500">
-              macOS asks for permission on the first call and does not ask again after a refusal.
-            </p>
-          </form>
-        </div>
-      )}
     </div>
   )
 }
