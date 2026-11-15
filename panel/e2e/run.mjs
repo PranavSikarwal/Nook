@@ -272,9 +272,9 @@ async function main() {
       const osascriptContent = [
         '#!/bin/sh',
         'for arg in "$@"; do',
-        `  printf '%s\\n' "$arg" >> '${quotedLogPath}'`,
+        String.raw`  printf '%s\n' "$arg" >> '${quotedLogPath}'`,
         'done',
-        "printf 'x-coredata://e2e-note-id/1\\n'",
+        String.raw`printf 'x-coredata://e2e-note-id/1\n'`,
         '',
       ].join('\n')
       await writeFile(fakeOsascriptPath, osascriptContent)
