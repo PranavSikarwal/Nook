@@ -64,6 +64,13 @@ when { context.grant_scope == "once" || context.grant_scope == "chat" };
 struct EchoProvider {
     started: AtomicUsize,
     dropped: Arc<AtomicBool>,
+    provider_dropped: Arc<AtomicBool>,
+}
+
+impl Drop for EchoProvider {
+    fn drop(&mut self) {
+        self.provider_dropped.store(true, Ordering::SeqCst);
+    }
 }
 
 struct DropFlag(Arc<AtomicBool>);
@@ -159,6 +166,7 @@ impl Harness {
         let provider = Arc::new(EchoProvider {
             started: AtomicUsize::new(0),
             dropped: Arc::new(AtomicBool::new(false)),
+            provider_dropped: Arc::new(AtomicBool::new(false)),
         });
         let registry = ProviderRegistry::new(vec![provider.clone()]).unwrap();
         let supervisor = WorkerSupervisor::with_tools(
@@ -567,6 +575,52 @@ async fn cancelling_aborts_a_running_call_and_sends_no_result() {
     assert!(h.provider.dropped.load(Ordering::SeqCst));
     assert_worker_silent(&mut call).await;
     assert!(h.state.running_tools.lock().await.is_empty());
+}
+
+#[tokio::test]
+async fn stop_everything_aborts_running_tool_calls() {
+    let mut h = Harness::new().await;
+    let chat_id = Uuid::new_v4();
+    let call = h
+        .execute(chat_id, "shutdown", ECHO, r#"{"message":"slow"}"#)
+        .await;
+    h.panel().await;
+    h.decide(chat_id, "shutdown", "allow_once").await;
+    assert!(matches!(
+        h.panel().await,
+        DaemonMessage::ToolCallStarted { .. }
+    ));
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            if h.provider.started.load(Ordering::SeqCst) > 0
+                && !h.state.running_tools.lock().await.is_empty()
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+
+    let state = h.state.clone();
+    let tool_dropped = h.provider.dropped.clone();
+    drop(call);
+    drop(h);
+    assert!(nook_core::shutdown::stop_everything(&state, Duration::from_secs(2)).await);
+
+    assert!(state.running_tools.lock().await.is_empty());
+    assert!(tool_dropped.load(Ordering::SeqCst));
+}
+
+#[tokio::test]
+async fn stop_everything_drops_the_provider() {
+    let h = Harness::new().await;
+    let provider_drop = h.provider.provider_dropped.clone();
+    let state = h.state.clone();
+    drop(h);
+    assert!(nook_core::shutdown::stop_everything(&state, Duration::from_secs(2)).await);
+    assert!(provider_drop.load(Ordering::SeqCst));
 }
 
 #[tokio::test]

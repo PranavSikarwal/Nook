@@ -21,6 +21,8 @@ socket. Windows uses a named pipe scoped to the current account. A Daemon
 refuses to start when another Daemon already answers on that socket, and it
 removes the socket on shutdown only if the file is still its own. The Daemon
 and Worker exchange newline-delimited JSON through standard input and output.
+On SIGTERM or SIGINT, the Daemon waits up to 2 seconds for the Worker, running
+tool tasks, and providers to stop. It exits after 5 seconds in any case.
 
 ## Stored data
 

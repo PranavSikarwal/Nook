@@ -4,6 +4,7 @@ This file lists what is not done after Stage 2 (TP7 to TP13) on PR #32. Each
 gap names the risk and who decides. Update it when a gap closes.
 
 Recorded on October 17, 2026.
+Updated on November 14, 2026.
 
 ## Needs a decision from the owner
 
@@ -11,8 +12,9 @@ Recorded on October 17, 2026.
    `docs/design/desktop-app-tools.md` wait for approval. Each ends with open
    questions. The owner removed the clipboard, notification, and open-link tools on
    October 17, 2026, because the user can do each without the assistant. The
-   desktop design is now one Panel-run Notes tool. Risk: no browser
-   or desktop-app tool can start until the designs are approved or changed.
+   desktop design is now one Panel-run Notes tool. PR #40 builds that tool from
+   `desktop-app-tools.md`. Risk: no browser or desktop-app tool can start until
+   the designs are approved or changed.
 2. **Image search.** The owner chose to leave it out on October 17, 2026. It
    was removed because the DuckDuckGo image backend answers with a bot challenge
    (HTTP 202) and `ddgs` 9.16.0 cannot pass it. The `auto`, `bing`, `brave`,
@@ -32,9 +34,9 @@ Recorded on October 17, 2026.
 
 ## Work not done
 
-0. **Notes and Google Docs.** `docs/plans/app-integrations.md` holds the trial
-   result: a Notes MCP server cannot run in the macOS sandbox, because macOS
-   refuses Apple events from sandboxed processes. The owner must pick a route.
+0. **Notes and Google Docs.** The owner chose option 2, a Panel-run Notes tool.
+   PR #40 builds it from `docs/design/desktop-app-tools.md`. PR #39 has the
+   Google Docs sample and test. Both pull requests are open.
 
 5. **TP6 on Windows.** Closed for macOS and Ubuntu on October 17, 2026 (package
    workflow run 39016561692). The approval check uses a Unix socket, so Windows
@@ -43,9 +45,13 @@ Recorded on October 17, 2026.
 6. **Live checks.** The live native test passed on October 17, 2026 for the
    news query and the web fetch flow, on the development build at `43d2cdb`. The
    installed `v0.1.4` app and the Stage 2 tools (file, terminal, MCP, news,
-   video, book) were not run against the live model. Risk: a fault that only the live model shows stays
-   hidden. The Hugging Face hang does not reproduce on the current code: the
-   fetch takes about 1 second. The installed `v0.1.4` app has older code.
+   video, book) were not run against the live model. Since then, `v0.1.5` and
+   `v0.1.6` were released. The owner will check the installed `v0.1.6` app on
+   macOS: quit the Panel and confirm `pgrep nookd` shows nothing. See
+   `daemon-exit-after-panel-quit.md`, "Verification" 4. Risk: a fault that
+   only the live model shows stays hidden. The Hugging Face hang does not
+   reproduce on the current code: the fetch takes about 1 second. The installed
+   `v0.1.4` app has older code.
 7. **News, video and book search.** They were checked with mocks, and news and
    video also with a live call on October 17, 2026. DuckDuckGo throttled them
    earlier. Risk: results can be empty when DuckDuckGo throttles.
@@ -68,5 +74,19 @@ Recorded on October 17, 2026.
     `59103bac-6fc6-4425-bf97-673264f2ad8f` sits in `worker.checkpoint_writes`,
     `worker.checkpoint_blobs` and `worker.checkpoints`. It is not a chat. Delete
     the rows with that `thread_id` from the three tables.
-14. **Merge order.** PR #31 must merge before PR #32, because #32 contains its
-    commits.
+14. **Merge order.** Closed. PR #32 contained the commits of PR #31. Both
+    landed in `main` in merge commit `8f378a5`.
+15. **Mac check for Allowed Folders.** The manual check in
+    `allowed-folders-view.md` remains open. Check that the menu shows both
+    items and that "Allowed Folders..." opens the tab. Risk: the macOS menu may
+    not open the right tab.
+16. **Notice for a refused call.** Item 11 of `open-items-fixes.md` remains
+    open. PR #41 is open. The Worker ends a reply with "Request denied. I
+    stopped here." for every rejection, including a path outside the allowed
+    folders. Risk: the message says the user denied a request when they did not.
+17. **Tests for the Worker folder search order.** `docs/archive/plans/pr32-review-response.md`
+    ("Round 2", finding 2) deferred them to a later cycle. `worker_dir_in_home()`
+    in `daemon/crates/nook-core/src/supervisor.rs` takes no root parameter, so a
+    test cannot use a temporary folder. The search stages must take their root as
+    a parameter first. Risk: a change to the search order can stop the Worker from
+    starting with no failing test.

@@ -1,7 +1,7 @@
 # Nook checklist
 
-The active task definitions and acceptance conditions are in `docs/plan.md` and
-`docs/plans/tool-platform-closeout-and-next-phase.md`.
+Open work remains in `docs/plans/tool-platform-closeout-and-next-phase.md`,
+`docs/plans/tool-platform-open-gaps.md` and `docs/plans/open-items-fixes.md`.
 
 ## Current work
 
@@ -20,7 +20,7 @@ The active task definitions and acceptance conditions are in `docs/plan.md` and
 - [x] TP8. Add explicit MCP server registration.
 - [x] TP9. Add sandboxed filesystem tools.
 - [x] TP10. Add sandboxed terminal tools.
-- [ ] TP11. Add browser and desktop-app capability designs. The designs are written in `docs/design/` (`browser-automation.md`, `desktop-app-tools.md`). Approval is open.
+- [ ] TP11. Add browser and desktop-app capability designs. The designs are written and wait for approval. PR 40 builds the Notes tool from the desktop design (`desktop-app-tools.md`).
 - [x] TP12. Add editable policy and persistent grants.
 - [x] TP13. Add additional search providers.
 
