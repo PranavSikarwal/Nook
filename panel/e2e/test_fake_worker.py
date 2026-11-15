@@ -514,4 +514,3 @@ def test_notes_prompt_calls_create_and_delete_tools(worker):
         joined_text(worker.collect_until_finished())
         == 'Tool ok: Deleted the note "Meeting Notes".'
     )
-
