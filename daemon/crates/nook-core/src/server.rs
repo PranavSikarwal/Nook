@@ -29,12 +29,11 @@ use crate::config::Config;
 use crate::db;
 use crate::keychain;
 
-#[path = "notes_folder.rs"]
-pub mod notes_folder;
 use crate::message_stream::handle_send_message;
 pub use crate::message_stream::{
     forward_text_delta, forward_tool_call_event, forward_unless_cancelled,
 };
+use crate::notes_folder;
 use crate::policy_assets::PolicyAssets;
 use crate::protocol::{
     Attachment, ClientMessage, DaemonMessage, DaemonWorkerRequest, ErrorCode, ErrorInfo,

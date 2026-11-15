@@ -404,7 +404,7 @@ async fn a_folder_change_while_a_decision_waits_denies_the_call_and_records_no_g
 
     // Change the folder in memory under the write lock
     cfg_guard.tools.notes.folder = "Work".to_string();
-    nook_core::server::notes_folder::apply_folder_change(&h.state, &mut cfg_guard).await;
+    nook_core::notes_folder::apply_folder_change(&h.state, &mut cfg_guard).await;
 
     // Release the write lock
     drop(cfg_guard);
@@ -454,7 +454,7 @@ async fn a_decision_before_a_folder_change_runs_in_the_old_folder() {
     {
         let mut cfg_guard = h.state.config.write().await;
         cfg_guard.tools.notes.folder = "Work".to_string();
-        nook_core::server::notes_folder::apply_folder_change(&h.state, &mut cfg_guard).await;
+        nook_core::notes_folder::apply_folder_change(&h.state, &mut cfg_guard).await;
     }
 
     let result = tool_result(&mut call).await;
@@ -557,7 +557,7 @@ async fn a_folder_change_prevents_a_chat_grant_from_running_in_the_new_folder() 
 
     // Folder change happens under the write lock
     cfg_guard.tools.notes.folder = "Work".to_string();
-    nook_core::server::notes_folder::apply_folder_change(&h.state, &mut cfg_guard).await;
+    nook_core::notes_folder::apply_folder_change(&h.state, &mut cfg_guard).await;
 
     // Release write lock
     drop(cfg_guard);
@@ -635,7 +635,7 @@ async fn a_folder_change_leaves_an_approval_and_a_grant_of_another_tool_intact()
     {
         let mut cfg_guard = h.state.config.write().await;
         cfg_guard.tools.notes.folder = "Work".to_string();
-        nook_core::server::notes_folder::apply_folder_change(&h.state, &mut cfg_guard).await;
+        nook_core::notes_folder::apply_folder_change(&h.state, &mut cfg_guard).await;
     }
 
     // The pending approval for fetch1 must STILL be pending
