@@ -50,6 +50,10 @@ The Phase 2 closeout plan tracks the remaining runtime integration work.
 uses DuckDuckGo. Fetching a page requires a user approval flow. Nook treats
 search results and fetched content as untrusted input.
 
+On macOS, the Daemon also runs the Notes tools as child processes (`/usr/bin/osascript`)
+outside the command sandbox, because macOS refuses Apple events from sandboxed
+processes. The user chooses the Notes folder in the Settings tab.
+
 ## Current references
 
 - [Contracts](contracts.md)
