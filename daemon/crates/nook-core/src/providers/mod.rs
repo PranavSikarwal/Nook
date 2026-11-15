@@ -110,8 +110,7 @@ pub trait Provider: Send + Sync {
 pub mod filesystem;
 #[cfg(unix)]
 pub mod mcp;
-#[cfg(unix)]
-mod notes;
+pub mod notes;
 pub mod roots;
 pub mod terminal;
 

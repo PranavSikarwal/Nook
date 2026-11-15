@@ -1,21 +1,40 @@
+use crate::config::Config;
+use crate::policy::grant_key;
 use crate::protocol::{DaemonMessage, ErrorCode, ErrorInfo, ToolSourceState};
+use crate::providers::notes::TOOL_IDS;
 use crate::server::AppState;
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use tokio::sync::mpsc;
 use tracing::warn;
 use uuid::Uuid;
 
 const NOT_SAVED: &str = "The folder could not be saved";
 
-const NOTES_TOOL_IDS: [&str; 6] = [
-    "nook:notes_create_note",
-    "nook:notes_list_notes",
-    "nook:notes_read_note",
-    "nook:notes_append_note",
-    "nook:notes_edit_note",
-    "nook:notes_delete_note",
-];
+pub static NOTES_GRANT_KEYS: LazyLock<[&'static str; 6]> =
+    LazyLock::new(|| TOOL_IDS.map(grant_key));
+
+pub fn notes_grant_keys() -> &'static [&'static str] {
+    &NOTES_GRANT_KEYS[..]
+}
+
+pub async fn apply_folder_change(state: &Arc<AppState>, config: &mut Config) {
+    crate::tool_approval::deny_pending_notes_approvals(state).await;
+    state
+        .policy
+        .authorizer
+        .grant_store()
+        .lock()
+        .await
+        .remove_tools(notes_grant_keys());
+    let registry = state.providers.current().rebuilt(&config.tools);
+    let descriptors = registry.descriptors().to_vec();
+    state.providers.replace(registry);
+    let supervisor = state.supervisor.lock().await.clone();
+    if let Some(supervisor) = supervisor {
+        supervisor.update_tools(descriptors).await;
+    }
+}
 
 /// Returns `(supported, reason)` for the Notes tools.
 /// `supported` is true when the registry's notes program was `Some`.
@@ -89,21 +108,7 @@ pub async fn set(
             NOT_SAVED.to_string()
         })?;
         config.tools.notes.folder = trimmed.clone();
-        crate::tool_approval::deny_pending_notes_approvals(state).await;
-        state
-            .policy
-            .authorizer
-            .grant_store()
-            .lock()
-            .await
-            .remove_tools(&NOTES_TOOL_IDS);
-        let registry = state.providers.current().rebuilt(&config.tools);
-        let descriptors = registry.descriptors().to_vec();
-        state.providers.replace(registry);
-        let supervisor = state.supervisor.lock().await.clone();
-        if let Some(supervisor) = supervisor {
-            supervisor.update_tools(descriptors).await;
-        }
+        apply_folder_change(state, &mut config).await;
         let (supported, reason) = notes_status(state);
         let stored_folder: String = config.tools.notes.folder.chars().take(200).collect();
         Ok(DaemonMessage::NotesSettings {

@@ -381,9 +381,9 @@ async fn a_folder_change_while_a_decision_waits_denies_the_call_and_records_no_g
     });
 
     // Wait until the decision has claimed the pending approval (decision_in_flight is true)
-    let mut attempts = 0;
-    loop {
-        attempts += 1;
+    let mut reached = false;
+    for _ in 0..100 {
+        tokio::task::yield_now().await;
         let in_flight = {
             let approvals = h.state.pending_approvals.lock().await;
             approvals
@@ -391,25 +391,20 @@ async fn a_folder_change_while_a_decision_waits_denies_the_call_and_records_no_g
                 .map(|e| e.decision_in_flight)
                 .unwrap_or(false)
         };
-        if in_flight || attempts > 100 {
+        if in_flight {
+            reached = true;
             break;
         }
-        tokio::task::yield_now().await;
     }
+    assert!(reached, "decision_in_flight was not reached");
+    assert!(
+        !decision_task.is_finished(),
+        "decision task finished while guard held"
+    );
 
     // Change the folder in memory under the write lock
     cfg_guard.tools.notes.folder = "Work".to_string();
-    let tools = cfg_guard.tools.clone();
-    let rebuilt = h.state.providers.current().rebuilt(&tools);
-    h.state.providers.replace(rebuilt);
-    nook_core::tool_approval::deny_pending_notes_approvals(&h.state).await;
-    h.state
-        .policy
-        .authorizer
-        .grant_store()
-        .lock()
-        .await
-        .remove_tools(&[CREATE_NOTE]);
+    nook_core::server::notes_folder::apply_folder_change(&h.state, &mut cfg_guard).await;
 
     // Release the write lock
     drop(cfg_guard);
@@ -452,24 +447,14 @@ async fn a_decision_before_a_folder_change_runs_in_the_old_folder() {
     assert!(matches!(panel_msg, DaemonMessage::ApprovalRequested { .. }));
 
     // Decision finishes first
-    h.decide(chat, "c1", "allow_once").await;
+    h.decide(chat, "c1", "allow_for_chat").await;
     h.drain_tool_events().await;
 
     // Then folder change runs
     {
         let mut cfg_guard = h.state.config.write().await;
         cfg_guard.tools.notes.folder = "Work".to_string();
-        let tools = cfg_guard.tools.clone();
-        let rebuilt = h.state.providers.current().rebuilt(&tools);
-        h.state.providers.replace(rebuilt);
-        nook_core::tool_approval::deny_pending_notes_approvals(&h.state).await;
-        h.state
-            .policy
-            .authorizer
-            .grant_store()
-            .lock()
-            .await
-            .remove_tools(&[CREATE_NOTE]);
+        nook_core::server::notes_folder::apply_folder_change(&h.state, &mut cfg_guard).await;
     }
 
     let result = tool_result(&mut call).await;
@@ -485,6 +470,18 @@ async fn a_decision_before_a_folder_change_runs_in_the_old_folder() {
 
     let logged = fixture.logged_args();
     assert_eq!(logged[2], ":Nook", "fake program must receive old folder");
+
+    assert!(
+        h.state
+            .policy
+            .authorizer
+            .grant_store()
+            .lock()
+            .await
+            .matching_scopes(chat, "notes_create_note", None, None, None)
+            .is_empty(),
+        "chat grant for old folder must be dropped"
+    );
 }
 
 #[tokio::test]
@@ -550,19 +547,17 @@ async fn a_folder_change_prevents_a_chat_grant_from_running_in_the_new_folder() 
         .await;
     });
 
+    for _ in 0..10 {
+        tokio::task::yield_now().await;
+    }
+    assert!(
+        !call_task.is_finished(),
+        "call task finished while guard held"
+    );
+
     // Folder change happens under the write lock
     cfg_guard.tools.notes.folder = "Work".to_string();
-    let tools = cfg_guard.tools.clone();
-    let rebuilt = h.state.providers.current().rebuilt(&tools);
-    h.state.providers.replace(rebuilt);
-    nook_core::tool_approval::deny_pending_notes_approvals(&h.state).await;
-    h.state
-        .policy
-        .authorizer
-        .grant_store()
-        .lock()
-        .await
-        .remove_tools(&["notes_create_note"]);
+    nook_core::server::notes_folder::apply_folder_change(&h.state, &mut cfg_guard).await;
 
     // Release write lock
     drop(cfg_guard);
@@ -624,21 +619,23 @@ async fn a_folder_change_leaves_an_approval_and_a_grant_of_another_tool_intact()
         .await
         .add_grant(other_grant);
 
+    // Create a Notes chat grant through the real flow (allow_for_chat)
+    let res = h
+        .approve_and_run(
+            chat,
+            "c_notes",
+            CREATE_NOTE,
+            r#"{"title":"Note 1","body":"body 1"}"#,
+            "allow_for_chat",
+        )
+        .await;
+    assert_eq!(res["status"], "ok");
+
     // Perform the Notes folder change
     {
         let mut cfg_guard = h.state.config.write().await;
         cfg_guard.tools.notes.folder = "Work".to_string();
-        let tools = cfg_guard.tools.clone();
-        let rebuilt = h.state.providers.current().rebuilt(&tools);
-        h.state.providers.replace(rebuilt);
-        nook_core::tool_approval::deny_pending_notes_approvals(&h.state).await;
-        h.state
-            .policy
-            .authorizer
-            .grant_store()
-            .lock()
-            .await
-            .remove_tools(&["notes_create_note"]);
+        nook_core::server::notes_folder::apply_folder_change(&h.state, &mut cfg_guard).await;
     }
 
     // The pending approval for fetch1 must STILL be pending
@@ -659,6 +656,12 @@ async fn a_folder_change_leaves_an_approval_and_a_grant_of_another_tool_intact()
                 .matching_scopes(chat, "web_fetch", Some("example.org"), None, None)
                 .is_empty(),
             "grant for another tool must stay"
+        );
+        assert!(
+            store
+                .matching_scopes(chat, "notes_create_note", None, None, None)
+                .is_empty(),
+            "chat grant for notes tool must be dropped"
         );
     }
 

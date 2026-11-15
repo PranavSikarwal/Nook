@@ -16,6 +16,15 @@ pub const APPEND_NOTE: &str = "nook:notes_append_note";
 pub const EDIT_NOTE: &str = "nook:notes_edit_note";
 pub const DELETE_NOTE: &str = "nook:notes_delete_note";
 
+pub const TOOL_IDS: [&str; 6] = [
+    CREATE_NOTE,
+    LIST_NOTES,
+    READ_NOTE,
+    APPEND_NOTE,
+    EDIT_NOTE,
+    DELETE_NOTE,
+];
+
 pub const TITLE_IS_ONE_LINE: &str = "The title is one line.";
 
 pub const SCRIPT_CREATE: &str = "on run argv\n  set folderName to text 2 thru -1 of (item 1 of argv)\n  set noteHtml to text 2 thru -1 of (item 2 of argv)\n  tell application \"Notes\"\n    tell default account\n      if not (exists folder folderName) then make new folder with properties {name:folderName}\n      set newNote to make new note at folder folderName with properties {body:noteHtml}\n      return id of newNote\n    end tell\n  end tell\nend run";

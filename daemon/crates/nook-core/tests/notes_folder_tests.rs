@@ -420,13 +420,25 @@ async fn another_tools_approval_and_grant_stay_across_a_notes_folder_change() {
         .await
         .add_grant(other_grant);
 
-    // 3. Start a Notes tool call (nook:notes_create_note)
+    // 3. Create a Notes chat grant through the real flow (allow_for_chat)
+    let res = h
+        .approve_and_run(
+            chat,
+            "notes_init",
+            "nook:notes_create_note",
+            r#"{"title":"Note Title","body":"Note Body"}"#,
+            "allow_for_chat",
+        )
+        .await;
+    assert_eq!(res["status"], "ok");
+
+    // 4. Start a Notes tool call (nook:notes_delete_note)
     let mut notes_call = h
         .execute(
             chat,
             "notes1",
-            "nook:notes_create_note",
-            r#"{"title":"Note Title","body":"Note Body"}"#,
+            "nook:notes_delete_note",
+            r#"{"note_id":"x-coredata://12345678-1234-1234-1234-1234567890ab/ICNote/p1","note_title":"Note Title"}"#,
         )
         .await;
     let notes_panel_msg = h.panel().await;
@@ -434,23 +446,6 @@ async fn another_tools_approval_and_grant_stay_across_a_notes_folder_change() {
         notes_panel_msg,
         DaemonMessage::ApprovalRequested { .. }
     ));
-
-    // 4. Add a chat grant for nook:notes_create_note
-    let notes_grant = nook_core::policy::ScopedGrant {
-        chat_id: chat,
-        tool_name: "nook:notes_create_note".to_string(),
-        scope: "chat".to_string(),
-        host: None,
-        path: None,
-        argument_digest: None,
-    };
-    h.state
-        .policy
-        .authorizer
-        .grant_store()
-        .lock()
-        .await
-        .add_grant(notes_grant);
 
     // 5. Change the Notes folder via the socket session
     let set_reply = session
@@ -494,7 +489,7 @@ async fn another_tools_approval_and_grant_stay_across_a_notes_folder_change() {
         );
         assert!(
             store
-                .matching_scopes(chat, "nook:notes_create_note", None, None, None)
+                .matching_scopes(chat, "notes_create_note", None, None, None)
                 .is_empty(),
             "chat grant for notes tool must be dropped"
         );
