@@ -236,6 +236,30 @@ def prompt_mcp(request_id: str, chat_id: str, message_id: str, rest: str):
     )
 
 
+def prompt_notes(request_id: str, chat_id: str, message_id: str, rest: str):
+    action, _, args_raw = rest.partition("|")
+    action = action.strip()
+    if action == "create":
+        title, _, body = args_raw.partition("|")
+        return run_execute_prompt(
+            request_id,
+            chat_id,
+            message_id,
+            "nook:notes_create_note",
+            {"title": title.strip(), "body": body},
+        )
+    if action == "delete":
+        note_id, _, note_title = args_raw.partition("|")
+        return run_execute_prompt(
+            request_id,
+            chat_id,
+            message_id,
+            "nook:notes_delete_note",
+            {"note_id": note_id.strip(), "note_title": note_title.strip()},
+        )
+    raise ValueError(f"Unknown notes action: {action}")
+
+
 PROMPTS = {
     "E2E_APPROVAL:": prompt_approval,
     "E2E_FILE_READ:": prompt_file_read,
@@ -244,6 +268,7 @@ PROMPTS = {
     "E2E_FILE_LIST:": prompt_file_list,
     "E2E_FILE_WRITE:": prompt_file_write,
     "E2E_SEARCH:": prompt_search,
+    "E2E_NOTES:": prompt_notes,
 }
 
 

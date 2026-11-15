@@ -18,6 +18,7 @@ const specsByMode = {
     'e2e/specs/links.spec.mjs',
     'e2e/specs/tools.spec.mjs',
     'e2e/specs/folders.spec.mjs',
+    'e2e/specs/notes.spec.mjs',
   ],
   live: process.env.NOOK_E2E_LIVE_TOOLS === '1'
     ? ['e2e/specs/live-tools.spec.mjs']
