@@ -4,6 +4,10 @@ This file records user-visible changes for each Nook release.
 
 ## Unreleased
 
+### Added
+
+- Add six Notes tools for Apple Notes on macOS, in one folder that the user picks in Settings. Each call asks first.
+
 ## v0.1.6 - 2026-11-13
 
 ### Fixed
