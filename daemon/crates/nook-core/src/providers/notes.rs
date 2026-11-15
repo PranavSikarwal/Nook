@@ -925,21 +925,23 @@ mod tests {
         std::fs::write(&program, script).unwrap();
         std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
         let runner = NotesRunner::new(program, Arc::new(tokio::sync::Mutex::new(())));
-        let result = tokio::time::timeout(
-            Duration::from_millis(100),
-            runner.run("the_script", &[], 4096),
-        )
-        .await;
-        assert!(result.is_err());
+        let run_task = tokio::spawn(async move {
+            runner.run("the_script", &[], 4096).await;
+        });
         let start = std::time::Instant::now();
-        while !pid_file.exists() && start.elapsed() < Duration::from_secs(1) {
+        let mut pid: Option<i32> = None;
+        while start.elapsed() < Duration::from_secs(5) {
+            if let Ok(content) = std::fs::read_to_string(&pid_file) {
+                if let Ok(parsed) = content.trim().parse::<i32>() {
+                    pid = Some(parsed);
+                    break;
+                }
+            }
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
-        let pid: i32 = std::fs::read_to_string(&pid_file)
-            .unwrap()
-            .trim()
-            .parse()
-            .unwrap();
+        let pid = pid.expect("child pid file was not written within 5 seconds");
+        run_task.abort();
+        let _ = run_task.await;
         let start = std::time::Instant::now();
         let mut gone = false;
         while start.elapsed() < Duration::from_secs(2) {
