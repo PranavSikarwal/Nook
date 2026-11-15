@@ -65,7 +65,7 @@ Fixes of the findings in `reviews.md` "Round 15 (code)". Each is one commit. "Da
 - [x] **R4. Wait for the pid file before the cancel (C8).** `daemon/crates/nook-core/src/providers/notes.rs` (test `cancel_kills_the_process_group`). Poll for the pid file for up to 5 seconds, then cancel. Check: Daemon checks.
 - [x] **R5. Parse the arguments once per tool (C5).** `daemon/crates/nook-core/src/providers/notes.rs`. One function per tool that parses and checks the arguments and returns a typed value; `facts` and `call` both use it. `call` becomes short (one match that runs the script and maps the result). No behavior change: every existing test passes unchanged. Check: Daemon checks.
 - [x] **R6. Remove the unused Panel helpers and use `String.raw` (C6, Sonar).** `panel/src/lib/notesFolder.ts`, `panel/e2e/unit/notes-folder.test.mjs`, `panel/e2e/run.mjs`. Remove `getNotesFolderDisplay` and `getNotesFolderReason` and the tests that only test them. In `run.mjs`, write the fake `osascript` lines at the old lines 275 and 277 with `String.raw` so that no `\\n` is escaped in a quoted string. Check: Panel checks, `node --check panel/e2e/run.mjs`, and Contract checks.
-- [ ] **R7. Correct two doc sentences (C7).** `docs/tools-and-authorization.md`, `docs/contracts.md`. "is longer than 65,536 bytes" (truncated result), and `supported` is "true when the platform has Notes (the program path is set)". Check: `git diff --check`.
+- [x] **R7. Correct two doc sentences (C7).** `docs/tools-and-authorization.md`, `docs/contracts.md`. "is longer than 65,536 bytes" (truncated result), and `supported` is "true when the platform has Notes (the program path is set)". Check: `git diff --check`.
 
 ## Manual test on a Mac (owner, before gate 2)
 

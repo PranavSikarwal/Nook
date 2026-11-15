@@ -263,7 +263,7 @@ control Notes.
 5. Execution timeout is 60 seconds.
 6. Standard output is capped at 4096 bytes for create, append, edit, and delete.
    List and read keep up to 65,537 bytes (`MAX_TOOL_OUTPUT_BYTES + 1`), draining
-   the rest. If a list or read reaches 65,536 bytes (`MAX_TOOL_OUTPUT_BYTES`), it is
+   the rest. If a list or read is longer than 65,536 bytes (`MAX_TOOL_OUTPUT_BYTES`), it is
    truncated and marked with `[output truncated]`. Standard error is capped at
    4096 bytes.
 7. Parallel calls are serialized with an internal mutex lock. One `osascript`

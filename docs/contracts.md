@@ -144,7 +144,7 @@ The Panel manages the Notes folder with two requests.
 
 The Daemon answers with `notes_settings`, or an `error` of code `invalid_request`
 and a plain message. `notes_settings` carries `folder` (the stored name cut to
-200 characters), `supported` (true on macOS when Notes is available), and an
+200 characters), `supported` (true when the platform has Notes (the program path is set)), and an
 optional `reason` when the source is off (`The Notes folder name is not valid` or
 `Notes was not found on this Mac`). Settings, Tools shows the field when
 `supported` is true.
