@@ -112,6 +112,107 @@ fn escape_html(value: &str) -> String {
     })
 }
 
+pub(crate) struct CreateNoteArgs<'a> {
+    pub title: &'a str,
+    pub body: &'a str,
+}
+
+pub(crate) struct ListNotesArgs;
+
+pub(crate) struct ReadNoteArgs<'a> {
+    pub note_id: &'a str,
+}
+
+pub(crate) struct AppendNoteArgs<'a> {
+    pub note_id: &'a str,
+    pub note_title: &'a str,
+    pub text: &'a str,
+}
+
+pub(crate) struct EditNoteArgs<'a> {
+    pub note_id: &'a str,
+    pub note_title: &'a str,
+    pub title: &'a str,
+    pub body: &'a str,
+}
+
+pub(crate) struct DeleteNoteArgs<'a> {
+    pub note_id: &'a str,
+    pub note_title: &'a str,
+}
+
+pub(crate) fn parse_create_args(arguments: &Value) -> Result<CreateNoteArgs<'_>, ()> {
+    let title = arguments.get("title").and_then(Value::as_str).ok_or(())?;
+    let body = arguments.get("body").and_then(Value::as_str).ok_or(())?;
+    let title = check_title(title)?;
+    let body = check_body(body)?;
+    Ok(CreateNoteArgs { title, body })
+}
+
+pub(crate) fn parse_list_args(arguments: &Value) -> Result<ListNotesArgs, ()> {
+    if !arguments.is_object() {
+        return Err(());
+    }
+    Ok(ListNotesArgs)
+}
+
+pub(crate) fn parse_read_args(arguments: &Value) -> Result<ReadNoteArgs<'_>, ()> {
+    let note_id = arguments.get("note_id").and_then(Value::as_str).ok_or(())?;
+    let note_id = check_note_id(note_id)?;
+    Ok(ReadNoteArgs { note_id })
+}
+
+pub(crate) fn parse_append_args(arguments: &Value) -> Result<AppendNoteArgs<'_>, ()> {
+    let note_id = arguments.get("note_id").and_then(Value::as_str).ok_or(())?;
+    let note_title = arguments
+        .get("note_title")
+        .and_then(Value::as_str)
+        .ok_or(())?;
+    let text = arguments.get("text").and_then(Value::as_str).ok_or(())?;
+    let note_id = check_note_id(note_id)?;
+    let note_title = check_title(note_title)?;
+    let text = check_text(text)?;
+    Ok(AppendNoteArgs {
+        note_id,
+        note_title,
+        text,
+    })
+}
+
+pub(crate) fn parse_edit_args(arguments: &Value) -> Result<EditNoteArgs<'_>, ()> {
+    let note_id = arguments.get("note_id").and_then(Value::as_str).ok_or(())?;
+    let note_title = arguments
+        .get("note_title")
+        .and_then(Value::as_str)
+        .ok_or(())?;
+    let title = arguments.get("title").and_then(Value::as_str).ok_or(())?;
+    let body = arguments.get("body").and_then(Value::as_str).ok_or(())?;
+    let note_id = check_note_id(note_id)?;
+    let note_title = check_title(note_title)?;
+    let title = check_title(title)?;
+    let body = check_body(body)?;
+    Ok(EditNoteArgs {
+        note_id,
+        note_title,
+        title,
+        body,
+    })
+}
+
+pub(crate) fn parse_delete_args(arguments: &Value) -> Result<DeleteNoteArgs<'_>, ()> {
+    let note_id = arguments.get("note_id").and_then(Value::as_str).ok_or(())?;
+    let note_title = arguments
+        .get("note_title")
+        .and_then(Value::as_str)
+        .ok_or(())?;
+    let note_id = check_note_id(note_id)?;
+    let note_title = check_title(note_title)?;
+    Ok(DeleteNoteArgs {
+        note_id,
+        note_title,
+    })
+}
+
 #[cfg(unix)]
 #[derive(Clone)]
 pub(crate) struct NotesRunner {
@@ -396,128 +497,74 @@ impl Provider for NotesProvider {
         let invalid = || ProviderError::InvalidArguments("Invalid arguments".to_string());
         let summary = match tool_id {
             CREATE_NOTE => {
-                let title_raw = arguments
-                    .get("title")
-                    .and_then(Value::as_str)
-                    .ok_or_else(invalid)?;
-                let body_raw = arguments
-                    .get("body")
-                    .and_then(Value::as_str)
-                    .ok_or_else(invalid)?;
-                let title = check_title(title_raw).map_err(|_| invalid())?;
-                let body = check_body(body_raw).map_err(|_| invalid())?;
-                let count = body.chars().count();
-                let preview: String = body.chars().take(200).collect();
+                let args = parse_create_args(arguments).map_err(|_| invalid())?;
+                let count = args.body.chars().count();
+                let preview: String = args.body.chars().take(200).collect();
                 if count > 200 {
                     format!(
                         "Create note \"{}\" in \"{}\": {}... ({} characters)",
-                        title, self.folder, preview, count
+                        args.title, self.folder, preview, count
                     )
                 } else if count == 0 {
                     format!(
                         "Create note \"{}\" in \"{}\" (0 characters)",
-                        title, self.folder
+                        args.title, self.folder
                     )
                 } else {
                     format!(
                         "Create note \"{}\" in \"{}\": {} ({} characters)",
-                        title, self.folder, preview, count
+                        args.title, self.folder, preview, count
                     )
                 }
             }
             LIST_NOTES => {
+                parse_list_args(arguments).map_err(|_| invalid())?;
                 format!("List notes in \"{}\"", self.folder)
             }
             READ_NOTE => {
-                let note_id_raw = arguments
-                    .get("note_id")
-                    .and_then(Value::as_str)
-                    .ok_or_else(invalid)?;
-                let note_id = check_note_id(note_id_raw).map_err(|_| invalid())?;
-                format!("Read note {} in \"{}\"", note_id, self.folder)
+                let args = parse_read_args(arguments).map_err(|_| invalid())?;
+                format!("Read note {} in \"{}\"", args.note_id, self.folder)
             }
             APPEND_NOTE => {
-                let note_id_raw = arguments
-                    .get("note_id")
-                    .and_then(Value::as_str)
-                    .ok_or_else(invalid)?;
-                let note_title_raw = arguments
-                    .get("note_title")
-                    .and_then(Value::as_str)
-                    .ok_or_else(invalid)?;
-                let text_raw = arguments
-                    .get("text")
-                    .and_then(Value::as_str)
-                    .ok_or_else(invalid)?;
-                let _note_id = check_note_id(note_id_raw).map_err(|_| invalid())?;
-                let note_title = check_title(note_title_raw).map_err(|_| invalid())?;
-                let text = check_text(text_raw).map_err(|_| invalid())?;
-                let count = text.chars().count();
-                let preview: String = text.chars().take(200).collect();
+                let args = parse_append_args(arguments).map_err(|_| invalid())?;
+                let count = args.text.chars().count();
+                let preview: String = args.text.chars().take(200).collect();
                 if count > 200 {
                     format!(
                         "Append to note \"{}\" in \"{}\": {}... ({} characters)",
-                        note_title, self.folder, preview, count
+                        args.note_title, self.folder, preview, count
                     )
                 } else {
                     format!(
                         "Append to note \"{}\" in \"{}\": {} ({} characters)",
-                        note_title, self.folder, preview, count
+                        args.note_title, self.folder, preview, count
                     )
                 }
             }
             EDIT_NOTE => {
-                let note_id_raw = arguments
-                    .get("note_id")
-                    .and_then(Value::as_str)
-                    .ok_or_else(invalid)?;
-                let note_title_raw = arguments
-                    .get("note_title")
-                    .and_then(Value::as_str)
-                    .ok_or_else(invalid)?;
-                let title_raw = arguments
-                    .get("title")
-                    .and_then(Value::as_str)
-                    .ok_or_else(invalid)?;
-                let body_raw = arguments
-                    .get("body")
-                    .and_then(Value::as_str)
-                    .ok_or_else(invalid)?;
-                let _note_id = check_note_id(note_id_raw).map_err(|_| invalid())?;
-                let note_title = check_title(note_title_raw).map_err(|_| invalid())?;
-                let title = check_title(title_raw).map_err(|_| invalid())?;
-                let body = check_body(body_raw).map_err(|_| invalid())?;
-                let count = body.chars().count();
-                let preview: String = body.chars().take(200).collect();
+                let args = parse_edit_args(arguments).map_err(|_| invalid())?;
+                let count = args.body.chars().count();
+                let preview: String = args.body.chars().take(200).collect();
                 if count > 200 {
                     format!(
                         "Edit note \"{}\" in \"{}\" to \"{}\": {}... ({} characters)",
-                        note_title, self.folder, title, preview, count
+                        args.note_title, self.folder, args.title, preview, count
                     )
                 } else if count == 0 {
                     format!(
                         "Edit note \"{}\" in \"{}\" to \"{}\" (0 characters)",
-                        note_title, self.folder, title
+                        args.note_title, self.folder, args.title
                     )
                 } else {
                     format!(
                         "Edit note \"{}\" in \"{}\" to \"{}\": {} ({} characters)",
-                        note_title, self.folder, title, preview, count
+                        args.note_title, self.folder, args.title, preview, count
                     )
                 }
             }
             DELETE_NOTE => {
-                let note_id_raw = arguments
-                    .get("note_id")
-                    .and_then(Value::as_str)
-                    .ok_or_else(invalid)?;
-                let note_title_raw = arguments
-                    .get("note_title")
-                    .and_then(Value::as_str)
-                    .ok_or_else(invalid)?;
-                let _note_id = check_note_id(note_id_raw).map_err(|_| invalid())?;
-                let note_title = check_title(note_title_raw).map_err(|_| invalid())?;
-                format!("Delete note \"{}\" in \"{}\"", note_title, self.folder)
+                let args = parse_delete_args(arguments).map_err(|_| invalid())?;
+                format!("Delete note \"{}\" in \"{}\"", args.note_title, self.folder)
             }
             _ => return Err(ProviderError::UnknownTool),
         };
@@ -531,22 +578,14 @@ impl Provider for NotesProvider {
     }
 
     async fn call(&self, tool_id: &str, arguments: Value, _context: CallContext) -> ToolOutput {
+        const INVALID_ARGS: &str = "Error: the arguments are not valid";
         match tool_id {
             CREATE_NOTE => {
-                let Some(title_raw) = arguments.get("title").and_then(Value::as_str) else {
-                    return ToolOutput::error("Error: the arguments are not valid");
+                let Ok(args) = parse_create_args(&arguments) else {
+                    return ToolOutput::error(INVALID_ARGS);
                 };
-                let Some(body_raw) = arguments.get("body").and_then(Value::as_str) else {
-                    return ToolOutput::error("Error: the arguments are not valid");
-                };
-                let Ok(title) = check_title(title_raw) else {
-                    return ToolOutput::error("Error: the arguments are not valid");
-                };
-                let Ok(body) = check_body(body_raw) else {
-                    return ToolOutput::error("Error: the arguments are not valid");
-                };
-                let Ok(html) = create_html(title, body) else {
-                    return ToolOutput::error("Error: the arguments are not valid");
+                let Ok(html) = create_html(args.title, args.body) else {
+                    return ToolOutput::error(INVALID_ARGS);
                 };
                 let result = self
                     .runner
@@ -558,12 +597,12 @@ impl Provider for NotesProvider {
                         let text = if check_note_id(raw_id).is_ok() {
                             format!(
                                 "Created the note \"{}\" in the Notes folder \"{}\". Its id is {}.",
-                                title, self.folder, raw_id
+                                args.title, self.folder, raw_id
                             )
                         } else {
                             format!(
                                 "Created the note \"{}\" in the Notes folder \"{}\".",
-                                title, self.folder
+                                args.title, self.folder
                             )
                         };
                         ToolOutput::ok(text)
@@ -572,8 +611,8 @@ impl Provider for NotesProvider {
                 }
             }
             LIST_NOTES => {
-                if !arguments.is_object() {
-                    return ToolOutput::error("Error: the arguments are not valid");
+                if parse_list_args(&arguments).is_err() {
+                    return ToolOutput::error(INVALID_ARGS);
                 }
                 let result = self
                     .runner
@@ -602,17 +641,14 @@ impl Provider for NotesProvider {
                 }
             }
             READ_NOTE => {
-                let Some(note_id_raw) = arguments.get("note_id").and_then(Value::as_str) else {
-                    return ToolOutput::error("Error: the arguments are not valid");
-                };
-                let Ok(note_id) = check_note_id(note_id_raw) else {
-                    return ToolOutput::error("Error: the arguments are not valid");
+                let Ok(args) = parse_read_args(&arguments) else {
+                    return ToolOutput::error(INVALID_ARGS);
                 };
                 let result = self
                     .runner
                     .run(
                         SCRIPT_READ,
-                        &[&self.folder, note_id],
+                        &[&self.folder, args.note_id],
                         MAX_TOOL_OUTPUT_BYTES + 1,
                     )
                     .await;
@@ -622,105 +658,65 @@ impl Provider for NotesProvider {
                 }
             }
             APPEND_NOTE => {
-                let Some(note_id_raw) = arguments.get("note_id").and_then(Value::as_str) else {
-                    return ToolOutput::error("Error: the arguments are not valid");
+                let Ok(args) = parse_append_args(&arguments) else {
+                    return ToolOutput::error(INVALID_ARGS);
                 };
-                let Some(note_title_raw) = arguments.get("note_title").and_then(Value::as_str)
-                else {
-                    return ToolOutput::error("Error: the arguments are not valid");
-                };
-                let Some(text_raw) = arguments.get("text").and_then(Value::as_str) else {
-                    return ToolOutput::error("Error: the arguments are not valid");
-                };
-                let Ok(note_id) = check_note_id(note_id_raw) else {
-                    return ToolOutput::error("Error: the arguments are not valid");
-                };
-                let Ok(note_title) = check_title(note_title_raw) else {
-                    return ToolOutput::error("Error: the arguments are not valid");
-                };
-                let Ok(html) = append_html(text_raw) else {
-                    return ToolOutput::error("Error: the arguments are not valid");
+                let Ok(html) = append_html(args.text) else {
+                    return ToolOutput::error(INVALID_ARGS);
                 };
                 let result = self
                     .runner
                     .run(
                         SCRIPT_APPEND,
-                        &[&self.folder, note_id, note_title, &html],
+                        &[&self.folder, args.note_id, args.note_title, &html],
                         4096,
                     )
                     .await;
                 match result {
-                    NotesRunResult::Success(_) => {
-                        ToolOutput::ok(format!("Added the text to the note \"{}\".", note_title))
-                    }
+                    NotesRunResult::Success(_) => ToolOutput::ok(format!(
+                        "Added the text to the note \"{}\".",
+                        args.note_title
+                    )),
                     other => map_run_error(other),
                 }
             }
             EDIT_NOTE => {
-                let Some(note_id_raw) = arguments.get("note_id").and_then(Value::as_str) else {
-                    return ToolOutput::error("Error: the arguments are not valid");
+                let Ok(args) = parse_edit_args(&arguments) else {
+                    return ToolOutput::error(INVALID_ARGS);
                 };
-                let Some(note_title_raw) = arguments.get("note_title").and_then(Value::as_str)
-                else {
-                    return ToolOutput::error("Error: the arguments are not valid");
-                };
-                let Some(title_raw) = arguments.get("title").and_then(Value::as_str) else {
-                    return ToolOutput::error("Error: the arguments are not valid");
-                };
-                let Some(body_raw) = arguments.get("body").and_then(Value::as_str) else {
-                    return ToolOutput::error("Error: the arguments are not valid");
-                };
-                let Ok(note_id) = check_note_id(note_id_raw) else {
-                    return ToolOutput::error("Error: the arguments are not valid");
-                };
-                let Ok(note_title) = check_title(note_title_raw) else {
-                    return ToolOutput::error("Error: the arguments are not valid");
-                };
-                let Ok(title) = check_title(title_raw) else {
-                    return ToolOutput::error("Error: the arguments are not valid");
-                };
-                let Ok(body) = check_body(body_raw) else {
-                    return ToolOutput::error("Error: the arguments are not valid");
-                };
-                let Ok(html) = create_html(title, body) else {
-                    return ToolOutput::error("Error: the arguments are not valid");
+                let Ok(html) = create_html(args.title, args.body) else {
+                    return ToolOutput::error(INVALID_ARGS);
                 };
                 let result = self
                     .runner
                     .run(
                         SCRIPT_EDIT,
-                        &[&self.folder, note_id, note_title, &html],
+                        &[&self.folder, args.note_id, args.note_title, &html],
                         4096,
                     )
                     .await;
                 match result {
                     NotesRunResult::Success(_) => {
-                        ToolOutput::ok(format!("Changed the note \"{}\".", note_title))
+                        ToolOutput::ok(format!("Changed the note \"{}\".", args.note_title))
                     }
                     other => map_run_error(other),
                 }
             }
             DELETE_NOTE => {
-                let Some(note_id_raw) = arguments.get("note_id").and_then(Value::as_str) else {
-                    return ToolOutput::error("Error: the arguments are not valid");
-                };
-                let Some(note_title_raw) = arguments.get("note_title").and_then(Value::as_str)
-                else {
-                    return ToolOutput::error("Error: the arguments are not valid");
-                };
-                let Ok(note_id) = check_note_id(note_id_raw) else {
-                    return ToolOutput::error("Error: the arguments are not valid");
-                };
-                let Ok(note_title) = check_title(note_title_raw) else {
-                    return ToolOutput::error("Error: the arguments are not valid");
+                let Ok(args) = parse_delete_args(&arguments) else {
+                    return ToolOutput::error(INVALID_ARGS);
                 };
                 let result = self
                     .runner
-                    .run(SCRIPT_DELETE, &[&self.folder, note_id, note_title], 4096)
+                    .run(
+                        SCRIPT_DELETE,
+                        &[&self.folder, args.note_id, args.note_title],
+                        4096,
+                    )
                     .await;
                 match result {
                     NotesRunResult::Success(_) => {
-                        ToolOutput::ok(format!("Deleted the note \"{}\".", note_title))
+                        ToolOutput::ok(format!("Deleted the note \"{}\".", args.note_title))
                     }
                     other => map_run_error(other),
                 }
