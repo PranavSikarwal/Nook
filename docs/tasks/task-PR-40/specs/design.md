@@ -1,7 +1,7 @@
 # Spec: Notes tools run by the Daemon outside the sandbox
 
 ```
-Stage: 5 plan
+Stage: 7 review
 Gate 1: approved by owner on 2026-11-14: "approved now use gpt-6-luna it is renewed the usage u can use it now"
 Gate 2: pending
 ```

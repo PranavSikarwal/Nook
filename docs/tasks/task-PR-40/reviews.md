@@ -212,6 +212,12 @@
 | --- | --- | --- | --- |
 | none | The review has no finding. | none | - |
 
+## Round 15 (code)
+
+- Head: the commit that adds this heading (the SHA is recorded with the verdict).
+- Reviewer: the T3 reviewer (required: new feature with authorization, sandbox, contract and policy changes).
+- Gaps closed by recommendation since round 14: G7 (test initializers of `ToolsConfig`, decided in stage 6, task 2).
+
 ## Commands run
 
 One row for each named check that the task adds to a rule or a document. A row lists the commands of its check.
