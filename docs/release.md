@@ -14,6 +14,15 @@ The macOS installer places `Nook.app` in the user Applications directory. It
 keeps application data, including `config.toml`, in
 `~/Library/Application Support/Nook` during upgrades.
 
+## macOS permissions
+
+On macOS, controlling Apple Notes requires Automation permission. `Nook.app`
+includes the `NSAppleEventsUsageDescription` property ("Nook needs to control
+Notes so that the assistant can work with the notes that you approve.") in its
+`Info.plist` and the `com.apple.security.automation.apple-events` entitlement in
+`entitlements.plist`. Because ad hoc signed builds change signature with each
+build, macOS may ask for Automation permission again after an update.
+
 ## Linux requirements
 
 The Debian package recommends `bubblewrap`. The command tool and MCP servers

@@ -114,7 +114,7 @@ sentences, so the Panel shows what will happen without its own rules. `tier` is
 
 The Panel asks which tool sources work with one request, `list_tool_sources`. The
 Daemon answers with `tool_sources`. Each source has `source_id` (`filesystem`,
-`terminal`, or `mcp:<name>`), `display_name`, `state`, `tools` (the number of
+`terminal`, `notes`, or `mcp:<name>`), `display_name`, `state`, `tools` (the number of
 tools it offers), and an optional `reason` of at most 200 characters. `state` is
 `ready`, `off` (the source did not start, and `reason` says why), or `stopped` (an
 MCP server exited, and the next call starts it again). A source that is not
@@ -134,6 +134,20 @@ Each entry of `roots` has `path`, `access`, `usable`, and a `reason` when
 `usable` is false (the folder was deleted, moved, or is not absolute). The
 Daemon answers a refused request with an `error` of code `invalid_request` and
 a plain message. Settings, Folders shows the list.
+
+## Notes folder setting
+
+The Panel manages the Notes folder with two requests.
+
+- `get_notes_settings` asks for the current setting.
+- `set_notes_folder` carries `folder`.
+
+The Daemon answers with `notes_settings`, or an `error` of code `invalid_request`
+and a plain message. `notes_settings` carries `folder` (the stored name cut to
+200 characters), `supported` (true on macOS when Notes is available), and an
+optional `reason` when the source is off (`The Notes folder name is not valid` or
+`Notes was not found on this Mac`). Settings, Tools shows the field when
+`supported` is true.
 
 ## Tools that the Daemon runs
 
