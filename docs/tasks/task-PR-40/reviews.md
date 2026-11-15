@@ -214,9 +214,26 @@
 
 ## Round 15 (code)
 
-- Head: the commit that adds this heading (the SHA is recorded with the verdict).
-- Reviewer: the T3 reviewer (required: new feature with authorization, sandbox, contract and policy changes).
-- Gaps closed by recommendation since round 14: G7 (test initializers of `ToolsConfig`, decided in stage 6, task 2).
+- Head: `53c6c9d0f844432c03674c5239b338ed0863e0be`
+- Reviewer: the T3 reviewer (required: new feature with authorization, sandbox, contract and policy changes). Verdict: REQUEST_CHANGES (P0: 0, P1: 1, P2: 2, P3: 5). Review 5910137911.
+- SonarCloud: Quality Gate passed, 3 new issues, 0 hotspots. The check-run gives no rule text. The issues sit at `providers/notes.rs:524` (the long `call`, finding C5) and `panel/e2e/run.mjs:275` and `:277` (both lines hold an escaped `\\n` in a quoted string; fix: `String.raw`).
+- Checks: `Code Quality and Tests`, `Windows named-pipe IPC` and `SonarCloud Code Analysis` pass. `Native Tauri E2E Gate` was running when the reviewer read it, and it passed on the previous head `1b53d66`.
+- Gaps closed by recommendation since round 14: G7 (test initializers of `ToolsConfig`, stage 6, task 2).
+- Threads: 9 unresolved (the reviewer resolves its own threads after the follow-up).
+
+| # | Finding | Action | Where |
+| --- | --- | --- | --- |
+| C1 (P1) | `notes_folder::set` passes `nook:notes_*` ids to `GrantStore::remove_tools`, but grants are stored under `grant_key(...)`, which strips `nook:`. No Notes chat grant is removed, so a grant for the old folder works in the new folder. The test builds the grant by hand with the prefixed name, so it passes. | fix | Plan "Round 15" task R1: one list of the six ids in the `grant_key` form, and tests that create the grant through the real flow (`allow_for_chat`). |
+| C2 (P2) | The race tests do not meet the write lock (no yield after the spawn), copy the change sequence by hand instead of calling the code that `set` runs, and one stops waiting after 100 yields with no assertion. | fix | Plan task R1: one function that takes `&mut Config` and that `set` calls, called by the tests under the guard; yield after the spawn and assert `!is_finished()`; assert that `decision_in_flight` was reached. |
+| C3 (P2) | `update_notes_folder` and `write_private` in `notes_folder.rs` copy `Config::update_filesystem_roots` and the private `write_private` of `config.rs` (Design 4). | fix | Plan task R2: `Config::update_notes_folder` in `config.rs`; delete the copy. |
+| C4 (P3) | `#[path = "notes_folder.rs"]` in the `use` list of `server.rs` makes the module `server::notes_folder`. | fix | Plan task R3: `pub mod notes_folder;` in `lib.rs`. |
+| C5 (P3) | `call` is about 190 lines, `facts` parses and checks the same arguments again, six times. SonarCloud flags `notes.rs:524`. | fix | Plan task R5: one function per tool that parses and checks the arguments and returns a typed value. |
+| C6 (P3) | `getNotesFolderDisplay` and `getNotesFolderReason` in `notesFolder.ts` are used by no component, and 3 of the 11 tests test only them. | fix | Plan task R6: remove both functions and their tests. |
+| C7 (P3) | `docs/tools-and-authorization.md` says a result that "reaches 65,536 bytes" is truncated, and `docs/contracts.md` says `supported` is "true on macOS when Notes is available". | fix | Plan task R7: "longer than 65,536 bytes", and "true when the platform has Notes (the program path is set)". |
+| C8 (P3) | `cancel_kills_the_process_group` cancels after 100 ms, then reads the pid file, which the shell may not have written yet. | fix | Plan task R4: wait for the pid file, then cancel. |
+| Sonar 2 (warning) | `panel/e2e/run.mjs:275` and `:277` | fix | Plan task R6: `String.raw`. |
+| Note | Four extra commits (`2ee9a3b`, `02d3f5a`, `02ec55d`, `1b53d66`) exist; history cannot change without a force push. | no change | The reviewer does not report them. |
+| Note | The `desktop-app-tools` references in `CHECKLIST.md` and `docs/plans/` (Risk 7). | no change | Owned by the housekeeping task. |
 
 ## Commands run
 
