@@ -82,7 +82,7 @@ def test_panel_daemon_examples_valid() -> None:
     examples = load_ndjson(EXAMPLES_DIR / "panel-daemon.ndjson")
     validator = Draft7Validator(schema, format_checker=format_checker)
 
-    assert len(examples) == 34, f"Expected 34 example lines, found {len(examples)}"
+    assert len(examples) == 37, f"Expected 37 example lines, found {len(examples)}"
 
     for idx, obj in enumerate(examples, 1):
         errors = list(validator.iter_errors(obj))
@@ -292,6 +292,20 @@ def test_daemon_worker_all_types_covered() -> None:
                     "choices": [],  # at least the default choice
                 }
             ],
+        },
+        {
+            "type": "set_notes_folder",
+            "id": "11111111-1111-1111-1111-111111111111",
+            "folder": "",
+        },
+        {
+            "type": "set_notes_folder",
+            "id": "11111111-1111-1111-1111-111111111111",
+        },
+        {
+            "type": "notes_settings",
+            "id": "11111111-1111-1111-1111-111111111111",
+            "folder": "Nook",
         },
     ],
 )

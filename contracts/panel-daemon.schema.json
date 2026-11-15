@@ -20,6 +20,8 @@
     { "$ref": "#/definitions/RemoveRootRequest" },
     { "$ref": "#/definitions/RevokeGrantRequest" },
     { "$ref": "#/definitions/SetToolPreferenceRequest" },
+    { "$ref": "#/definitions/GetNotesSettingsRequest" },
+    { "$ref": "#/definitions/SetNotesFolderRequest" },
     { "$ref": "#/definitions/MessageStartedEvent" },
     { "$ref": "#/definitions/TextDeltaEvent" },
     { "$ref": "#/definitions/ToolCallStartedEvent" },
@@ -36,6 +38,7 @@
     { "$ref": "#/definitions/PermissionsResponse" },
     { "$ref": "#/definitions/ToolSourcesResponse" },
     { "$ref": "#/definitions/RootsResponse" },
+    { "$ref": "#/definitions/NotesSettingsResponse" },
     { "$ref": "#/definitions/PongResponse" },
     { "$ref": "#/definitions/ErrorResponse" }
   ],
@@ -479,6 +482,25 @@
       "required": ["type", "id", "tool_id", "tier"],
       "additionalProperties": false
     },
+    "GetNotesSettingsRequest": {
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "const": "get_notes_settings" },
+        "id": { "$ref": "#/definitions/UUID" }
+      },
+      "required": ["type", "id"],
+      "additionalProperties": false
+    },
+    "SetNotesFolderRequest": {
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "const": "set_notes_folder" },
+        "id": { "$ref": "#/definitions/UUID" },
+        "folder": { "type": "string", "minLength": 1 }
+      },
+      "required": ["type", "id", "folder"],
+      "additionalProperties": false
+    },
     "GrantInfo": {
       "type": "object",
       "properties": {
@@ -569,6 +591,18 @@
         "roots": { "type": "array", "items": { "$ref": "#/definitions/RootInfo" } }
       },
       "required": ["type", "id", "roots"],
+      "additionalProperties": false
+    },
+    "NotesSettingsResponse": {
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "const": "notes_settings" },
+        "id": { "$ref": "#/definitions/UUID" },
+        "folder": { "type": "string", "maxLength": 200 },
+        "supported": { "type": "boolean" },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 200 }
+      },
+      "required": ["type", "id", "folder", "supported"],
       "additionalProperties": false
     },
     "PongResponse": {

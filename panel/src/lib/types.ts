@@ -70,6 +70,12 @@ export interface SettingsPayload {
   api_key?: string
 }
 
+export interface NotesSettings {
+  folder: string
+  supported: boolean
+  reason?: string
+}
+
 export interface ApprovalAction {
   id: string
   label: string

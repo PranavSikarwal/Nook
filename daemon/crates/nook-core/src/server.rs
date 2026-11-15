@@ -28,6 +28,9 @@ use crate::authorization::AuthorizationRequest;
 use crate::config::Config;
 use crate::db;
 use crate::keychain;
+
+#[path = "notes_folder.rs"]
+pub mod notes_folder;
 use crate::message_stream::handle_send_message;
 pub use crate::message_stream::{
     forward_text_delta, forward_tool_call_event, forward_unless_cancelled,
@@ -780,6 +783,14 @@ async fn process_client_message(
             action,
         } => {
             handle_approval_decision(&state, id, chat_id, call_id, action, &tx_out).await;
+        }
+
+        ClientMessage::GetNotesSettings { id } => {
+            notes_folder::get(&state, id, &tx_out).await;
+        }
+
+        ClientMessage::SetNotesFolder { id, folder } => {
+            notes_folder::set(&state, id, folder, &tx_out).await;
         }
     }
 }
