@@ -235,6 +235,12 @@
 | Note | Four extra commits (`2ee9a3b`, `02d3f5a`, `02ec55d`, `1b53d66`) exist; history cannot change without a force push. | no change | The reviewer does not report them. |
 | Note | The `desktop-app-tools` references in `CHECKLIST.md` and `docs/plans/` (Risk 7). | no change | Owned by the housekeeping task. |
 
+## Round 16 (code)
+
+- Head: the commit that adds this heading (the SHA is recorded with the verdict).
+- Reviewer: the T3 reviewer, follow-up of round 15 (fixes R1 to R7 of `plans/plan.md`, commits `bc6b953` to `3460428`).
+- Gaps closed by recommendation since round 15: none.
+
 ## Commands run
 
 One row for each named check that the task adds to a rule or a document. A row lists the commands of its check.
