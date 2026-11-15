@@ -3,7 +3,6 @@ use crate::policy::grant_key;
 use crate::protocol::{DaemonMessage, ErrorCode, ErrorInfo, ToolSourceState};
 use crate::providers::notes::TOOL_IDS;
 use crate::server::AppState;
-use std::path::Path;
 use std::sync::{Arc, LazyLock};
 use tokio::sync::mpsc;
 use tracing::warn;
@@ -103,7 +102,7 @@ pub async fn set(
     let trimmed = folder.trim().to_string();
     let result: Result<DaemonMessage, String> = async {
         let mut config = state.config.write().await;
-        update_notes_folder(&state.config_path, &trimmed).map_err(|error| {
+        Config::update_notes_folder(&state.config_path, &trimmed).map_err(|error| {
             warn!("Could not save the Notes folder: {error}");
             NOT_SAVED.to_string()
         })?;
@@ -137,53 +136,4 @@ pub async fn set(
                 .await;
         }
     }
-}
-
-fn update_notes_folder(
-    path: &Path,
-    folder: &str,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let text = match std::fs::read_to_string(path) {
-        Ok(text) => text,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
-        Err(error) => return Err(error.into()),
-    };
-    let mut document = text.parse::<toml_edit::DocumentMut>()?;
-    let tools = document
-        .entry("tools")
-        .or_insert_with(|| toml_edit::Item::Table(toml_edit::Table::new()))
-        .as_table_mut()
-        .ok_or("`tools` in config.toml is not a table")?;
-    tools.set_implicit(true);
-    let notes = tools
-        .entry("notes")
-        .or_insert_with(|| toml_edit::Item::Table(toml_edit::Table::new()))
-        .as_table_mut()
-        .ok_or("`tools.notes` in config.toml is not a table")?;
-    notes.insert("folder", toml_edit::value(folder));
-    write_private(path, &document.to_string())
-}
-
-fn write_private(
-    path: &Path,
-    contents: &str,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    use std::io::Write;
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    let temporary = path.with_extension("toml.tmp");
-    let mut options = std::fs::OpenOptions::new();
-    options.write(true).create(true).truncate(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    let mut file = options.open(&temporary)?;
-    file.write_all(contents.as_bytes())?;
-    file.sync_all()?;
-    drop(file);
-    std::fs::rename(&temporary, path)?;
-    Ok(())
 }

@@ -368,6 +368,33 @@ impl Config {
         filesystem.insert("roots", toml_edit::value(array));
         write_private(path, &document.to_string())
     }
+
+    /// Sets `tools.notes.folder` and leaves every other line, comment, and table as
+    /// it is. Creates the file when it is missing.
+    pub fn update_notes_folder(
+        path: &Path,
+        folder: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let text = match std::fs::read_to_string(path) {
+            Ok(text) => text,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+            Err(error) => return Err(error.into()),
+        };
+        let mut document = text.parse::<toml_edit::DocumentMut>()?;
+        let tools = document
+            .entry("tools")
+            .or_insert_with(|| toml_edit::Item::Table(toml_edit::Table::new()))
+            .as_table_mut()
+            .ok_or("`tools` in config.toml is not a table")?;
+        tools.set_implicit(true);
+        let notes = tools
+            .entry("notes")
+            .or_insert_with(|| toml_edit::Item::Table(toml_edit::Table::new()))
+            .as_table_mut()
+            .ok_or("`tools.notes` in config.toml is not a table")?;
+        notes.insert("folder", toml_edit::value(folder));
+        write_private(path, &document.to_string())
+    }
 }
 
 fn first_env_file() -> Option<PathBuf> {
@@ -594,6 +621,24 @@ env = { TOKEN = "secret-value" }
                 root("/tmp/work", RootAccess::ReadWrite)
             ]
         );
+        assert_eq!(loaded.tools.mcp_servers[0].name, "notes");
+    }
+
+    #[test]
+    fn updating_the_notes_folder_keeps_comments_and_other_settings() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(&path, HAND_EDITED).unwrap();
+
+        Config::update_notes_folder(&path, "My Notes").unwrap();
+
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("# My Nook settings"));
+        assert!(text.contains("# Files the assistant may read"));
+        assert!(text.contains("env = { TOKEN = \"secret-value\" }"));
+        assert!(text.contains("model = \"old-model\""));
+        let loaded: Config = toml::from_str(&text).unwrap();
+        assert_eq!(loaded.tools.notes.folder, "My Notes");
         assert_eq!(loaded.tools.mcp_servers[0].name, "notes");
     }
 
