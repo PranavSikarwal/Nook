@@ -82,6 +82,8 @@ cat <<EOF > "$BUNDLE_DIR/Contents/Info.plist"
     <true/>
     <key>LSMinimumSystemVersion</key>
     <string>14.0</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>Nook needs to control Notes so that the assistant can work with the notes that you approve.</string>
 </dict>
 </plist>
 EOF
