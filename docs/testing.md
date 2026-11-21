@@ -112,7 +112,7 @@ unit tests for the path checks. `socket_ownership_tests.rs` sets its folder mode
 itself because `Server::bind` changes the process-wide umask for a moment.
 `signal_shutdown_tests.rs` verifies that the Daemon exits cleanly and removes its socket within 5 seconds of receiving SIGTERM or SIGINT. Its `TestDaemon` kills the Worker when a test ends, so a failing run leaves no Worker.
 `provider_execution_tests.rs` verifies that `stop_everything` aborts a running tool call and drops the provider (`stop_everything_aborts_running_tool_calls`, `stop_everything_drops_the_provider`). `supervisor_tests.rs` verifies that a shutdown kills a Worker that ignores the close of its standard input (`shutdown_kills_a_worker_that_ignores_stdin_close`). `socket_ownership_tests.rs` verifies that shutdown keeps a socket that another listener took over and a symlink at the socket path (`shutdown_keeps_a_symlink_at_the_socket_path`).
-`panel/e2e/specs/folders.spec.mjs` (6 tests, part of the 10 specs and 43 tests of the
+`panel/e2e/specs/folders.spec.mjs` (6 tests, part of the 11 specs and 48 tests of the
 native suite on Linux) opens the tab through the `open_settings` event that the macOS
 menu sends, adds a folder (the test build reads it from `NOOK_E2E_PICK_FOLDER`), and
 writes there through the approval flow. It also tests that adding a duplicate folder
@@ -124,6 +124,57 @@ picker. Check the menu by hand.
 window stays put, that the link reaches the `open_external_link` command, and that
 a `javascript:` or `file:` address is not a link. The test build never starts a
 browser. It appends the link to `opened-links.log` in the run folder.
+
+`notes_tool_tests.rs` (12 tests) runs the Notes tools through the real socket
+with the fake Worker and a fake `osascript`. It verifies that the program runs
+only after an allow, that a deny leaves the log empty, that a cancel before
+approval does not run it, that a registry built with `None` denies with `Tool runs
+in the Worker`, that the delete approval card offers no chat grant, and that
+parallel calls never overlap (also across a provider rebuild). It also tests
+folder-change races: an approval pending during a folder change is denied with
+`The Notes folder changed`, an approval decision for an old folder records no
+grant, chat grants for Notes tools do not survive a folder change, and approvals
+and grants of other tools stay intact.
+
+`notes_folder_tests.rs` (7 tests) runs the Settings requests for the Notes
+folder through the real socket. It checks `get_notes_settings` (returning stored
+folder, supported state, and optional reason), that `set_notes_folder` updates
+`config.toml` and rebuilds the provider registry, that an invalid folder name is
+rejected and changes nothing, that a bad folder name in `config.toml` is
+repaired by a valid change, that `supported` is false when the program path is
+`None`, that a failed write of `config.toml` returns `The folder could not be
+saved`, and that approvals and grants of other tools stay across a Notes folder
+change.
+
+`notes_policy_tests.rs` (13 tests) tests the real policy files for the six Notes
+tools. It verifies that `policy/tools.yaml` lists all six tools, that non-delete
+tools offer `allow_once`, `allow_for_chat`, and `deny`, that
+`nook:notes_delete_note` offers only `allow_once` and `deny`, that no Notes tool
+offers `always_allow`, that Cedar schema defines all six actions, that `once`
+and `chat` grants permit non-delete calls, that `once` permits delete, that
+delete is denied with a `chat` grant, and that calls without a grant or with a
+persistent grant are denied.
+
+Unit tests in `providers/notes.rs` (70 tests) test title trimming and refusal,
+plain text checks, `note_id` prefix and character rules, HTML escaping and
+formatting, argument validation, and the `osascript` runner with process group
+cleanup, timeouts, output limits, and error code mappings (`(-1743)`,
+`(-1728)`, `(9001)`, `(9002)`). Unit tests in `config.rs` test folder name
+validation rules.
+
+`panel/e2e/unit/notes-folder.test.mjs` (8 tests) is run by `rtk npm run test:unit`
+(`node --test`). It tests pure functions in `panel/src/lib/notesFolder.ts`:
+`isNotesFolderVisible` and `canSaveNotesFolder`.
+
+`panel/e2e/specs/notes.spec.mjs` (5 tests, part of the 11 specs and 48 tests of the
+native suite on Linux) tests the Notes tools through the desktop UI. In
+deterministic mode, `panel/e2e/run.mjs` writes a fake `osascript` shell script
+and passes its path in `NOOK_E2E_OSASCRIPT` and the log path in
+`NOOK_E2E_OSASCRIPT_LOG`. The spec verifies that a denied approval leaves the
+log empty, that pressing Escape before approval cancels the call without
+running the program, that allowing a call runs the program with the `:` argument
+prefix, that delete approval cards have no chat button, and that changing the
+folder in Settings applies to subsequent calls.
 
 The deterministic native tests use `panel/e2e/fake_worker.py`. It sends
 `authorize_tool`, waits for `authorization_result`, and sends tool events only

@@ -6,6 +6,7 @@ pub mod db;
 pub mod folders;
 pub mod keychain;
 pub mod message_stream;
+pub mod notes_folder;
 pub mod permissions;
 pub mod policy;
 pub mod policy_assets;

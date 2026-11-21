@@ -229,3 +229,114 @@ tools:
         - id: deny
           label: "Deny"
           description: "Reject this request. The tool does not run."
+
+  nook:notes_create_note:
+    display_name: "Create note"
+    description: "Create a note in the Notes folder you chose."
+    capabilities:
+      local: true
+      read_only: false
+    approval:
+      tier: ask
+      actions:
+        - id: allow_once
+          label: "Allow once"
+          description: "Allow this exact request one time."
+        - id: allow_for_chat
+          label: "Allow for this chat"
+          description: "Allow this tool for the rest of this chat."
+        - id: deny
+          label: "Deny"
+          description: "Reject this request. The tool does not run."
+
+  nook:notes_list_notes:
+    display_name: "List notes"
+    description: "List the notes in the Notes folder you chose."
+    capabilities:
+      local: true
+      read_only: true
+    approval:
+      tier: ask
+      actions:
+        - id: allow_once
+          label: "Allow once"
+          description: "Allow this exact request one time."
+        - id: allow_for_chat
+          label: "Allow for this chat"
+          description: "Allow this tool for the rest of this chat."
+        - id: deny
+          label: "Deny"
+          description: "Reject this request. The tool does not run."
+
+  nook:notes_read_note:
+    display_name: "Read note"
+    description: "Read a note in the Notes folder you chose."
+    capabilities:
+      local: true
+      read_only: true
+    approval:
+      tier: ask
+      actions:
+        - id: allow_once
+          label: "Allow once"
+          description: "Allow this exact request one time."
+        - id: allow_for_chat
+          label: "Allow for this chat"
+          description: "Allow this tool for the rest of this chat."
+        - id: deny
+          label: "Deny"
+          description: "Reject this request. The tool does not run."
+
+  nook:notes_append_note:
+    display_name: "Append note"
+    description: "Append text to a note in the Notes folder you chose."
+    capabilities:
+      local: true
+      read_only: false
+    approval:
+      tier: ask
+      actions:
+        - id: allow_once
+          label: "Allow once"
+          description: "Allow this exact request one time."
+        - id: allow_for_chat
+          label: "Allow for this chat"
+          description: "Allow this tool for the rest of this chat."
+        - id: deny
+          label: "Deny"
+          description: "Reject this request. The tool does not run."
+
+  nook:notes_edit_note:
+    display_name: "Edit note"
+    description: "Edit a note in the Notes folder you chose."
+    capabilities:
+      local: true
+      read_only: false
+    approval:
+      tier: ask
+      actions:
+        - id: allow_once
+          label: "Allow once"
+          description: "Allow this exact request one time."
+        - id: allow_for_chat
+          label: "Allow for this chat"
+          description: "Allow this tool for the rest of this chat."
+        - id: deny
+          label: "Deny"
+          description: "Reject this request. The tool does not run."
+
+  nook:notes_delete_note:
+    display_name: "Delete note"
+    description: "Delete a note in the Notes folder you chose."
+    capabilities:
+      local: true
+      read_only: false
+    approval:
+      tier: ask
+      actions:
+        - id: allow_once
+          label: "Allow once"
+          description: "Allow this exact request one time."
+        - id: deny
+          label: "Deny"
+          description: "Reject this request. The tool does not run."

@@ -108,7 +108,40 @@ pub struct ToolsConfig {
     #[serde(default)]
     pub terminal: TerminalConfig,
     #[serde(default)]
+    pub notes: NotesConfig,
+    #[serde(default)]
     pub mcp_servers: Vec<McpServerConfig>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NotesConfig {
+    #[serde(default = "default_notes_folder")]
+    pub folder: String,
+}
+
+fn default_notes_folder() -> String {
+    "Nook".to_string()
+}
+
+impl Default for NotesConfig {
+    fn default() -> Self {
+        Self {
+            folder: default_notes_folder(),
+        }
+    }
+}
+
+pub fn validate_notes_folder(folder: &str) -> Result<(), &'static str> {
+    let trimmed = folder.trim();
+    if trimmed.is_empty()
+        || trimmed.chars().count() > 100
+        || trimmed.chars().any(char::is_control)
+        || trimmed.contains(':')
+        || trimmed.eq_ignore_ascii_case("Recently Deleted")
+    {
+        return Err("The Notes folder name is not valid");
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -335,6 +368,33 @@ impl Config {
         filesystem.insert("roots", toml_edit::value(array));
         write_private(path, &document.to_string())
     }
+
+    /// Sets `tools.notes.folder` and leaves every other line, comment, and table as
+    /// it is. Creates the file when it is missing.
+    pub fn update_notes_folder(
+        path: &Path,
+        folder: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let text = match std::fs::read_to_string(path) {
+            Ok(text) => text,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+            Err(error) => return Err(error.into()),
+        };
+        let mut document = text.parse::<toml_edit::DocumentMut>()?;
+        let tools = document
+            .entry("tools")
+            .or_insert_with(|| toml_edit::Item::Table(toml_edit::Table::new()))
+            .as_table_mut()
+            .ok_or("`tools` in config.toml is not a table")?;
+        tools.set_implicit(true);
+        let notes = tools
+            .entry("notes")
+            .or_insert_with(|| toml_edit::Item::Table(toml_edit::Table::new()))
+            .as_table_mut()
+            .ok_or("`tools.notes` in config.toml is not a table")?;
+        notes.insert("folder", toml_edit::value(folder));
+        write_private(path, &document.to_string())
+    }
 }
 
 fn first_env_file() -> Option<PathBuf> {
@@ -435,6 +495,35 @@ mod tests {
         assert_eq!(cfg.max_input_tokens, 1_000_000);
         assert_eq!(cfg.summarize_at_tokens, 750_000);
         assert_eq!(cfg.database_url, "postgres://localhost/nook");
+        assert_eq!(cfg.tools.notes.folder, "Nook");
+    }
+
+    #[test]
+    fn notes_folder_names_follow_the_config_rules() {
+        for value in [
+            "",
+            "   ",
+            &"x".repeat(101),
+            "bad\nname",
+            "a:b",
+            "recently deleted",
+        ] {
+            assert_eq!(
+                validate_notes_folder(value),
+                Err("The Notes folder name is not valid")
+            );
+        }
+        assert!(validate_notes_folder("  Notes  ").is_ok());
+        assert!(validate_notes_folder(&"x".repeat(100)).is_ok());
+    }
+
+    #[test]
+    fn config_load_keeps_a_bad_notes_folder_for_caller_validation() {
+        let config: Config = toml::from_str("base_url = 'https://example.com'\nmodel = 'm'\n[tools.notes]\nfolder = 'Recently Deleted'").unwrap();
+        assert_eq!(
+            validate_notes_folder(&config.tools.notes.folder),
+            Err("The Notes folder name is not valid")
+        );
     }
 
     const HAND_EDITED: &str = r#"# My Nook settings
@@ -532,6 +621,24 @@ env = { TOKEN = "secret-value" }
                 root("/tmp/work", RootAccess::ReadWrite)
             ]
         );
+        assert_eq!(loaded.tools.mcp_servers[0].name, "notes");
+    }
+
+    #[test]
+    fn updating_the_notes_folder_keeps_comments_and_other_settings() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(&path, HAND_EDITED).unwrap();
+
+        Config::update_notes_folder(&path, "My Notes").unwrap();
+
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("# My Nook settings"));
+        assert!(text.contains("# Files the assistant may read"));
+        assert!(text.contains("env = { TOKEN = \"secret-value\" }"));
+        assert!(text.contains("model = \"old-model\""));
+        let loaded: Config = toml::from_str(&text).unwrap();
+        assert_eq!(loaded.tools.notes.folder, "My Notes");
         assert_eq!(loaded.tools.mcp_servers[0].name, "notes");
     }
 

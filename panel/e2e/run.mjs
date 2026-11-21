@@ -260,11 +260,25 @@ async function main() {
     const filesDir = path.join(tempRoot, 'files')
     const mcpExample = path.join(daemonDir, 'target', 'debug', 'examples', 'fake_mcp_server')
     const extraDir = path.join(tempRoot, 'extra')
+    const osascriptLog = path.join(tempRoot, 'osascript.log')
+    const fakeOsascriptPath = path.join(tempRoot, 'fake_osascript.sh')
     if (isDeterministic || withLiveTools) await mkdir(filesDir)
     if (isDeterministic) await mkdir(extraDir)
     if (isDeterministic) {
       await writeFile(path.join(filesDir, 'notes.txt'), 'e2e notes')
       await writeFile(path.join(filesDir, 'more.txt'), 'more notes')
+      await writeFile(osascriptLog, '')
+      const quotedLogPath = osascriptLog.replaceAll("'", String.raw`'\''`)
+      const osascriptContent = [
+        '#!/bin/sh',
+        'for arg in "$@"; do',
+        String.raw`  printf '%s\n' "$arg" >> '${quotedLogPath}'`,
+        'done',
+        String.raw`printf 'x-coredata://e2e-note-id/1\n'`,
+        '',
+      ].join('\n')
+      await writeFile(fakeOsascriptPath, osascriptContent)
+      await chmod(fakeOsascriptPath, 0o755)
     }
     const testConfig = [
       `base_url = ${JSON.stringify(baseUrl)}`,
@@ -327,6 +341,8 @@ async function main() {
         ? {
             NOOK_E2E_WORKER_COMMAND: `python3 ${path.join(panelDir, 'e2e/fake_worker.py')}`,
             NOOK_E2E_APPROVAL_TIMEOUT_MS: '30000',
+            NOOK_E2E_OSASCRIPT: fakeOsascriptPath,
+            NOOK_E2E_OSASCRIPT_LOG: osascriptLog,
           }
         : {}),
       NOOK_E2E_REAL_APP_BINARY: path.join(panelDir, 'src-tauri', 'target', 'debug', 'nook-panel'),

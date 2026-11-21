@@ -190,6 +190,13 @@ pub enum ClientMessage {
         tool_id: String,
         tier: String,
     },
+    GetNotesSettings {
+        id: Uuid,
+    },
+    SetNotesFolder {
+        id: Uuid,
+        folder: String,
+    },
 }
 
 /// Replies and events sent from the Daemon to the Panel or `nookctl`.
@@ -279,6 +286,13 @@ pub enum DaemonMessage {
     Roots {
         id: Uuid,
         roots: Vec<RootInfo>,
+    },
+    NotesSettings {
+        id: Uuid,
+        folder: String,
+        supported: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reason: Option<String>,
     },
     Pong {
         id: Uuid,

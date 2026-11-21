@@ -85,6 +85,14 @@ pub struct SettingsInfo {
     pub has_api_key: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NotesSettings {
+    pub folder: String,
+    pub supported: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SendMessagePayload {
     pub chat_id: Uuid,
@@ -1014,6 +1022,45 @@ async fn remove_root<R: Runtime>(app: AppHandle<R>, path: String) -> Result<Vec<
     .await
 }
 
+async fn ask_for_notes_settings<R: Runtime>(
+    app: &AppHandle<R>,
+    msg: ClientMessage,
+) -> Result<NotesSettings, String> {
+    match ask_daemon(app, msg).await? {
+        DaemonMessage::NotesSettings {
+            folder,
+            supported,
+            reason,
+            ..
+        } => Ok(NotesSettings {
+            folder,
+            supported,
+            reason,
+        }),
+        _ => Err("Unexpected response from daemon".to_string()),
+    }
+}
+
+#[tauri::command]
+async fn get_notes_settings<R: Runtime>(app: AppHandle<R>) -> Result<NotesSettings, String> {
+    ask_for_notes_settings(&app, ClientMessage::GetNotesSettings { id: Uuid::new_v4() }).await
+}
+
+#[tauri::command]
+async fn set_notes_folder<R: Runtime>(
+    app: AppHandle<R>,
+    folder: String,
+) -> Result<NotesSettings, String> {
+    ask_for_notes_settings(
+        &app,
+        ClientMessage::SetNotesFolder {
+            id: Uuid::new_v4(),
+            folder,
+        },
+    )
+    .await
+}
+
 /// Opens the system folder picker. Returns `None` when the user cancels.
 #[cfg(not(feature = "e2e"))]
 #[tauri::command]
@@ -1228,6 +1275,8 @@ pub fn run() {
             add_root,
             set_root_access,
             remove_root,
+            get_notes_settings,
+            set_notes_folder,
             pick_folder,
             revoke_grant,
             set_tool_preference,

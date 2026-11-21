@@ -466,3 +466,51 @@ def test_mcp_prompt_takes_plain_text_for_the_text_argument(worker):
     event = worker.expect("execute_tool")
 
     assert json.loads(event["arguments"]) == {"text": "from mcp"}
+
+
+def test_notes_prompt_calls_create_and_delete_tools(worker):
+    run = worker.run("E2E_NOTES:create|Meeting Notes|Discuss project roadmap")
+    worker.expect("message_started")
+    event = worker.expect("execute_tool")
+
+    assert event["tool_name"] == "nook:notes_create_note"
+    assert json.loads(event["arguments"]) == {
+        "title": "Meeting Notes",
+        "body": "Discuss project roadmap",
+    }
+    worker.send(
+        {
+            "type": "tool_result",
+            "request_id": run["request_id"],
+            "call_id": event["call_id"],
+            "status": "ok",
+            "output": 'Created the note "Meeting Notes" in the Notes folder "Nook". Its id is x-coredata://e2e-note-id/1.',
+        }
+    )
+    assert joined_text(worker.collect_until_finished()) == (
+        'Tool ok: Created the note "Meeting Notes" in the Notes folder "Nook". '
+        "Its id is x-coredata://e2e-note-id/1."
+    )
+
+    delete_run = worker.run("E2E_NOTES:delete|x-coredata://e2e-note-id/1|Meeting Notes")
+    worker.expect("message_started")
+    delete_event = worker.expect("execute_tool")
+
+    assert delete_event["tool_name"] == "nook:notes_delete_note"
+    assert json.loads(delete_event["arguments"]) == {
+        "note_id": "x-coredata://e2e-note-id/1",
+        "note_title": "Meeting Notes",
+    }
+    worker.send(
+        {
+            "type": "tool_result",
+            "request_id": delete_run["request_id"],
+            "call_id": delete_event["call_id"],
+            "status": "ok",
+            "output": 'Deleted the note "Meeting Notes".',
+        }
+    )
+    assert (
+        joined_text(worker.collect_until_finished())
+        == 'Tool ok: Deleted the note "Meeting Notes".'
+    )

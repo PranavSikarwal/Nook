@@ -28,10 +28,12 @@ use crate::authorization::AuthorizationRequest;
 use crate::config::Config;
 use crate::db;
 use crate::keychain;
+
 use crate::message_stream::handle_send_message;
 pub use crate::message_stream::{
     forward_text_delta, forward_tool_call_event, forward_unless_cancelled,
 };
+use crate::notes_folder;
 use crate::policy_assets::PolicyAssets;
 use crate::protocol::{
     Attachment, ClientMessage, DaemonMessage, DaemonWorkerRequest, ErrorCode, ErrorInfo,
@@ -51,6 +53,12 @@ pub struct PendingApprovalEntry {
     pub request: AuthorizationRequest,
     pub offered_actions: Vec<String>,
     pub execution: Option<crate::tool_approval::Execution>,
+}
+
+impl PendingApprovalEntry {
+    pub fn folder(&self) -> Option<&str> {
+        self.request.facts.get("folder").map(String::as_str)
+    }
 }
 
 pub fn claim_pending_approval(
@@ -776,6 +784,14 @@ async fn process_client_message(
             action,
         } => {
             handle_approval_decision(&state, id, chat_id, call_id, action, &tx_out).await;
+        }
+
+        ClientMessage::GetNotesSettings { id } => {
+            notes_folder::get(&state, id, &tx_out).await;
+        }
+
+        ClientMessage::SetNotesFolder { id, folder } => {
+            notes_folder::set(&state, id, folder, &tx_out).await;
         }
     }
 }

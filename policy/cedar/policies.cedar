@@ -101,3 +101,28 @@ permit (
   context.grant_scope == "chat" ||
   context.grant_scope == "persistent"
 };
+
+// Notes operations are permitted with a grant for this call or this chat
+permit (
+  principal,
+  action in [
+    Nook::Action::"notes_create_note",
+    Nook::Action::"notes_list_notes",
+    Nook::Action::"notes_read_note",
+    Nook::Action::"notes_append_note",
+    Nook::Action::"notes_edit_note"
+  ],
+  resource
+) when {
+  context.grant_scope == "once" ||
+  context.grant_scope == "chat"
+};
+
+// Deleting a note is permitted only with a grant for this exact call
+permit (
+  principal,
+  action == Nook::Action::"notes_delete_note",
+  resource
+) when {
+  context.grant_scope == "once"
+};

@@ -42,6 +42,8 @@ Nook supports macOS and Linux for privileged tools. Windows has no sandbox yet.
 5. A new Cedar action exists for each privileged tool. Policies can forbid by
    executable name, root, or tool. YAML never overrides Cedar.
 
+Notes tools are the exception: the Daemon runs `osascript` outside the sandbox, because a sandboxed process cannot send the Apple Event. [ADR 0008](0008-daemon-runs-desktop-app-tools-outside-the-sandbox.md) describes this route.
+
 ## Alternatives considered
 
 ### Container or virtual machine

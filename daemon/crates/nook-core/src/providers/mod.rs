@@ -110,6 +110,7 @@ pub trait Provider: Send + Sync {
 pub mod filesystem;
 #[cfg(unix)]
 pub mod mcp;
+pub(crate) mod notes;
 pub mod roots;
 pub mod terminal;
 
@@ -170,6 +171,15 @@ pub struct ProviderRegistry {
     descriptors: Vec<ToolDescriptor>,
     report: Vec<ToolSourceInfo>,
     carry: Carry,
+}
+
+impl std::fmt::Debug for ProviderRegistry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let tools: Vec<&str> = self.index.keys().map(String::as_str).collect();
+        f.debug_struct("ProviderRegistry")
+            .field("tools", &tools)
+            .finish()
+    }
 }
 
 impl ProviderRegistry {
@@ -256,7 +266,14 @@ impl ProviderRegistry {
             .map_err(|_| ProviderError::InvalidArguments("Tool schema is invalid".to_string()))?;
         if let Some(error) = validator.iter_errors(arguments).next() {
             return Err(ProviderError::InvalidArguments(format!(
-                "Invalid arguments: {error}"
+                "Invalid arguments: {} at {}",
+                error
+                    .schema_path
+                    .as_str()
+                    .rsplit('/')
+                    .next()
+                    .unwrap_or("unknown"),
+                error.instance_path
             )));
         }
         self.provider(tool_id)?.facts(tool_id, arguments)
@@ -367,10 +384,19 @@ struct Carry {
     sandbox_error: Option<String>,
     mcp: Vec<Arc<dyn Provider>>,
     mcp_report: Vec<ToolSourceInfo>,
+    notes_program: Option<std::path::PathBuf>,
+    notes_lock: Arc<tokio::sync::Mutex<()>>,
 }
 
-pub async fn build_registry(tools: &crate::config::ToolsConfig) -> ProviderRegistry {
-    let mut carry = Carry::default();
+pub async fn build_registry(
+    tools: &crate::config::ToolsConfig,
+    notes_program: Option<std::path::PathBuf>,
+) -> ProviderRegistry {
+    let mut carry = Carry {
+        notes_program,
+        notes_lock: Arc::new(tokio::sync::Mutex::new(())),
+        ..Carry::default()
+    };
     let needs_sandbox = tools.terminal.enabled || !tools.mcp_servers.is_empty();
     if needs_sandbox {
         match crate::sandbox::Sandbox::detect().await {
@@ -457,6 +483,23 @@ fn assemble(tools: &crate::config::ToolsConfig, carry: Carry) -> ProviderRegistr
             },
             (None, Some(reason)) => report.push(off("terminal", "Command tool", reason.clone())),
             (None, None) => {}
+        }
+    }
+    #[cfg(unix)]
+    if let Some(program) = &carry.notes_program {
+        if !program.is_file() {
+            let reason = "Notes was not found on this Mac";
+            tracing::warn!("Notes tools are off: {reason}");
+            report.push(off("notes", "Notes tools", reason));
+        } else if let Err(reason) = crate::config::validate_notes_folder(&tools.notes.folder) {
+            tracing::warn!("Notes tools are off: {reason}");
+            report.push(off("notes", "Notes tools", reason));
+        } else {
+            providers.push(Arc::new(notes::NotesProvider::new(
+                program.clone(),
+                carry.notes_lock.clone(),
+                tools.notes.folder.clone(),
+            )));
         }
     }
     providers.extend(carry.mcp.iter().cloned());
@@ -624,6 +667,52 @@ mod tests {
     }
 
     #[test]
+    fn schema_error_does_not_include_the_refused_value_for_fixed_provider() {
+        let mut tool = descriptor("nook:a", "a_tool");
+        tool.input_schema =
+            json!({"type":"object","properties":{"a":{"type":"integer"}},"required":["a"]});
+        let registry = registry(vec![tool]).unwrap();
+
+        let error = registry
+            .facts("nook:a", &json!({"a":"secret-value"}))
+            .unwrap_err();
+        let ProviderError::InvalidArguments(message) = error else {
+            panic!("unexpected error");
+        };
+        assert!(message.contains("a"));
+        assert!(message.contains("type"));
+        assert!(!message.contains("secret-value"));
+        assert!(!message.contains("type mismatch"));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn schema_error_does_not_include_the_refused_value_for_file_provider() {
+        use crate::config::{FilesystemConfig, RootAccess, RootConfig};
+
+        let dir = tempfile::tempdir().unwrap();
+        let tools = ToolsConfig {
+            filesystem: FilesystemConfig {
+                roots: vec![RootConfig {
+                    path: dir.path().display().to_string(),
+                    access: RootAccess::Read,
+                }],
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let registry = build_registry(&tools, None).await;
+
+        let error = registry
+            .facts("nook:read_local_file", &json!({"path":["secret-value"]}))
+            .unwrap_err();
+        let ProviderError::InvalidArguments(message) = error else {
+            panic!("unexpected error");
+        };
+        assert!(!message.contains("secret-value"));
+    }
+
+    #[test]
     fn names_are_made_safe_for_the_model() {
         assert_eq!(
             sanitize_tool_name(&["mcp", "my server", "read.file"]),
@@ -644,9 +733,108 @@ mod tests {
 
     #[tokio::test]
     async fn the_builder_offers_nothing_without_roots() {
-        let registry = build_registry(&ToolsConfig::default()).await;
+        let registry = build_registry(&ToolsConfig::default(), None).await;
 
         assert!(registry.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn no_notes_program_offers_no_notes_tools() {
+        let registry = build_registry(&ToolsConfig::default(), None).await;
+        assert!(!registry.contains("nook:notes_list_notes"));
+        assert!(!registry
+            .sources()
+            .iter()
+            .any(|source| source.source_id == "notes"));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn an_existing_notes_program_offers_six_tools() {
+        let program = tempfile::NamedTempFile::new().unwrap();
+        let registry = build_registry(&ToolsConfig::default(), Some(program.path().into())).await;
+        assert_eq!(
+            registry
+                .descriptors()
+                .iter()
+                .filter(|tool| tool.id.starts_with("nook:notes_"))
+                .count(),
+            6
+        );
+        let source = registry
+            .sources()
+            .into_iter()
+            .find(|source| source.source_id == "notes")
+            .unwrap();
+        assert_eq!(source.state, ToolSourceState::Ready);
+        assert_eq!(source.tools, 6);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_missing_notes_program_is_reported_off() {
+        let registry = build_registry(
+            &ToolsConfig::default(),
+            Some("/nook/missing-osascript".into()),
+        )
+        .await;
+        let source = registry
+            .sources()
+            .into_iter()
+            .find(|source| source.source_id == "notes")
+            .unwrap();
+        assert_eq!(source.state, ToolSourceState::Off);
+        assert_eq!(
+            source.reason.as_deref(),
+            Some("Notes was not found on this Mac")
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn an_invalid_notes_folder_is_reported_off() {
+        let program = tempfile::NamedTempFile::new().unwrap();
+        let tools = ToolsConfig {
+            notes: crate::config::NotesConfig {
+                folder: "Recently Deleted".into(),
+            },
+            ..Default::default()
+        };
+        let registry = build_registry(&tools, Some(program.path().into())).await;
+        let source = registry
+            .sources()
+            .into_iter()
+            .find(|source| source.source_id == "notes")
+            .unwrap();
+        assert_eq!(source.state, ToolSourceState::Off);
+        assert_eq!(
+            source.reason.as_deref(),
+            Some("The Notes folder name is not valid")
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn rebuilding_notes_keeps_tools_and_the_runner_lock() {
+        let program = tempfile::NamedTempFile::new().unwrap();
+        let registry = build_registry(&ToolsConfig::default(), Some(program.path().into())).await;
+        let lock = registry.carry.notes_lock.clone();
+        let rebuilt = registry.rebuilt(&ToolsConfig {
+            notes: crate::config::NotesConfig {
+                folder: "Work".into(),
+            },
+            ..Default::default()
+        });
+        assert_eq!(
+            rebuilt
+                .descriptors()
+                .iter()
+                .filter(|tool| tool.id.starts_with("nook:notes_"))
+                .count(),
+            6
+        );
+        assert!(Arc::ptr_eq(&lock, &rebuilt.carry.notes_lock));
     }
 
     #[cfg(unix)]
@@ -666,7 +854,7 @@ mod tests {
             ..ToolsConfig::default()
         };
 
-        let registry = build_registry(&tools).await;
+        let registry = build_registry(&tools, None).await;
 
         assert!(registry.contains("nook:read_local_file"));
         assert!(!registry.contains("nook:write_local_file"));
@@ -674,7 +862,7 @@ mod tests {
 
     #[tokio::test]
     async fn nothing_is_configured_so_no_source_is_listed() {
-        let registry = build_registry(&ToolsConfig::default()).await;
+        let registry = build_registry(&ToolsConfig::default(), None).await;
 
         assert!(registry.sources().is_empty());
     }
@@ -696,7 +884,7 @@ mod tests {
             ..ToolsConfig::default()
         };
 
-        let sources = build_registry(&tools).await.sources();
+        let sources = build_registry(&tools, None).await.sources();
 
         assert_eq!(sources.len(), 1);
         assert_eq!(sources[0].source_id, "filesystem");
@@ -721,7 +909,7 @@ mod tests {
             ..ToolsConfig::default()
         };
 
-        let sources = build_registry(&tools).await.sources();
+        let sources = build_registry(&tools, None).await.sources();
 
         assert_eq!(sources.len(), 1);
         assert_eq!(sources[0].state, ToolSourceState::Off);
@@ -734,7 +922,7 @@ mod tests {
         let mut tools = ToolsConfig::default();
         tools.terminal.enabled = true;
 
-        let sources = build_registry(&tools).await.sources();
+        let sources = build_registry(&tools, None).await.sources();
 
         assert_eq!(sources.len(), 1);
         assert_eq!(sources[0].source_id, "terminal");
@@ -747,5 +935,19 @@ mod tests {
         let source = off("x", "X", "r".repeat(1000));
 
         assert_eq!(source.reason.unwrap().chars().count(), MAX_REASON_CHARS);
+    }
+
+    #[test]
+    fn registry_debug_prints_tool_ids() {
+        let registry = registry(vec![
+            descriptor("nook:tool_b", "tool_b"),
+            descriptor("nook:tool_a", "tool_a"),
+        ])
+        .unwrap();
+        let debug = format!("{registry:?}");
+        assert_eq!(
+            debug,
+            "ProviderRegistry { tools: [\"nook:tool_a\", \"nook:tool_b\"] }"
+        );
     }
 }

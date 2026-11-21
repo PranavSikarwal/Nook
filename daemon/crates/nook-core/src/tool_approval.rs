@@ -4,7 +4,9 @@ use crate::policy_assets::approval_action_scope;
 use crate::protocol::{
     AuthorizationDecision, DaemonMessage, DaemonWorkerRequest, ErrorCode, ErrorInfo, ToolStatus,
 };
-use crate::providers::{roots::OUTSIDE_ROOTS, truncate_output, CallContext, ProviderError};
+use crate::providers::{
+    roots::OUTSIDE_ROOTS, truncate_output, CallContext, ProviderError, ProviderRegistry,
+};
 use crate::server::{
     claim_pending_approval, forward_unless_cancelled, AppState, PendingApprovalEntry,
 };
@@ -42,6 +44,7 @@ pub struct Execution {
     pub tool_name: String,
     pub arguments: String,
     pub tx_out: mpsc::Sender<DaemonMessage>,
+    pub registry: Arc<ProviderRegistry>,
 }
 
 /// Where the verdict for one call goes.
@@ -183,8 +186,8 @@ async fn start_execution(state: &Arc<AppState>, delivery: &Delivery, execution: 
     let task_execution = execution.clone();
     let handle = tokio::spawn(async move {
         let arguments = serde_json::from_str(&task_execution.arguments).unwrap_or_default();
-        let output = task_state
-            .providers
+        let output = task_execution
+            .registry
             .call(
                 &task_execution.tool_name,
                 arguments,
@@ -351,6 +354,9 @@ pub async fn handle_authorize_tool(
     tx_out: &mpsc::Sender<DaemonMessage>,
 ) {
     let call_id = call.call_id.clone();
+    let cfg = state.config.read().await;
+    let registry = state.providers.current();
+    let runs_in_daemon = registry.contains(&call.tool_name);
     let execution = call.execute.then(|| Execution {
         client_request_id: ctx.client_request_id,
         message_id: call.message_id,
@@ -358,6 +364,7 @@ pub async fn handle_authorize_tool(
         tool_name: call.tool_name.clone(),
         arguments: call.arguments.clone(),
         tx_out: tx_out.clone(),
+        registry: registry.clone(),
     });
     let delivery = Delivery {
         worker_request_id: ctx.worker_request_id,
@@ -365,11 +372,12 @@ pub async fn handle_authorize_tool(
         execution,
     };
     if call.chat_id != ctx.chat_id {
+        drop(cfg);
         let verdict = deny("Request does not match the running chat");
         return deliver_logged(state, &delivery, verdict).await;
     }
-    let runs_in_daemon = state.providers.contains(&call.tool_name);
     if call.execute != runs_in_daemon && state.policy.catalog.resolve(&call.tool_name).is_some() {
+        drop(cfg);
         let reason = if runs_in_daemon {
             "Tool runs in the Daemon"
         } else {
@@ -379,7 +387,7 @@ pub async fn handle_authorize_tool(
     }
     let mut request = match AuthorizationRequest::normalize_with(
         &state.policy.catalog,
-        Some(&state.providers.current()),
+        Some(&registry),
         ctx.chat_id,
         &call.call_id,
         &call.tool_name,
@@ -387,11 +395,18 @@ pub async fn handle_authorize_tool(
     ) {
         Ok(request) => request,
         Err(error) => {
+            drop(cfg);
             warn!("Tool arguments rejected: {error}");
             let verdict = deny(argument_denial(&error));
             return deliver_logged(state, &delivery, verdict).await;
         }
     };
+
+    if is_notes_tool(&request.tool_name) {
+        request
+            .facts
+            .insert("folder".to_string(), cfg.tools.notes.folder.clone());
+    }
 
     request.approval_tier = state
         .policy
@@ -399,17 +414,20 @@ pub async fn handle_authorize_tool(
 
     match state.policy.authorizer.authorize_tool(&request).await {
         Ok(true) => {
+            drop(cfg);
             let verdict = (AuthorizationDecision::Allow, None);
             return deliver_logged(state, &delivery, verdict).await;
         }
         Ok(false) => {}
         Err(error) => {
+            drop(cfg);
             let verdict = policy_failure(error);
             return deliver_logged(state, &delivery, verdict).await;
         }
     }
 
     if request.approval_tier == "deny" {
+        drop(cfg);
         let verdict = deny("The tool is denied by policy");
         return deliver_logged(state, &delivery, verdict).await;
     }
@@ -419,6 +437,7 @@ pub async fn handle_authorize_tool(
             (spec.description.clone(), spec.approval.actions.clone())
         }
         _ => {
+            drop(cfg);
             let verdict = deny("No approval action is available for this tool");
             return deliver_logged(state, &delivery, verdict).await;
         }
@@ -429,6 +448,7 @@ pub async fn handle_authorize_tool(
         let mut approvals = state.pending_approvals.lock().await;
         if approvals.contains_key(&call_id) {
             drop(approvals);
+            drop(cfg);
             let verdict = deny("An approval for this call is already pending");
             return deliver_logged(state, &delivery, verdict).await;
         }
@@ -445,6 +465,8 @@ pub async fn handle_authorize_tool(
             },
         );
     }
+    drop(cfg);
+
     let prompt = DaemonMessage::ApprovalRequested {
         id: ctx.client_request_id,
         chat_id: ctx.chat_id,
@@ -547,11 +569,31 @@ pub async fn handle_approval_decision(
         Err(message) => return send_error(tx_out, id, message.to_string(), false).await,
     };
 
-    let verdict = resolve_decision(state, &entry, &action).await;
+    let (verdict, execution) = {
+        let cfg = state.config.read().await;
+        let registry = state.providers.current();
+        if is_notes_tool(&entry.request.tool_name)
+            && entry.folder() != Some(cfg.tools.notes.folder.as_str())
+        {
+            (deny(NOTES_FOLDER_CHANGED), entry.execution.clone())
+        } else {
+            let mut execution = entry.execution.clone();
+            if let Some(ref mut exec) = execution {
+                exec.registry = registry;
+            }
+            let verdict = resolve_decision(state, &entry, &action).await;
+            (verdict, execution)
+        }
+    };
+
     if verdict.0 == AuthorizationDecision::Allow {
         store_persistent_grant(state, &entry, &action).await;
     }
-    let delivery = delivery_for(&call_id, &entry);
+    let delivery = Delivery {
+        worker_request_id: entry.worker_request_id,
+        call_id: call_id.clone(),
+        execution,
+    };
     match deliver(state, &delivery, verdict).await {
         Ok(()) => {
             state.pending_approvals.lock().await.remove(&call_id);
@@ -588,5 +630,140 @@ pub async fn deny_pending_for_request(
     for (call_id, entry) in dropped {
         let delivery = delivery_for(&call_id, &entry);
         deliver_logged(state, &delivery, deny(reason)).await;
+    }
+}
+
+pub const NOTES_FOLDER_CHANGED: &str = "The Notes folder changed";
+
+pub fn is_notes_tool(tool_name: &str) -> bool {
+    tool_name.starts_with("nook:notes_")
+}
+
+/// Denies every pending Notes approval with "The Notes folder changed",
+/// skipping entries with decision_in_flight.
+pub async fn deny_pending_notes_approvals(state: &Arc<AppState>) {
+    let dropped: Vec<(String, PendingApprovalEntry)> = {
+        let mut approvals = state.pending_approvals.lock().await;
+        let call_ids: Vec<String> = approvals
+            .iter()
+            .filter(|(_, entry)| {
+                is_notes_tool(&entry.request.tool_name) && !entry.decision_in_flight
+            })
+            .map(|(call_id, _)| call_id.clone())
+            .collect();
+        call_ids
+            .into_iter()
+            .filter_map(|call_id| approvals.remove(&call_id).map(|entry| (call_id, entry)))
+            .collect()
+    };
+    for (call_id, entry) in dropped {
+        let delivery = delivery_for(&call_id, &entry);
+        deliver_logged(state, &delivery, deny(NOTES_FOLDER_CHANGED)).await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::Config;
+    use crate::policy_assets::PolicyAssets;
+    use crate::protocol::ToolDescriptor;
+    use crate::providers::{Provider, ToolFacts, ToolOutput};
+    use async_trait::async_trait;
+    use serde_json::json;
+    use std::collections::{HashMap, HashSet};
+    use std::path::PathBuf;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use tokio::sync::{mpsc, Mutex, RwLock};
+
+    struct TestProvider(AtomicUsize);
+
+    #[async_trait]
+    impl Provider for TestProvider {
+        fn descriptors(&self) -> Vec<ToolDescriptor> {
+            vec![ToolDescriptor {
+                id: "nook:test_tool".to_string(),
+                name: "test_tool".to_string(),
+                description: "Test tool.".to_string(),
+                input_schema: json!({ "type": "object" }),
+            }]
+        }
+
+        fn facts(
+            &self,
+            _id: &str,
+            _arguments: &serde_json::Value,
+        ) -> Result<ToolFacts, ProviderError> {
+            Ok(ToolFacts::default())
+        }
+
+        async fn call(
+            &self,
+            _id: &str,
+            _arguments: serde_json::Value,
+            _context: CallContext,
+        ) -> ToolOutput {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            ToolOutput::ok("done")
+        }
+    }
+
+    const SCHEMA: &str = include_str!("../../../../policy/cedar/schema.cedarschema");
+    const POLICIES: &str = include_str!("../../../../policy/cedar/policies.cedar");
+    const TOOLS: &str = include_str!("../../../../policy/tools.yaml");
+
+    #[tokio::test]
+    async fn execution_keeps_using_its_registry_after_handle_is_replaced() {
+        let provider = Arc::new(TestProvider(AtomicUsize::new(0)));
+        let registry = Arc::new(ProviderRegistry::new(vec![provider.clone()]).unwrap());
+        let (tx_out, mut rx_out) = mpsc::channel(16);
+        let client_id = Uuid::new_v4();
+        let message_id = Uuid::new_v4();
+        let chat_id = Uuid::new_v4();
+
+        let execution = Execution {
+            client_request_id: client_id,
+            message_id,
+            chat_id,
+            tool_name: "nook:test_tool".to_string(),
+            arguments: "{}".to_string(),
+            tx_out,
+            registry: registry.clone(),
+        };
+
+        let delivery = Delivery {
+            worker_request_id: Uuid::new_v4(),
+            call_id: "call_1".to_string(),
+            execution: Some(execution.clone()),
+        };
+
+        let state = Arc::new(AppState {
+            config: RwLock::new(Config::default()),
+            config_path: PathBuf::from("/tmp/nook-test-config.toml"),
+            pool: crate::server::DbPool::default(),
+            supervisor: Mutex::new(None),
+            preserve_worker_on_settings_update: false,
+            open_requests: Mutex::new(HashMap::new()),
+            pending_approvals: Mutex::new(HashMap::new()),
+            cancelled_requests: Mutex::new(HashSet::new()),
+            approval_timeout: Duration::from_secs(5),
+            providers: crate::providers::ProviderHandle::new(ProviderRegistry::empty()),
+            running_tools: Mutex::new(HashMap::new()),
+            policy: Arc::new(PolicyAssets::from_sources(TOOLS, SCHEMA, POLICIES).unwrap()),
+        });
+
+        start_execution(&state, &delivery, &execution).await;
+
+        let started = rx_out.recv().await.unwrap();
+        assert!(matches!(started, DaemonMessage::ToolCallStarted { .. }));
+
+        let finished = rx_out.recv().await.unwrap();
+        match finished {
+            DaemonMessage::ToolCallFinished { result, .. } => {
+                assert_eq!(result, "done");
+            }
+            other => panic!("expected ToolCallFinished, got {other:?}"),
+        }
+        assert_eq!(provider.0.load(Ordering::SeqCst), 1);
     }
 }

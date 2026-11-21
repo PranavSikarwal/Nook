@@ -16,10 +16,10 @@ describe('native Settings: tool sources', () => {
 
   const row = (id) => $(`[data-testid="tool-source-row"][data-source-id="${id}"]`)
 
-  it('lists the file tools, the command tool, and the running MCP server as ready', async () => {
+  it('lists the file tools, the command tool, the running MCP server, and the Notes tools as ready', async () => {
     await openTools()
 
-    for (const id of ['filesystem', 'terminal', 'mcp:e2e']) {
+    for (const id of ['filesystem', 'terminal', 'mcp:e2e', 'notes']) {
       const state = await row(id).getAttribute('data-source-state')
       if (state !== 'ready') throw new Error(`${id} is ${state}, not ready.`)
     }
@@ -41,7 +41,7 @@ describe('native Settings: tool sources', () => {
 
   it('reloads the list with Refresh', async () => {
     await $('button=Refresh').click()
-    await browser.waitUntil(async () => (await $$('[data-testid="tool-source-row"]')).length === 4,
-      { timeout: 10_000, interval: 100, timeoutMsg: 'The list did not hold four sources.' })
+    await browser.waitUntil(async () => (await $$('[data-testid="tool-source-row"]')).length === 5,
+      { timeout: 10_000, interval: 100, timeoutMsg: 'The list did not hold five sources.' })
   })
 })

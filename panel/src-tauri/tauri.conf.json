@@ -47,7 +47,8 @@
     ],
     "macOS": {
       "minimumSystemVersion": "14.0",
-      "signingIdentity": "-"
+      "signingIdentity": "-",
+      "entitlements": "./entitlements.plist"
     },
     "linux": {
       "deb": {

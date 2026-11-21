@@ -41,6 +41,7 @@ impl Area {
 
     fn tools(&self, terminal: TerminalConfig) -> ToolsConfig {
         ToolsConfig {
+            notes: Default::default(),
             filesystem: FilesystemConfig {
                 roots: vec![
                     RootConfig {

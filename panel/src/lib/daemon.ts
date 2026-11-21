@@ -5,6 +5,7 @@ import type {
   ChatSummary,
   ChatTranscript,
   DaemonEvent,
+  NotesSettings,
   Permissions,
   RootAccess,
   RootInfo,
@@ -320,6 +321,24 @@ export async function removeRoot(path: string): Promise<RootInfo[]> {
 export async function pickFolder(): Promise<string | null> {
   if (isBrowserMock) return '/Users/preview/Desktop'
   return await invoke<string | null>('pick_folder')
+}
+
+let previewNotesSettings: NotesSettings = {
+  folder: 'Nook',
+  supported: true,
+}
+
+export async function getNotesSettings(): Promise<NotesSettings> {
+  if (isBrowserMock) return structuredClone(previewNotesSettings)
+  return await invoke<NotesSettings>('get_notes_settings')
+}
+
+export async function setNotesFolder(folder: string): Promise<NotesSettings> {
+  if (isBrowserMock) {
+    previewNotesSettings = { ...previewNotesSettings, folder }
+    return structuredClone(previewNotesSettings)
+  }
+  return await invoke<NotesSettings>('set_notes_folder', { folder })
 }
 
 export function subscribeToOpenSettings(callback: (tab: SettingsTab) => void): Promise<UnlistenFn> {
