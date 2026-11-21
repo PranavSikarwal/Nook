@@ -74,7 +74,13 @@ async fn harness(configs: &[McpServerConfig]) -> Option<Harness> {
 }
 
 async fn harness_with(configs: &[McpServerConfig], limits: StartupLimits) -> Option<Harness> {
-    let provider = provider(configs, limits).await?;
+    let Some(provider) = provider(configs, limits).await else {
+        assert!(
+            std::env::var_os("NOOK_REQUIRE_SANDBOX").is_none(),
+            "No MCP server started although the sandbox is required"
+        );
+        return None;
+    };
     Some(Harness::new(vec![Arc::new(provider)]).await)
 }
 
