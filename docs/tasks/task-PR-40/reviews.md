@@ -253,6 +253,12 @@
 | C2 | P2 | the `decision_in_flight` skip in `deny_pending_notes_approvals` has no test | fix: add the test | R11 |
 | C11 | P3 | `docs/testing.md` Panel test paragraph is out of date | fix | R12 |
 
+## Round 17 (code)
+
+- Head: the commit that adds this heading (the SHA is recorded with the verdict).
+- Reviewer: the T3 reviewer, follow-up of round 16 (fixes R8 to R12 of `plans/plan.md`, commits `cfd8f52` to `d094a1b`; `1268f64` gates the test module that `cfd8f52` missed).
+- Gaps closed by recommendation since round 16: none.
+
 ## Commands run
 
 One row for each named check that the task adds to a rule or a document. A row lists the commands of its check.
