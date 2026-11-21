@@ -88,6 +88,7 @@ Fix of the finding in `reviews.md` "Round 17 (code)". One commit. "Daemon checks
 Fix of the finding C13 in `reviews.md` "Round 18 (code)". One commit, made by the orchestrator as a small fix (one added line, no behavior change on unix; `.agents/rules/delegation-standard.md` "T3 Code" 5).
 
 - [x] **R14. Gate the R13 impl block for unix (C13).** `daemon/crates/nook-core/src/providers/notes.rs`. Add `#[cfg(unix)]` above `impl NotesProvider {` of the six tool methods, as the first `impl NotesProvider` has it. Check: Daemon checks, and the Windows job.
+- [x] **R15. Find the fake MCP server from any build folder (C14, G8).** `daemon/crates/nook-core/tests/mcp_tool_tests.rs`. `example_binary()` walks up from the test executable until a folder holds `examples/fake_mcp_server`, and panics with the searched path when it finds none, so a missing binary can no longer make the tests return early. The orchestrator made this change as a small fix (one test file, no production code), after the owner chose "Fix inside PR #40" for G8. Check: Daemon checks. The CI job `Code Quality and Tests` on the pushed head is the proof, because the sandbox does not run on the orchestrator's machine.
 
 ## Manual test on a Mac (owner, before gate 2)
 

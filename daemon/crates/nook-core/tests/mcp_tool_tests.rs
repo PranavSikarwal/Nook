@@ -18,14 +18,14 @@ use uuid::Uuid;
 
 const ECHO: &str = "mcp:fake:echo";
 
+/// Warning: Cargo may place the test executable in `deps/` or in a deeper build
+/// folder, so walk up from it until a folder holds the built example.
 fn example_binary() -> PathBuf {
     let exe = std::env::current_exe().unwrap();
-    exe.parent()
-        .unwrap()
-        .parent()
-        .unwrap()
-        .join("examples")
-        .join("fake_mcp_server")
+    exe.ancestors()
+        .map(|folder| folder.join("examples").join("fake_mcp_server"))
+        .find(|binary| binary.is_file())
+        .unwrap_or_else(|| panic!("fake_mcp_server was not found above {}", exe.display()))
 }
 
 fn server(name: &str, mode: &str) -> McpServerConfig {
