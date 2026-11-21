@@ -337,7 +337,7 @@ The owner tested head `f56142e` on macOS with a live Google account.
   `os.pipe()`, read it through `open_stdin_reader` and `_StdinReader`, and
   assert the whole line returns. The test must fail before the change. Check:
   `rtk uv run pytest` in `worker/`.
-- [ ] **R3-2. The unavailable-store test does not depend on the machine (macOS finding 2a).**
+- [x] **R3-2. The unavailable-store test does not depend on the machine (macOS finding 2a).**
   `daemon/crates/nook-core/src/secrets.rs`.
   `an_unbuildable_real_store_returns_unavailable` also asserts that
   `OsSecretStore::default_for_os()` answers `Unavailable`. On a Mac with a

@@ -402,11 +402,14 @@ mod tests {
         assert_eq!(store.get("my-secret"), Err(SecretError::Unavailable));
         assert_eq!(store.set("my-secret", "val"), Err(SecretError::Unavailable));
         assert_eq!(store.delete("my-secret"), Err(SecretError::Unavailable));
+    }
 
-        let default_store = OsSecretStore::default_for_os();
-        assert_eq!(
-            default_store.get("my-secret"),
-            Err(SecretError::Unavailable)
-        );
+    #[test]
+    #[cfg(feature = "os-store")]
+    fn the_default_store_answers_without_panic() {
+        assert!(matches!(
+            OsSecretStore::default_for_os().get("nook-test-never-set"),
+            Err(SecretError::Missing | SecretError::Unavailable)
+        ));
     }
 }
