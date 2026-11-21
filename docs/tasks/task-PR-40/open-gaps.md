@@ -109,3 +109,17 @@ The owner's words, to the proposal "I recommend that delete asks every time (all
 - Decided by: orchestrator
 - Date: 2026-11-14
 - Status: closed by recommendation
+
+## G8. Two MCP tests fail in CI on the new runner image (found in review round 18, C14)
+
+- Stage: 7 review
+- Question: The check `Code Quality and Tests` fails on this branch since 2026-11-21, in two tests of `daemon/crates/nook-core/tests/mcp_tool_tests.rs` (`a_stopped_server_shows_as_stopped_until_a_call_starts_it`, `sources_list_each_server_as_ready_or_off_with_a_reason`). They fail with "one server runs" and "`Option::unwrap()` on a `None` value", which means the fake MCP server did not start inside the sandbox. This PR changes no MCP code and no MCP test. The same two tests passed on this branch on 2026-11-15 (runner image `20261111.196.1`), and all 24 MCP tests pass on the orchestrator's machine and on the reviewer's. They fail twice on this PR (runs 44884114949 and 44885309975, image `20261116.202.1`), and the branch `feat/google-docs-mcp` fails 13 MCP tests on the same image. The CI rule says that a failing check is always fixed, never deferred, and that a second failure is a finding. The cause is not visible in the CI log, because the test output does not print the start error. How is the check fixed?
+- Options:
+  1. A separate small task and pull request on `main` (it also unblocks `feat/google-docs-mcp`): print the start error in the two tests, find the cause on the new runner image, fix it, and then merge `main` into this branch. This pull request waits for it.
+  2. Fix it inside this pull request: change `mcp_tool_tests.rs` (and `providers/mcp.rs` if the cause is there) in a new plan task. This widens the pull request beyond Notes.
+  3. Wait and rerun the job later, in case the runner image changes back. Nothing is changed.
+- Recommendation: Option 1. The fault is in the CI environment and in code that this task does not own, it blocks a second pull request, and a separate fix keeps the Notes diff clean. Option 3 does not fix a failing check, so it does not satisfy the review standard.
+- Decision:
+- Decided by:
+- Date:
+- Status: open

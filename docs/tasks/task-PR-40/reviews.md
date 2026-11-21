@@ -272,6 +272,17 @@
 - Head: the commit that adds this heading (the SHA is recorded with the verdict).
 - Reviewer: the T3 reviewer, follow-up of round 17 (fix R13 of `plans/plan.md`, commit `bc23246`).
 - Gaps closed by recommendation since round 17: none.
+- Reviewed head: `772b9248c6eb7d0b3c6b0d3656749287c9f00d6d`.
+- Verdict: REQUEST_CHANGES (P0: 0, P1: 1, P2: 1, P3: 0), review 6004195351.
+- Checks on this head: `SonarCloud Code Analysis` pass (0 new issues, C5 fixed), `Native Tauri E2E Gate` pass, `Windows named-pipe IPC` fail, `Code Quality and Tests` fail.
+
+| # | Sev | Finding | Action | Plan task |
+| --- | --- | --- | --- | --- |
+| C5 | P3 | `call` over the Sonar limit | fixed by R13; both threads resolved by the reviewer | R13 |
+| C13 | P1 | the new `impl NotesProvider` block of R13 has no `#[cfg(unix)]`; the Windows job fails with 13 errors | fix: `#[cfg(unix)]` on the block | R14 |
+| C14 | P2 | `Code Quality and Tests` fails again in `a_stopped_server_shows_as_stopped_until_a_call_starts_it` and `sources_list_each_server_as_ready_or_off_with_a_reason` (second failure, so not a flake). The PR changes no MCP code. The same tests fail on `feat/google-docs-mcp` and on a newer runner image. | open gap G8, asked to the owner | none yet |
+
+The orchestrator checked R14 on Linux with the notes module compiled as on a non-unix target (every `cfg(unix)` of `notes.rs` and of the Notes lines of `providers/mod.rs` switched to `cfg(any())` in a scratch copy, `cargo check -p nook-core --lib`): 0 errors and 9 warnings, the same count that the reviewer saw on the Windows job. The scratch edit was restored. The Windows job on the new head is the real proof.
 
 ## Commands run
 

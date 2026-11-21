@@ -83,6 +83,12 @@ Fix of the finding in `reviews.md` "Round 17 (code)". One commit. "Daemon checks
 
 - [x] **R13. Split `call` into one method per tool (C5).** `daemon/crates/nook-core/src/providers/notes.rs`. Move each arm of `NotesProvider::call` into its own private async method (`create`, `list`, `read`, `append`, `edit`, `delete`), so that `call` is one `match` that dispatches. The methods keep the same code, so no behavior changes and every existing test passes unchanged. The six `SCRIPT_*` constants stay byte for byte the same. Check: Daemon checks.
 
+## Round 18
+
+Fix of the finding C13 in `reviews.md` "Round 18 (code)". One commit, made by the orchestrator as a small fix (one added line, no behavior change on unix; `.agents/rules/delegation-standard.md` "T3 Code" 5).
+
+- [x] **R14. Gate the R13 impl block for unix (C13).** `daemon/crates/nook-core/src/providers/notes.rs`. Add `#[cfg(unix)]` above `impl NotesProvider {` of the six tool methods, as the first `impl NotesProvider` has it. Check: Daemon checks, and the Windows job.
+
 ## Manual test on a Mac (owner, before gate 2)
 
 These steps are not tasks. The orchestrator writes the result into `reviews.md`.

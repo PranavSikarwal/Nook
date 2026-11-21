@@ -597,6 +597,7 @@ impl Provider for NotesProvider {
     }
 }
 
+#[cfg(unix)]
 impl NotesProvider {
     async fn create(&self, arguments: &Value) -> ToolOutput {
         const INVALID_ARGS: &str = "Error: the arguments are not valid";
