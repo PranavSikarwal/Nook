@@ -125,7 +125,7 @@ window stays put, that the link reaches the `open_external_link` command, and th
 a `javascript:` or `file:` address is not a link. The test build never starts a
 browser. It appends the link to `opened-links.log` in the run folder.
 
-`notes_tool_tests.rs` (11 tests) runs the Notes tools through the real socket
+`notes_tool_tests.rs` (12 tests) runs the Notes tools through the real socket
 with the fake Worker and a fake `osascript`. It verifies that the program runs
 only after an allow, that a deny leaves the log empty, that a cancel before
 approval does not run it, that a registry built with `None` denies with `Tool runs
@@ -162,10 +162,9 @@ cleanup, timeouts, output limits, and error code mappings (`(-1743)`,
 `(-1728)`, `(9001)`, `(9002)`). Unit tests in `config.rs` test folder name
 validation rules.
 
-`panel/e2e/unit/notes-folder.test.mjs` (11 tests) is run by `rtk npm run test:unit`
+`panel/e2e/unit/notes-folder.test.mjs` (8 tests) is run by `rtk npm run test:unit`
 (`node --test`). It tests pure functions in `panel/src/lib/notesFolder.ts`:
-hiding the field when `supported` is false, displaying stored folder and `reason`,
-and enabling Save only when the trimmed value changes and is not empty.
+`isNotesFolderVisible` and `canSaveNotesFolder`.
 
 `panel/e2e/specs/notes.spec.mjs` (5 tests, part of the 11 specs and 48 tests of the
 native suite on Linux) tests the Notes tools through the desktop UI. In
