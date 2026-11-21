@@ -284,6 +284,12 @@
 
 The orchestrator checked R14 on Linux with the notes module compiled as on a non-unix target (every `cfg(unix)` of `notes.rs` and of the Notes lines of `providers/mod.rs` switched to `cfg(any())` in a scratch copy, `cargo check -p nook-core --lib`): 0 errors and 9 warnings, the same count that the reviewer saw on the Windows job. The scratch edit was restored. The Windows job on the new head is the real proof.
 
+## Round 19 (code)
+
+- Head: the commit that adds this heading (the SHA is recorded with the verdict).
+- Reviewer: the T3 reviewer, follow-up of round 18 (fixes R14 and R15 of `plans/plan.md`, commits `a8deb1d` and the R15 commit; gap G8 decided by the owner).
+- Gaps closed by recommendation since round 18: none.
+
 ## Commands run
 
 One row for each named check that the task adds to a rule or a document. A row lists the commands of its check.
