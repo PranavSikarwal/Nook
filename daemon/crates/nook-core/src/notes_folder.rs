@@ -3,21 +3,16 @@ use crate::policy::grant_key;
 use crate::protocol::{DaemonMessage, ErrorCode, ErrorInfo, ToolSourceState};
 use crate::providers::notes::TOOL_IDS;
 use crate::server::AppState;
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
 use tokio::sync::mpsc;
 use tracing::warn;
 use uuid::Uuid;
 
 const NOT_SAVED: &str = "The folder could not be saved";
 
-pub static NOTES_GRANT_KEYS: LazyLock<[&'static str; 6]> =
-    LazyLock::new(|| TOOL_IDS.map(grant_key));
-
-pub fn notes_grant_keys() -> &'static [&'static str] {
-    &NOTES_GRANT_KEYS[..]
-}
-
+/// Warning: the caller must hold the `state.config` write guard.
 pub async fn apply_folder_change(state: &Arc<AppState>, config: &mut Config) {
+    let keys = TOOL_IDS.map(grant_key);
     crate::tool_approval::deny_pending_notes_approvals(state).await;
     state
         .policy
@@ -25,7 +20,7 @@ pub async fn apply_folder_change(state: &Arc<AppState>, config: &mut Config) {
         .grant_store()
         .lock()
         .await
-        .remove_tools(notes_grant_keys());
+        .remove_tools(&keys);
     let registry = state.providers.current().rebuilt(&config.tools);
     let descriptors = registry.descriptors().to_vec();
     state.providers.replace(registry);
