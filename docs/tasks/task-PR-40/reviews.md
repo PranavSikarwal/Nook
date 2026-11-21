@@ -299,6 +299,12 @@ The orchestrator checked R14 on Linux with the notes module compiled as on a non
 
 Not a finding of this pull request: `feat/google-docs-mcp` (PR 39) has the same `example_binary()` and needs the same fix. The orchestrator tells the owner at gate 2.
 
+## Round 20 (code)
+
+- Head: the commit that adds this heading (the SHA is recorded with the verdict).
+- Reviewer: the T3 reviewer, follow-up of round 19 (fix R16 of `plans/plan.md`).
+- Gaps closed by recommendation since round 19: none.
+
 ## Commands run
 
 One row for each named check that the task adds to a rule or a document. A row lists the commands of its check.
