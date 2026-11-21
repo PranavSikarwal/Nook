@@ -79,16 +79,12 @@ fn check_note_id(value: &str) -> Result<&str, ()> {
     Ok(value)
 }
 
-fn create_html(title: &str, body: &str) -> Result<String, ()> {
-    Ok(format!(
-        "<div>{}</div>{}",
-        escape_html(title),
-        html_lines(body)
-    ))
+fn create_html(title: &str, body: &str) -> String {
+    format!("<div>{}</div>{}", escape_html(title), html_lines(body))
 }
 
-fn append_html(text: &str) -> Result<String, ()> {
-    Ok(html_lines(check_text(text)?))
+fn append_html(text: &str) -> String {
+    html_lines(text)
 }
 
 fn html_lines(value: &str) -> String {
@@ -585,9 +581,7 @@ impl Provider for NotesProvider {
                 let Ok(args) = parse_create_args(&arguments) else {
                     return ToolOutput::error(INVALID_ARGS);
                 };
-                let Ok(html) = create_html(args.title, args.body) else {
-                    return ToolOutput::error(INVALID_ARGS);
-                };
+                let html = create_html(args.title, args.body);
                 let result = self
                     .runner
                     .run(SCRIPT_CREATE, &[&self.folder, &html], 4096)
@@ -662,9 +656,7 @@ impl Provider for NotesProvider {
                 let Ok(args) = parse_append_args(&arguments) else {
                     return ToolOutput::error(INVALID_ARGS);
                 };
-                let Ok(html) = append_html(args.text) else {
-                    return ToolOutput::error(INVALID_ARGS);
-                };
+                let html = append_html(args.text);
                 let result = self
                     .runner
                     .run(
@@ -685,9 +677,7 @@ impl Provider for NotesProvider {
                 let Ok(args) = parse_edit_args(&arguments) else {
                     return ToolOutput::error(INVALID_ARGS);
                 };
-                let Ok(html) = create_html(args.title, args.body) else {
-                    return ToolOutput::error(INVALID_ARGS);
-                };
+                let html = create_html(args.title, args.body);
                 let result = self
                     .runner
                     .run(
@@ -794,10 +784,10 @@ mod tests {
     #[test]
     fn html_escapes_content_and_puts_title_first() {
         assert_eq!(
-            create_html("T&<>", "a&<>").unwrap(),
+            create_html("T&<>", "a&<>"),
             "<div>T&amp;&lt;&gt;</div><div>a&amp;&lt;&gt;</div>"
         );
-        assert_eq!(append_html("a\nb").unwrap(), "<div>a</div><div>b</div>");
+        assert_eq!(append_html("a\nb"), "<div>a</div><div>b</div>");
     }
 
     #[cfg(unix)]
