@@ -119,7 +119,7 @@ The owner's words, to the proposal "I recommend that delete asks every time (all
   2. Fix it inside this pull request: change `mcp_tool_tests.rs` (and `providers/mcp.rs` if the cause is there) in a new plan task. This widens the pull request beyond Notes.
   3. Wait and rerun the job later, in case the runner image changes back. Nothing is changed.
 - Recommendation: Option 1. The fault is in the CI environment and in code that this task does not own, it blocks a second pull request, and a separate fix keeps the Notes diff clean. Option 3 does not fix a failing check, so it does not satisfy the review standard.
-- Decision:
-- Decided by:
-- Date:
-- Status: open
+- Decision: Option 2, fix inside this pull request (owner answer to the question "How should the check be fixed?" on 2026-11-21: "Fix inside PR #40"). Finding of the orchestrator: the CI log shows the test binary at `target/debug/build/nook-core/<hash>/out/mcp_tool_tests-<hash>`. The helper `example_binary()` in the test reads `current_exe().parent().parent()/examples`, which is right for `target/debug/deps/` and wrong for that deeper folder, so the fake server is not found and `McpProvider::start` returns `None`. Most tests then return early without failing (`let Some(h) = ... else { return; }`, 24 tests in 0.19 s), and only the two tests that unwrap the result fail. The fix is in the test helper only (plan task R15).
+- Decided by: owner
+- Date: 2026-11-21
+- Status: decided by owner
