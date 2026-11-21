@@ -670,3 +670,42 @@ async fn a_folder_change_leaves_an_approval_and_a_grant_of_another_tool_intact()
     let (decision, _) = authorization_result(&mut other_call).await;
     assert_eq!(decision, "allow");
 }
+
+#[tokio::test]
+async fn a_folder_change_keeps_an_approval_whose_decision_is_in_flight() {
+    let fixture = Fixture::new("ok\n");
+    let mut h = fixture.harness().await;
+    let chat = Uuid::new_v4();
+    let mut call = h
+        .execute(
+            chat,
+            "in_flight",
+            CREATE_NOTE,
+            r#"{"title":"Note","body":"Body"}"#,
+        )
+        .await;
+    assert!(matches!(
+        h.panel().await,
+        DaemonMessage::ApprovalRequested { .. }
+    ));
+
+    h.state
+        .pending_approvals
+        .lock()
+        .await
+        .get_mut("in_flight")
+        .unwrap()
+        .decision_in_flight = true;
+
+    let mut config = h.state.config.write().await;
+    config.tools.notes.folder = "Work".to_string();
+    nook_core::notes_folder::apply_folder_change(&h.state, &mut config).await;
+
+    assert!(h
+        .state
+        .pending_approvals
+        .lock()
+        .await
+        .contains_key("in_flight"));
+    common::assert_worker_silent(&mut call).await;
+}
