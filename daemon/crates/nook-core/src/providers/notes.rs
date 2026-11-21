@@ -575,143 +575,13 @@ impl Provider for NotesProvider {
     }
 
     async fn call(&self, tool_id: &str, arguments: Value, _context: CallContext) -> ToolOutput {
-        const INVALID_ARGS: &str = "Error: the arguments are not valid";
         match tool_id {
-            CREATE_NOTE => {
-                let Ok(args) = parse_create_args(&arguments) else {
-                    return ToolOutput::error(INVALID_ARGS);
-                };
-                let html = create_html(args.title, args.body);
-                let result = self
-                    .runner
-                    .run(SCRIPT_CREATE, &[&self.folder, &html], 4096)
-                    .await;
-                match result {
-                    NotesRunResult::Success(output) => {
-                        let raw_id = output.trim();
-                        let text = if check_note_id(raw_id).is_ok() {
-                            format!(
-                                "Created the note \"{}\" in the Notes folder \"{}\". Its id is {}.",
-                                args.title, self.folder, raw_id
-                            )
-                        } else {
-                            format!(
-                                "Created the note \"{}\" in the Notes folder \"{}\".",
-                                args.title, self.folder
-                            )
-                        };
-                        ToolOutput::ok(text)
-                    }
-                    other => map_run_error(other),
-                }
-            }
-            LIST_NOTES => {
-                if parse_list_args(&arguments).is_err() {
-                    return ToolOutput::error(INVALID_ARGS);
-                }
-                let result = self
-                    .runner
-                    .run(SCRIPT_LIST, &[&self.folder], MAX_TOOL_OUTPUT_BYTES + 1)
-                    .await;
-                match result {
-                    NotesRunResult::Success(output) => {
-                        let lines: Vec<&str> = output.lines().filter(|l| !l.is_empty()).collect();
-                        if lines.is_empty() {
-                            ToolOutput::ok("No notes")
-                        } else {
-                            let has_more = lines.len() > 100;
-                            let count = lines.len().min(100);
-                            let mut text = format!("Notes in the folder \"{}\":", self.folder);
-                            for line in &lines[..count] {
-                                text.push('\n');
-                                text.push_str(line);
-                            }
-                            if has_more {
-                                text.push_str("\nMore notes exist.");
-                            }
-                            ToolOutput::ok(text)
-                        }
-                    }
-                    other => map_run_error(other),
-                }
-            }
-            READ_NOTE => {
-                let Ok(args) = parse_read_args(&arguments) else {
-                    return ToolOutput::error(INVALID_ARGS);
-                };
-                let result = self
-                    .runner
-                    .run(
-                        SCRIPT_READ,
-                        &[&self.folder, args.note_id],
-                        MAX_TOOL_OUTPUT_BYTES + 1,
-                    )
-                    .await;
-                match result {
-                    NotesRunResult::Success(output) => ToolOutput::ok(output),
-                    other => map_run_error(other),
-                }
-            }
-            APPEND_NOTE => {
-                let Ok(args) = parse_append_args(&arguments) else {
-                    return ToolOutput::error(INVALID_ARGS);
-                };
-                let html = append_html(args.text);
-                let result = self
-                    .runner
-                    .run(
-                        SCRIPT_APPEND,
-                        &[&self.folder, args.note_id, args.note_title, &html],
-                        4096,
-                    )
-                    .await;
-                match result {
-                    NotesRunResult::Success(_) => ToolOutput::ok(format!(
-                        "Added the text to the note \"{}\".",
-                        args.note_title
-                    )),
-                    other => map_run_error(other),
-                }
-            }
-            EDIT_NOTE => {
-                let Ok(args) = parse_edit_args(&arguments) else {
-                    return ToolOutput::error(INVALID_ARGS);
-                };
-                let html = create_html(args.title, args.body);
-                let result = self
-                    .runner
-                    .run(
-                        SCRIPT_EDIT,
-                        &[&self.folder, args.note_id, args.note_title, &html],
-                        4096,
-                    )
-                    .await;
-                match result {
-                    NotesRunResult::Success(_) => {
-                        ToolOutput::ok(format!("Changed the note \"{}\".", args.note_title))
-                    }
-                    other => map_run_error(other),
-                }
-            }
-            DELETE_NOTE => {
-                let Ok(args) = parse_delete_args(&arguments) else {
-                    return ToolOutput::error(INVALID_ARGS);
-                };
-                let result = self
-                    .runner
-                    .run(
-                        SCRIPT_DELETE,
-                        &[&self.folder, args.note_id, args.note_title],
-                        4096,
-                    )
-                    .await;
-                match result {
-                    NotesRunResult::Success(_) => {
-                        ToolOutput::ok(format!("Deleted the note \"{}\".", args.note_title))
-                    }
-                    other => map_run_error(other),
-                }
-            }
+            CREATE_NOTE => self.create(&arguments).await,
+            LIST_NOTES => self.list(&arguments).await,
+            READ_NOTE => self.read(&arguments).await,
+            APPEND_NOTE => self.append(&arguments).await,
+            EDIT_NOTE => self.edit(&arguments).await,
+            DELETE_NOTE => self.delete(&arguments).await,
             _ => ToolOutput::error("Error: unknown tool"),
         }
     }
@@ -724,6 +594,155 @@ impl Provider for NotesProvider {
             tools: 6,
             reason: None,
         }]
+    }
+}
+
+impl NotesProvider {
+    async fn create(&self, arguments: &Value) -> ToolOutput {
+        const INVALID_ARGS: &str = "Error: the arguments are not valid";
+        let Ok(args) = parse_create_args(arguments) else {
+            return ToolOutput::error(INVALID_ARGS);
+        };
+        let html = create_html(args.title, args.body);
+        let result = self
+            .runner
+            .run(SCRIPT_CREATE, &[&self.folder, &html], 4096)
+            .await;
+        match result {
+            NotesRunResult::Success(output) => {
+                let raw_id = output.trim();
+                let text = if check_note_id(raw_id).is_ok() {
+                    format!(
+                        "Created the note \"{}\" in the Notes folder \"{}\". Its id is {}.",
+                        args.title, self.folder, raw_id
+                    )
+                } else {
+                    format!(
+                        "Created the note \"{}\" in the Notes folder \"{}\".",
+                        args.title, self.folder
+                    )
+                };
+                ToolOutput::ok(text)
+            }
+            other => map_run_error(other),
+        }
+    }
+
+    async fn list(&self, arguments: &Value) -> ToolOutput {
+        const INVALID_ARGS: &str = "Error: the arguments are not valid";
+        if parse_list_args(arguments).is_err() {
+            return ToolOutput::error(INVALID_ARGS);
+        }
+        let result = self
+            .runner
+            .run(SCRIPT_LIST, &[&self.folder], MAX_TOOL_OUTPUT_BYTES + 1)
+            .await;
+        match result {
+            NotesRunResult::Success(output) => {
+                let lines: Vec<&str> = output.lines().filter(|l| !l.is_empty()).collect();
+                if lines.is_empty() {
+                    ToolOutput::ok("No notes")
+                } else {
+                    let has_more = lines.len() > 100;
+                    let count = lines.len().min(100);
+                    let mut text = format!("Notes in the folder \"{}\":", self.folder);
+                    for line in &lines[..count] {
+                        text.push('\n');
+                        text.push_str(line);
+                    }
+                    if has_more {
+                        text.push_str("\nMore notes exist.");
+                    }
+                    ToolOutput::ok(text)
+                }
+            }
+            other => map_run_error(other),
+        }
+    }
+
+    async fn read(&self, arguments: &Value) -> ToolOutput {
+        const INVALID_ARGS: &str = "Error: the arguments are not valid";
+        let Ok(args) = parse_read_args(arguments) else {
+            return ToolOutput::error(INVALID_ARGS);
+        };
+        let result = self
+            .runner
+            .run(
+                SCRIPT_READ,
+                &[&self.folder, args.note_id],
+                MAX_TOOL_OUTPUT_BYTES + 1,
+            )
+            .await;
+        match result {
+            NotesRunResult::Success(output) => ToolOutput::ok(output),
+            other => map_run_error(other),
+        }
+    }
+
+    async fn append(&self, arguments: &Value) -> ToolOutput {
+        const INVALID_ARGS: &str = "Error: the arguments are not valid";
+        let Ok(args) = parse_append_args(arguments) else {
+            return ToolOutput::error(INVALID_ARGS);
+        };
+        let html = append_html(args.text);
+        let result = self
+            .runner
+            .run(
+                SCRIPT_APPEND,
+                &[&self.folder, args.note_id, args.note_title, &html],
+                4096,
+            )
+            .await;
+        match result {
+            NotesRunResult::Success(_) => ToolOutput::ok(format!(
+                "Added the text to the note \"{}\".",
+                args.note_title
+            )),
+            other => map_run_error(other),
+        }
+    }
+
+    async fn edit(&self, arguments: &Value) -> ToolOutput {
+        const INVALID_ARGS: &str = "Error: the arguments are not valid";
+        let Ok(args) = parse_edit_args(arguments) else {
+            return ToolOutput::error(INVALID_ARGS);
+        };
+        let html = create_html(args.title, args.body);
+        let result = self
+            .runner
+            .run(
+                SCRIPT_EDIT,
+                &[&self.folder, args.note_id, args.note_title, &html],
+                4096,
+            )
+            .await;
+        match result {
+            NotesRunResult::Success(_) => {
+                ToolOutput::ok(format!("Changed the note \"{}\".", args.note_title))
+            }
+            other => map_run_error(other),
+        }
+    }
+
+    async fn delete(&self, arguments: &Value) -> ToolOutput {
+        const INVALID_ARGS: &str = "Error: the arguments are not valid";
+        let Ok(args) = parse_delete_args(arguments) else {
+            return ToolOutput::error(INVALID_ARGS);
+        };
+        let result = self
+            .runner
+            .run(
+                SCRIPT_DELETE,
+                &[&self.folder, args.note_id, args.note_title],
+                4096,
+            )
+            .await;
+        match result {
+            NotesRunResult::Success(_) => {
+                ToolOutput::ok(format!("Deleted the note \"{}\".", args.note_title))
+            }
+            other => map_run_error(other),
+        }
     }
 }
 
