@@ -240,6 +240,18 @@
 - Head: the commit that adds this heading (the SHA is recorded with the verdict).
 - Reviewer: the T3 reviewer, follow-up of round 15 (fixes R1 to R7 of `plans/plan.md`, commits `bc6b953` to `3460428`).
 - Gaps closed by recommendation since round 15: none.
+- Reviewed head: `c620eb826a4e51f7781d57bc46646bb9275c6183`.
+- Verdict: REQUEST_CHANGES (P0: 0, P1: 1, P2: 1, P3: 4), review 5910271502.
+- Checks on this head: `Code Quality and Tests` pass, `SonarCloud Code Analysis` pass, `Native Tauri E2E Gate` pass, `Windows named-pipe IPC` fail (the test module of `providers/notes.rs` does not compile on Windows).
+
+| # | Sev | Finding | Action | Plan task |
+| --- | --- | --- | --- | --- |
+| C9 | P1 | `mod tests` in `providers/notes.rs` is not gated for unix; the Windows job fails with 61 errors | fix: `#[cfg(all(test, unix))]` | R8 |
+| C12 | P3 | stale `Warning:` comment and `#![allow(dead_code)]` | fix: remove both; use `cfg_attr(not(unix), allow(dead_code))` only if Windows needs it | R8 |
+| C5 | P3 | `call` still over the Sonar complexity limit (dead `let Ok ... else` branches) | fix: `create_html` and `append_html` return `String` | R9 |
+| C10 | P3 | `NOTES_GRANT_KEYS` and `notes_grant_keys()` are `pub` and used once; `mod notes` too wide; no doc comment on `apply_folder_change` | fix | R10 |
+| C2 | P2 | the `decision_in_flight` skip in `deny_pending_notes_approvals` has no test | fix: add the test | R11 |
+| C11 | P3 | `docs/testing.md` Panel test paragraph is out of date | fix | R12 |
 
 ## Commands run
 
