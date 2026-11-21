@@ -320,6 +320,35 @@ Rules for every task:
   `rtk cargo test` and clippy. The MCP test skips locally without a sandbox;
   CI runs it.
 
+## Round 3 (macOS live test, 2026-11-21)
+
+The owner tested head `f56142e` on macOS with a live Google account.
+
+- [ ] **R3-1. The Worker reads a long request line (macOS finding 1).**
+  `worker/src/nook_worker/main.py`, `worker/src/nook_worker/release_entry.py`,
+  `worker/tests/test_main_handlers.py`.
+  Cause: `asyncio.StreamReader()` has a 64 KiB line limit. The `tool_catalog`
+  line of the 64 Google Docs tools is longer, so `readline` raises and the
+  Worker stops. Add the constant `MAX_REQUEST_LINE_BYTES = 16 * 1024 * 1024`
+  and one function `open_stdin_reader(stdin)` in `main.py` that builds the
+  `StreamReader(limit=MAX_REQUEST_LINE_BYTES)` and connects the pipe. Use it
+  in `_async_main` and for the reader in `release_entry.py`. Test first
+  (`a_request_line_of_300_kib_is_read_whole`): write a 300 KiB line into an
+  `os.pipe()`, read it through `open_stdin_reader` and `_StdinReader`, and
+  assert the whole line returns. The test must fail before the change. Check:
+  `rtk uv run pytest` in `worker/`.
+- [ ] **R3-2. The unavailable-store test does not depend on the machine (macOS finding 2a).**
+  `daemon/crates/nook-core/src/secrets.rs`.
+  `an_unbuildable_real_store_returns_unavailable` also asserts that
+  `OsSecretStore::default_for_os()` answers `Unavailable`. On a Mac with a
+  working Keychain it answers `Missing`. Remove the `default_for_os` assertion
+  from that test. Add the test `the_default_store_answers_without_panic` that
+  calls `default_for_os().get("nook-test-never-set")` and accepts `Missing` or
+  `Unavailable`. Check: Daemon `rtk cargo test -p nook-core` and clippy.
+- [ ] **R3-3. The 13 failing MCP tests on macOS (macOS finding 2b).**
+  Open. Needs the test log from the owner's Mac. The plan names the files
+  after the cause is known.
+
 ## Order and why
 
 1. Tasks 1 and 2 come first, as the spec asks: the signature change reaches

@@ -155,3 +155,18 @@
 - Decided by: orchestrator (closed by recommendation)
 - Date: 2026-11-14
 - Status: closed by recommendation
+
+## G12. The 10-second secret read times out while the user answers a Keychain prompt
+
+- Stage: 7 code review (found by the owner in the macOS live test of head `f56142e`)
+- Question: `StartupLimits.secret_timeout` is 10 seconds. On macOS the first read of an item that `nookctl` created shows a Keychain prompt. Nook timed out while the owner answered the prompts, and only a restart after **Always Allow** worked. What does the task do?
+- Options:
+  1. Raise the default `secret_timeout` to 60 seconds, and document the first-start prompt and **Always Allow** in `docs/mcp-servers.md`. A person answers the prompt, so 10 seconds is too short. A locked store still ends in a fixed report after 60 seconds.
+  2. Keep 10 seconds, and document the prompt and the restart.
+  3. Add a step to the written steps: run one `nookctl secret get`-style read (or a first start) before Nook starts, so the prompt happens outside the timeout. This adds a command to `nookctl`.
+- Recommendation: Option 1. It changes one constant and the docs, and the spec's timeout then matches a human response. Option 3 adds a command that no plan task covers.
+- Decision:
+- Decided by:
+- Date:
+- Status: open
+
