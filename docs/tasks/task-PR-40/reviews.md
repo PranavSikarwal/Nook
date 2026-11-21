@@ -286,9 +286,18 @@ The orchestrator checked R14 on Linux with the notes module compiled as on a non
 
 ## Round 19 (code)
 
-- Head: the commit that adds this heading (the SHA is recorded with the verdict).
-- Reviewer: the T3 reviewer, follow-up of round 18 (fixes R14 and R15 of `plans/plan.md`, commits `a8deb1d` and the R15 commit; gap G8 decided by the owner).
+- Head: `1ca41524083ad1ceb6c3bdf560afb74b39705788`.
+- Reviewer: the T3 reviewer, follow-up of round 18 (fixes R14 and R15 of `plans/plan.md`, commits `a8deb1d` and `664ff72`; gap G8 decided by the owner).
 - Gaps closed by recommendation since round 18: none.
+- Verdict: COMMENT (P0: 0, P1: 0, P2: 1, P3: 0), review 6004436321. C13 and C14 are fixed and proven by the real CI: `Windows named-pipe IPC` pass, `Code Quality and Tests` pass (the 24 MCP tests run for real, 2.31 s), `SonarCloud Code Analysis` pass, `Native Tauri E2E Gate` pass.
+
+| # | Sev | Finding | Action | Plan task |
+| --- | --- | --- | --- | --- |
+| C13 | P1 | Windows build | fixed by R14, thread resolved | R14 |
+| C14 | P2 | MCP tests fail in CI | fixed by R15 (gap G8) | R15 |
+| C15 | P2 | `harness_with` returns `None` when no MCP server starts, so a test can still pass without running although `NOOK_REQUIRE_SANDBOX` is set | fix: panic in that case | R16 |
+
+Not a finding of this pull request: `feat/google-docs-mcp` (PR 39) has the same `example_binary()` and needs the same fix. The orchestrator tells the owner at gate 2.
 
 ## Commands run
 
