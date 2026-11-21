@@ -1,5 +1,6 @@
-// Warning: the next plan task uses these building blocks.
-#![allow(dead_code)]
+#![cfg_attr(not(unix), allow(dead_code))]
+
+// Warning: the Windows build compiles this module only for the tool ids, so most items look unused there.
 
 use super::{CallContext, Provider, ProviderError, ToolFacts, ToolOutput};
 use crate::protocol::{ToolDescriptor, ToolSourceInfo, ToolSourceState};
@@ -246,7 +247,7 @@ impl NotesRunner {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     pub(crate) fn with_timeout(mut self, timeout: std::time::Duration) -> Self {
         self.timeout = timeout;
         self
