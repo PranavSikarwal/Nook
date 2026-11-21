@@ -324,7 +324,7 @@ Rules for every task:
 
 The owner tested head `f56142e` on macOS with a live Google account.
 
-- [ ] **R3-1. The Worker reads a long request line (macOS finding 1).**
+- [x] **R3-1. The Worker reads a long request line (macOS finding 1).**
   `worker/src/nook_worker/main.py`, `worker/src/nook_worker/release_entry.py`,
   `worker/tests/test_main_handlers.py`.
   Cause: `asyncio.StreamReader()` has a 64 KiB line limit. The `tool_catalog`

@@ -1,4 +1,5 @@
 import asyncio
+import os
 from collections.abc import AsyncIterator
 from uuid import UUID, uuid4
 
@@ -159,3 +160,19 @@ async def test_main_ignores_authorization_result_for_unknown_call(
     await worker_task
 
     assert len(output_lines) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_request_line_of_300_kib_is_read_whole():
+    read_fd, write_fd = os.pipe()
+    stdin = os.fdopen(read_fd, "rb", buffering=0)
+    line = b"x" * (300 * 1024) + b"\n"
+    reader = await main.open_stdin_reader(stdin)
+
+    def write_line():
+        os.write(write_fd, line)
+        os.close(write_fd)
+
+    writer = asyncio.create_task(asyncio.to_thread(write_line))
+    assert await main._StdinReader(False, reader).readline() == line
+    await writer
