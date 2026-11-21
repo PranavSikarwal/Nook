@@ -77,6 +77,12 @@ Fixes of the findings in `reviews.md` "Round 16 (code)". Each is one commit. "Da
 - [x] **R11. Test the `decision_in_flight` skip (C2).** `daemon/crates/nook-core/tests/notes_tool_tests.rs`. One test: a Notes approval is pending, the test sets `decision_in_flight = true` on that entry (`pending_approvals.lock().await.get_mut(<call id>)`), calls `apply_folder_change` under the `state.config` write guard, and asserts that the entry is still pending and that no denial reached the Worker. Then remove the skip in a scratch copy, see the test fail, and restore it (do not commit the scratch change). Check: Daemon checks.
 - [x] **R12. Correct the Panel test paragraph (C11).** `docs/testing.md`. `notes-folder.test.mjs` has 8 tests and tests only `isNotesFolderVisible` and `canSaveNotesFolder`. Update the `notes_tool_tests.rs` test count to the real number after R11. Check: `git diff --check`.
 
+## Round 17
+
+Fix of the finding in `reviews.md` "Round 17 (code)". One commit. "Daemon checks" are as defined at the top of this file.
+
+- [ ] **R13. Split `call` into one method per tool (C5).** `daemon/crates/nook-core/src/providers/notes.rs`. Move each arm of `NotesProvider::call` into its own private async method (`create`, `list`, `read`, `append`, `edit`, `delete`), so that `call` is one `match` that dispatches. The methods keep the same code, so no behavior changes and every existing test passes unchanged. The six `SCRIPT_*` constants stay byte for byte the same. Check: Daemon checks.
+
 ## Manual test on a Mac (owner, before gate 2)
 
 These steps are not tasks. The orchestrator writes the result into `reviews.md`.

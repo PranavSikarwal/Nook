@@ -258,6 +258,14 @@
 - Head: the commit that adds this heading (the SHA is recorded with the verdict).
 - Reviewer: the T3 reviewer, follow-up of round 16 (fixes R8 to R12 of `plans/plan.md`, commits `cfd8f52` to `d094a1b`; `1268f64` gates the test module that `cfd8f52` missed).
 - Gaps closed by recommendation since round 16: none.
+- Reviewed head: `0c1acbe00489c8fa77b2ae05eff0e15de30f8fc3`.
+- Verdict: COMMENT (P0: 0, P1: 0, P2: 0, P3: 1), review 6004135280.
+- Checks on this head: `Windows named-pipe IPC` pass, `SonarCloud Code Analysis` pass, `Native Tauri E2E Gate` pass, `Code Quality and Tests` fail (job 136785563957).
+
+| # | Sev | Finding | Action | Plan task |
+| --- | --- | --- | --- | --- |
+| C5 | P3 | SonarCloud still flags `call` at `notes.rs:577` (cognitive complexity) | fix: one private method per tool, `call` is one `match` | R13 |
+| CI | - | `Code Quality and Tests` failed in `mcp_tool_tests.rs` (`a_stopped_server_shows_as_stopped_until_a_call_starts_it`, `sources_list_each_server_as_ready_or_off_with_a_reason`). The PR does not touch MCP code, and the job passed on `c620eb8`. | flake: the push of R13 reruns the job once; a second failure is a finding | R13 push |
 
 ## Commands run
 
