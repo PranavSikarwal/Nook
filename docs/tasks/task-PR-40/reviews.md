@@ -267,6 +267,12 @@
 | C5 | P3 | SonarCloud still flags `call` at `notes.rs:577` (cognitive complexity) | fix: one private method per tool, `call` is one `match` | R13 |
 | CI | - | `Code Quality and Tests` failed in `mcp_tool_tests.rs` (`a_stopped_server_shows_as_stopped_until_a_call_starts_it`, `sources_list_each_server_as_ready_or_off_with_a_reason`). The PR does not touch MCP code, and the job passed on `c620eb8`. | flake: the push of R13 reruns the job once; a second failure is a finding | R13 push |
 
+## Round 18 (code)
+
+- Head: the commit that adds this heading (the SHA is recorded with the verdict).
+- Reviewer: the T3 reviewer, follow-up of round 17 (fix R13 of `plans/plan.md`, commit `bc23246`).
+- Gaps closed by recommendation since round 17: none.
+
 ## Commands run
 
 One row for each named check that the task adds to a rule or a document. A row lists the commands of its check.
