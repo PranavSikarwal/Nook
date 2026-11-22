@@ -5,6 +5,15 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 
+[features]
+default = []
+os-store = [
+    "dep:keyring-core",
+    "dep:apple-native-keyring-store",
+    "dep:windows-native-keyring-store",
+    "dep:zbus-secret-service-keyring-store",
+]
+
 [dependencies]
 tokio.workspace = true
 serde.workspace = true
@@ -26,12 +35,21 @@ jsonschema.workspace = true
 libc = { workspace = true }
 tempfile.workspace = true
 serde_norway = "0.9.42"
+keyring-core = { workspace = true, optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 security-framework.workspace = true
+apple-native-keyring-store = { workspace = true, optional = true, features = ["keychain"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Security", "Win32_Security_Authorization"] }
+windows-native-keyring-store = { workspace = true, optional = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+zbus-secret-service-keyring-store = { workspace = true, optional = true, features = ["crypto-rust"] }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
+keyring-core = { workspace = true }
+nook-core = { path = ".", features = ["os-store"] }
+tracing-subscriber = { workspace = true }

@@ -88,6 +88,8 @@ pub struct McpServerConfig {
     #[serde(default)]
     pub env: BTreeMap<String, String>,
     #[serde(default)]
+    pub env_secrets: BTreeMap<String, String>,
+    #[serde(default)]
     pub network: bool,
     #[serde(default)]
     pub read_paths: Vec<String>,
@@ -435,6 +437,22 @@ mod tests {
         assert_eq!(cfg.max_input_tokens, 1_000_000);
         assert_eq!(cfg.summarize_at_tokens, 750_000);
         assert_eq!(cfg.database_url, "postgres://localhost/nook");
+    }
+
+    #[test]
+    fn an_env_secrets_field_in_config_toml_is_read_by_the_real_parser() {
+        let text = r#"base_url = "u"
+model = "m"
+[[tools.mcp_servers]]
+name = "docs"
+command = "node"
+env_secrets = { TOKEN = "docs-token" }
+"#;
+        let config: Config = toml::from_str(text).unwrap();
+        assert_eq!(
+            config.tools.mcp_servers[0].env_secrets["TOKEN"],
+            "docs-token"
+        );
     }
 
     const HAND_EDITED: &str = r#"# My Nook settings

@@ -1,10 +1,59 @@
 use crate::config::Config;
+use crate::secrets::{redact_with, SecretMask, SecretMaskExt};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use tokio::fs::File;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWriteExt, BufReader};
 
 pub const MAX_LOG_BYTES: u64 = 1024 * 1024;
 const MIN_SECRET_LENGTH: usize = 4;
+
+/// A writer that wraps an inner writer, reads the `SecretMask`, and redacts each
+/// log event line by line.
+pub struct RedactingWriter<W: Write> {
+    inner: W,
+    mask: SecretMask,
+    buffer: Vec<u8>,
+}
+
+impl<W: Write> RedactingWriter<W> {
+    pub fn new(inner: W, mask: SecretMask) -> Self {
+        Self {
+            inner,
+            mask,
+            buffer: Vec::new(),
+        }
+    }
+}
+
+impl<W: Write> Write for RedactingWriter<W> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.buffer.extend_from_slice(buf);
+        while let Some(pos) = self.buffer.iter().position(|&b| b == b'\n') {
+            let line_bytes: Vec<u8> = self.buffer.drain(..=pos).collect();
+            let line_str = String::from_utf8_lossy(&line_bytes);
+            let redacted = self.mask.scrub(&line_str);
+            self.inner.write_all(redacted.as_bytes())?;
+        }
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        if !self.buffer.is_empty() {
+            let line_str = String::from_utf8_lossy(&self.buffer);
+            let redacted = self.mask.scrub(&line_str);
+            self.buffer.clear();
+            self.inner.write_all(redacted.as_bytes())?;
+        }
+        self.inner.flush()
+    }
+}
+
+impl<W: Write> Drop for RedactingWriter<W> {
+    fn drop(&mut self) {
+        let _ = self.flush();
+    }
+}
 
 /// Values that must not reach the log file: the database password, the user and
 /// password pair of the database address, the API key from the environment, and
@@ -59,13 +108,7 @@ fn urlencoding_decode(text: &str) -> Result<String, std::string::FromUtf8Error> 
 }
 
 pub fn redact_line(line: &str, secrets: &[String]) -> String {
-    secrets.iter().fold(line.to_owned(), |line, secret| {
-        if secret.is_empty() {
-            line
-        } else {
-            line.replace(secret, "***")
-        }
-    })
+    redact_with(line, secrets)
 }
 
 /// A log file that keeps one older file. When the file reaches `max_bytes`, it
@@ -166,6 +209,7 @@ mod tests {
                 ("TOKEN".to_string(), "tok-12345".to_string()),
                 ("MODE".to_string(), "on".to_string()),
             ]),
+            env_secrets: BTreeMap::new(),
             network: false,
             read_paths: vec![],
             write_paths: vec![],
@@ -282,5 +326,61 @@ mod tests {
             std::fs::read_to_string(&path).unwrap(),
             "start\npassword *** used\nend\n"
         );
+    }
+
+    #[test]
+    fn the_redacting_log_writer_masks_a_value_that_was_added_after_it_started() {
+        use crate::secrets::SecretMaskExt;
+        use std::io::Write;
+        use std::sync::{Arc, Mutex};
+
+        #[derive(Clone)]
+        struct SharedBuffer(Arc<Mutex<Vec<u8>>>);
+        impl Write for SharedBuffer {
+            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(buf);
+                Ok(buf.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let output = Arc::new(Mutex::new(Vec::new()));
+        let mask = crate::secrets::SecretMask::default();
+        let mut writer = RedactingWriter::new(SharedBuffer(output.clone()), mask.clone());
+
+        writeln!(writer, "initial line with value-12345").unwrap();
+        let text = String::from_utf8(output.lock().unwrap().clone()).unwrap();
+        assert!(text.contains("value-12345"));
+
+        mask.add("value-12345");
+
+        writeln!(writer, "second line with value-12345").unwrap();
+        let text = String::from_utf8(output.lock().unwrap().clone()).unwrap();
+        assert!(text.contains("second line with ***"));
+        assert!(!text.split('\n').nth(1).unwrap().contains("value-12345"));
+    }
+
+    #[test]
+    fn the_seeded_mask_masks_an_env_value_and_the_database_password() {
+        use crate::secrets::SecretMaskExt;
+        use std::io::Write;
+
+        let cfg = config();
+        let mask = crate::secrets::SecretMask::default();
+        for secret in secrets_to_redact(&cfg, None) {
+            mask.add(&secret);
+        }
+        let mut output = Vec::new();
+        {
+            let mut writer = RedactingWriter::new(&mut output, mask);
+            writeln!(writer, "db connect postgres://nook:s3cr@t!@localhost").unwrap();
+            writeln!(writer, "server env token is tok-12345").unwrap();
+        }
+        let text = String::from_utf8(output).unwrap();
+        assert!(!text.contains("s3cr@t!"));
+        assert!(!text.contains("tok-12345"));
+        assert!(text.contains("***"));
     }
 }

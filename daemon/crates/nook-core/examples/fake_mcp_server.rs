@@ -7,6 +7,8 @@
 //! - `crash`: exits after it lists its tools.
 //! - `old`: answers `initialize` with an unsupported protocol version.
 //! - `paged`: lists its tools over two pages.
+//! - `docs`: answers like a Google Docs server with narrow tools.
+//! - `leak_init_error`: answers `initialize` with an error that holds the value of `LEAK_VALUE`.
 use serde_json::{json, Value};
 use std::io::{BufRead, Write};
 
@@ -26,6 +28,15 @@ fn schema(properties: Value, required: &[&str]) -> Value {
 }
 
 fn tools(mode: &str) -> Vec<Value> {
+    if mode == "docs" {
+        return vec![
+            json!({"name":"readGoogleDoc","inputSchema":schema(json!({"documentId":{"type":"string"}}), &["documentId"])}),
+            json!({"name":"insertText","inputSchema":schema(json!({"documentId":{"type":"string"},"text":{"type":"string"}}), &["documentId","text"])}),
+            json!({"name":"checkEnv","inputSchema":schema(json!({"name":{"type":"string"},"expected":{"type":"string"}}), &["name","expected"])}),
+            json!({"name":"echoEnv","inputSchema":schema(json!({"name":{"type":"string"}}), &["name"])}),
+            json!({"name":"connect","inputSchema":schema(json!({"port":{"type":"integer"}}), &["port"])}),
+        ];
+    }
     let mut all = vec![
         json!({
             "name": "echo",
@@ -106,6 +117,45 @@ fn tools(mode: &str) -> Vec<Value> {
 
 fn call(name: &str, arguments: &Value) -> Value {
     match name {
+        "readGoogleDoc" => json!({"content":[{"type":"text","text":"Google Doc text"}]}),
+        "insertText" => {
+            let path = std::path::Path::new(&std::env::var("FAKE_DOCS_RECORD_DIR").unwrap())
+                .join("inserted.log");
+            let mut file = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(path)
+                .unwrap();
+            writeln!(file, "{}", arguments["text"].as_str().unwrap_or_default()).unwrap();
+            json!({"content":[{"type":"text","text":"ok"}]})
+        }
+        "checkEnv" => {
+            let name = arguments["name"].as_str().unwrap_or_default();
+            let expected = arguments["expected"].as_str().unwrap_or_default();
+            let result = match std::env::var(name) {
+                Ok(value) if value == expected => "match",
+                Ok(_) => "differ",
+                Err(_) => "unset",
+            };
+            json!({"content":[{"type":"text","text":result}]})
+        }
+        "echoEnv" => {
+            let name = arguments["name"].as_str().unwrap_or_default();
+            json!({"content":[{"type":"text","text":std::env::var(name).unwrap_or_default()}]})
+        }
+        "connect" => {
+            let port = arguments["port"].as_u64().unwrap_or_default() as u16;
+            let result = std::net::TcpStream::connect_timeout(
+                &format!("127.0.0.1:{port}").parse().unwrap(),
+                std::time::Duration::from_secs(2),
+            );
+            match result {
+                Ok(_) => json!({"content":[{"type":"text","text":"connected"}]}),
+                Err(error) => {
+                    json!({"isError":true,"content":[{"type":"text","text":format!("connect failed: {}", error.kind())}]})
+                }
+            }
+        }
         "echo" => json!({
             "content": [{ "type": "text", "text": format!("echo: {}", arguments["text"].as_str().unwrap_or_default()) }]
         }),
@@ -170,6 +220,15 @@ fn main() {
         match method {
             "initialize" => {
                 if mode == "hang" {
+                    continue;
+                }
+                if mode == "leak_init_error" {
+                    let leaked = std::env::var("LEAK_VALUE").unwrap_or_default();
+                    send(&json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "error": { "code": -32000, "message": format!("bad token {leaked}") }
+                    }));
                     continue;
                 }
                 if mode == "chatty" {

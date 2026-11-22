@@ -79,7 +79,11 @@ impl Harness {
 
     /// Starts from a config and builds the tools from it, as the Daemon does.
     pub async fn with_config(config: Config, config_path: PathBuf) -> Self {
-        let registry = nook_core::providers::build_registry(&config.tools).await;
+        let registry = nook_core::providers::build_registry(
+            &config.tools,
+            nook_core::secrets::SecretContext::default(),
+        )
+        .await;
         Self::assemble(
             repo_policy(),
             registry,

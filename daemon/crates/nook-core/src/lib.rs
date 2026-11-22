@@ -13,6 +13,7 @@ pub mod protocol;
 pub mod providers;
 pub mod reconnect;
 pub mod sandbox;
+pub mod secrets;
 pub mod server;
 pub mod shutdown;
 pub mod supervisor;

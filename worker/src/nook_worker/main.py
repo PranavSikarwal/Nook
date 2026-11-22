@@ -41,6 +41,8 @@ from nook_worker.protocol import (
 )
 from nook_worker.titles import generate_title
 
+MAX_REQUEST_LINE_BYTES = 16 * 1024 * 1024
+
 
 async def handle_run(
     request: RunRequest,
@@ -288,13 +290,17 @@ class _StdinReader:
         return await self._reader.readline()
 
 
+async def open_stdin_reader(stdin: Any) -> asyncio.StreamReader:
+    reader = asyncio.StreamReader(limit=MAX_REQUEST_LINE_BYTES)
+    loop = asyncio.get_running_loop()
+    protocol = asyncio.StreamReaderProtocol(reader)
+    await loop.connect_read_pipe(lambda: protocol, stdin)
+    return reader
+
+
 async def _async_main() -> None:
     is_tty = sys.stdin.isatty()
-    reader = asyncio.StreamReader()
-    if not is_tty:
-        loop = asyncio.get_running_loop()
-        protocol = asyncio.StreamReaderProtocol(reader)
-        await loop.connect_read_pipe(lambda: protocol, sys.stdin)
+    reader = asyncio.StreamReader() if is_tty else await open_stdin_reader(sys.stdin)
 
     stdin_reader = _StdinReader(is_tty, reader)
     stdout_lock = asyncio.Lock()
