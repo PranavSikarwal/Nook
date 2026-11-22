@@ -1418,3 +1418,44 @@ async fn a_store_error_that_holds_the_secret_bytes_never_reaches_a_report_or_the
         "captured log must not contain secret bytes: {logged}"
     );
 }
+
+#[tokio::test]
+async fn zz_diagnose_startup() {
+    let Some(sandbox) = sandbox().await else {
+        return;
+    };
+    let buffer: LogBuffer = Arc::default();
+    let writer = buffer.clone();
+    struct W(LogBuffer);
+    impl std::io::Write for W {
+        fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(b);
+            Ok(b.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let _guard = tracing::subscriber::set_default(
+        tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::DEBUG)
+            .with_writer(move || W(writer.clone()))
+            .finish(),
+    );
+    let config = server("fake", "normal");
+    let binary = example_binary();
+    let meta = std::fs::metadata(&binary);
+    let (provider, failed) = McpProvider::start_reporting(
+        &[config],
+        &sandbox,
+        quick(),
+        nook_core::secrets::SecretContext::default(),
+    )
+    .await;
+    let direct = std::process::Command::new(&binary).arg("normal").output();
+    panic!(
+        "DIAG binary={binary:?} meta={meta:?} started={} failed={failed:?} direct={direct:?} log=\n{}",
+        provider.is_some(),
+        log_text(&buffer)
+    );
+}
