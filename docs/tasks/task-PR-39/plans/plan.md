@@ -345,9 +345,20 @@ The owner tested head `f56142e` on macOS with a live Google account.
   from that test. Add the test `the_default_store_answers_without_panic` that
   calls `default_for_os().get("nook-test-never-set")` and accepts `Missing` or
   `Unavailable`. Check: Daemon `rtk cargo test -p nook-core` and clippy.
-- [ ] **R3-3. The 13 failing MCP tests on macOS (macOS finding 2b).**
-  Open. Needs the test log from the owner's Mac. The plan names the files
-  after the cause is known.
+- [x] **R3-3. The MCP tests find the fake server in the new Cargo layout (macOS finding 2b, and CI).**
+  `daemon/crates/nook-core/tests/mcp_tool_tests.rs`.
+  Cause (found with a temporary CI diagnostic test, commit `63bc60d`): a newer
+  Cargo puts the test executable in `target/debug/build/nook-core/<hash>/out/`.
+  `example_binary()` went two parents up from the executable and built a path
+  that does not exist, so `bwrap` printed `execvp ...: No such file or
+  directory`, and 13 tests failed on CI (runs 44882540530, 44882547231,
+  44883505755 on a runner image from 2026-11-16) and on the owner's Mac. The
+  other tests that start a server passed without running: `harness()` returns
+  `None` when no server starts, and those tests then return early. Fix:
+  `example_binary()` takes the first ancestor of the executable that holds
+  `examples/fake_mcp_server`, and panics with the searched path when none does.
+  The orchestrator made this change itself (a one-function test fix, no plan
+  task could be delegated faster than the diagnosis).
 
 ## Order and why
 
